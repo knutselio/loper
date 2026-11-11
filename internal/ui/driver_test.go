@@ -167,6 +167,8 @@ var namedKeys = map[string]tea.KeyPressMsg{
 	"up":     {Code: tea.KeyUp},
 	"enter":  {Code: tea.KeyEnter},
 	"ctrl+c": {Code: 'c', Mod: tea.ModCtrl},
+	"ctrl+d": {Code: 'd', Mod: tea.ModCtrl},
+	"ctrl+u": {Code: 'u', Mod: tea.ModCtrl},
 }
 
 // press sends each key in turn: a named key such as "down" or "ctrl+c",
@@ -194,7 +196,7 @@ func (d *driver) screen() string {
 func (d *driver) selected() string {
 	d.t.Helper()
 	for _, line := range strings.Split(d.screen(), "\n") {
-		if rest, ok := strings.CutPrefix(line, "> "); ok {
+		if rest, ok := strings.CutPrefix(line, " > "); ok {
 			return strings.Join(strings.Fields(rest), " ")
 		}
 	}
@@ -203,10 +205,10 @@ func (d *driver) selected() string {
 }
 
 // hasRow reports whether a line of the screen reads as want, ignoring the
-// selection marker and the spacing between columns.
+// margin, the selection marker and the spacing between columns.
 func hasRow(screen, want string) bool {
 	for _, line := range strings.Split(screen, "\n") {
-		line = strings.TrimPrefix(line, "> ")
+		line = strings.TrimPrefix(line, " > ")
 		if strings.Join(strings.Fields(line), " ") == want {
 			return true
 		}

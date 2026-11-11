@@ -29,6 +29,9 @@ type Model struct {
 	deps     Deps
 	repos    []repo
 	selected int
+	offset   int // the first repo shown, so the selected one stays in view
+	width    int
+	height   int
 }
 
 // repo is one row of the list.
@@ -57,6 +60,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case scannedMsg:
 		m.repos = msg
+	case tea.WindowSizeMsg:
+		m.width, m.height = msg.Width, msg.Height
 	case tea.KeyPressMsg:
 		switch msg.String() {
 		case "q", "ctrl+c":
@@ -65,6 +70,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selected = min(m.selected+1, max(len(m.repos)-1, 0))
 		case "k", "up":
 			m.selected = max(m.selected-1, 0)
+		case "g":
+			m.selected = 0
+		case "G":
+			m.selected = max(len(m.repos)-1, 0)
+		case "ctrl+d":
+			m.selected = min(m.selected+max(m.listHeight()/2, 1), max(len(m.repos)-1, 0))
+		case "ctrl+u":
+			m.selected = max(m.selected-max(m.listHeight()/2, 1), 0)
 		case "enter":
 			if len(m.repos) == 0 {
 				return m, nil
@@ -76,6 +89,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
+	m.offset = min(m.offset, m.selected, max(len(m.repos)-m.listHeight(), 0))
+	m.offset = max(m.offset, m.selected-m.listHeight()+1)
 	return m, nil
 }
 
@@ -85,17 +100,31 @@ func (m Model) View() tea.View {
 		nameWidth = max(nameWidth, ansi.StringWidth(filepath.Base(r.path)))
 		folderWidth = max(folderWidth, ansi.StringWidth(m.shorten(filepath.Dir(r.path))))
 	}
-	var b strings.Builder
-	for i, r := range m.repos {
-		marker := "  "
-		if i == m.selected {
-			marker = "> "
+	rule := " " + strings.Repeat("─", max(m.width-2, 0)) + " "
+	lines := []string{fmt.Sprintf(" repos  %d", len(m.repos)), rule}
+	for i := m.offset; i < m.offset+m.listHeight(); i++ {
+		if i >= len(m.repos) {
+			lines = append(lines, "")
+			continue
 		}
-		fmt.Fprintf(&b, "%s%s  %s  %s\n", marker, pad(filepath.Base(r.path), nameWidth), pad(m.shorten(filepath.Dir(r.path)), folderWidth), r.branch)
+		r := m.repos[i]
+		marker := "   "
+		if i == m.selected {
+			marker = " > "
+		}
+		lines = append(lines, fmt.Sprintf("%s%s  %s  %s", marker, pad(filepath.Base(r.path), nameWidth), pad(m.shorten(filepath.Dir(r.path)), folderWidth), r.branch))
 	}
-	v := tea.NewView(b.String())
+	lines = append(lines, rule, " enter open  q quit")
+	lines = lines[:min(len(lines), m.height)] // never taller than the terminal
+	v := tea.NewView(strings.Join(lines, "\n"))
 	v.AltScreen = true
 	return v
+}
+
+// listHeight is the number of screen lines left for the list between the
+// header, the footer and their rules.
+func (m Model) listHeight() int {
+	return max(m.height-4, 0)
 }
 
 // pad fills s with spaces to width display cells.
