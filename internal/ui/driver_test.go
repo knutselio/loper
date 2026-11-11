@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/knutselio/loper/internal/config"
 	"github.com/knutselio/loper/internal/repoinfo"
 	"github.com/knutselio/loper/internal/scanner"
 	"github.com/knutselio/loper/internal/target"
@@ -87,6 +88,23 @@ func (e *env) symlink(target, rel string) {
 	}
 }
 
+// config writes body as the config file at the standard location.
+func (e *env) config(body string) {
+	e.t.Helper()
+	e.writeFile(filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "loper", "config.toml"), body)
+}
+
+// writeFile writes body to path, creating its folders.
+func (e *env) writeFile(path, body string) {
+	e.t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		e.t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		e.t.Fatal(err)
+	}
+}
+
 // fakeTarget writes a script that records each argument on its own line.
 func (e *env) fakeTarget() target.Target {
 	e.t.Helper()
@@ -120,14 +138,18 @@ type driver struct {
 	quit  bool
 }
 
-// start launches the program on a fixed 80x24 screen and clock, scanning
-// ~/code as the entry point does.
+// start launches the program on a fixed 80x24 screen and clock, with the
+// settings loaded from the config file as the entry point does.
 func (e *env) start() *driver {
 	e.t.Helper()
+	settings, err := config.Load("", e.home)
+	if err != nil {
+		e.t.Fatal(err)
+	}
 	d := &driver{t: e.t}
 	d.model = ui.New(ui.Deps{
 		Home:   e.home,
-		Paths:  []string{filepath.Join(e.home, "code")},
+		Paths:  settings.Paths,
 		Scan:   scanner.Scan,
 		Branch: repoinfo.Branch,
 		Open:   target.Run,

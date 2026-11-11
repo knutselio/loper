@@ -17,7 +17,7 @@ import (
 type Deps struct {
 	Home   string   // shown as ~ in folders
 	Paths  []string // what to scan for repos
-	Scan   func(paths []string) []string
+	Scan   func(paths []string) (repos, missing []string)
 	Branch func(repo string) string
 	Open   func(t target.Target, path string) error
 	Target target.Target // what enter opens the selected repo in
@@ -28,6 +28,7 @@ type Deps struct {
 type Model struct {
 	deps     Deps
 	repos    []repo
+	missing  []string // configured paths that do not exist
 	selected int
 	offset   int // the first repo shown, so the selected one stays in view
 	width    int
@@ -40,7 +41,10 @@ type repo struct {
 	branch string
 }
 
-type scannedMsg []repo
+type scannedMsg struct {
+	repos   []repo
+	missing []string
+}
 
 func New(deps Deps) Model {
 	return Model{deps: deps}
@@ -48,18 +52,19 @@ func New(deps Deps) Model {
 
 func (m Model) Init() tea.Cmd {
 	return func() tea.Msg {
+		paths, missing := m.deps.Scan(m.deps.Paths)
 		var repos []repo
-		for _, path := range m.deps.Scan(m.deps.Paths) {
+		for _, path := range paths {
 			repos = append(repos, repo{path: path, branch: m.deps.Branch(path)})
 		}
-		return scannedMsg(repos)
+		return scannedMsg{repos: repos, missing: missing}
 	}
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case scannedMsg:
-		m.repos = msg
+		m.repos, m.missing = msg.repos, msg.missing
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 	case tea.KeyPressMsg:
@@ -101,7 +106,11 @@ func (m Model) View() tea.View {
 		folderWidth = max(folderWidth, ansi.StringWidth(m.shorten(filepath.Dir(r.path))))
 	}
 	rule := " " + strings.Repeat("─", max(m.width-2, 0)) + " "
-	lines := []string{fmt.Sprintf(" repos  %d", len(m.repos)), rule}
+	header := fmt.Sprintf(" repos  %d", len(m.repos))
+	for _, path := range m.missing {
+		header += "  " + m.shorten(path) + " not found"
+	}
+	lines := []string{header, rule}
 	for i := m.offset; i < m.offset+m.listHeight(); i++ {
 		if i >= len(m.repos) {
 			lines = append(lines, "")
