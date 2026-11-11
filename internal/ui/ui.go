@@ -23,11 +23,13 @@ import (
 
 // Deps is everything the UI needs from the outside world.
 type Deps struct {
-	Home       string   // shown as ~ in folders
-	ConfigFile string   // named when no repos are found
-	Paths      []string // what to scan for repos
-	Scan       func(paths []string) (repos, missing []string)
+	Home       string                        // shown as ~ in folders
+	ConfigFile string                        // named when no repos are found
+	Paths      []string                      // what to scan for repos
+	Scan       func(paths []string) []string // the repos under paths
+	Missing    func(paths []string) []string // the paths that do not exist
 	Branch     func(repo string) string
+	Exists     func(repo string) bool // whether a cached repo is still a repo
 	Open       func(t target.Target, path string) error
 	Targets    []target.Target // in the order the menu lists them
 	History    history.Store
@@ -40,6 +42,9 @@ type Deps struct {
 	CloseOnOpen bool
 	// SortByName starts the list sorted by name rather than by last opened.
 	SortByName bool
+	// CacheMaxAge is how old the cache may be before a launch scans again
+	// rather than re-reading the cached repos; 0 means every launch scans.
+	CacheMaxAge time.Duration
 }
 
 // Model is the program state.
@@ -59,7 +64,9 @@ type Model struct {
 	failure  *errorDialog // the error dialog for a failed open, or nil
 	opening  bool         // an open is running, so targets do nothing until it finishes
 	byName   bool         // sorted by name rather than by last opened
-	// refreshing is true from launch until the refresh has finished.
+	// refreshing is true from launch until the launch refresh has finished,
+	// and again while a refresh started with r runs. Only one refresh runs at
+	// a time, as each one rewrites the cache file.
 	refreshing bool
 	loaded     bool // the cache has been read
 	// follow is set by the first key pressed with a list on screen. From then
@@ -69,6 +76,9 @@ type Model struct {
 	// arrive.
 	follow bool
 	frame  int // the spinner's frame
+	// ticking is true while a spinner tick is on its way, so a refresh
+	// started before that tick arrives never starts a second chain of ticks.
+	ticking bool
 }
 
 // repo is one row of the list.
@@ -77,8 +87,13 @@ type repo struct {
 	branch string
 }
 
-// cachedMsg carries the repo list as cached by the last refresh.
-type cachedMsg []repo
+// cachedMsg carries the repo list as cached by the last refresh, with when
+// and from which paths it was scanned.
+type cachedMsg struct {
+	repos     []repo
+	scannedAt time.Time
+	paths     []string
+}
 
 // scannedMsg carries the repo list as the refresh found it.
 type scannedMsg struct {
@@ -110,18 +125,19 @@ type tickMsg struct{}
 var spinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 func New(deps Deps) Model {
-	return Model{deps: deps, byName: deps.SortByName, refreshing: true}
+	return Model{deps: deps, byName: deps.SortByName, refreshing: true, ticking: true}
 }
 
 // Init reads the cache and the history. The refresh starts once the cached
 // list has arrived, so the list is on screen before the refresh's result.
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(func() tea.Msg {
-		var repos []repo
-		for _, r := range m.deps.Cache.Load().Repos {
-			repos = append(repos, repo{path: r.Path, branch: r.Branch})
+		list := m.deps.Cache.Load()
+		c := cachedMsg{scannedAt: list.ScannedAt, paths: list.Paths}
+		for _, r := range list.Repos {
+			c.repos = append(c.repos, repo{path: r.Path, branch: r.Branch})
 		}
-		return cachedMsg(repos)
+		return c
 	}, func() tea.Msg { return historyMsg(m.deps.History.Load()) }, m.tick())
 }
 
@@ -130,24 +146,56 @@ func (m Model) tick() tea.Cmd {
 	return m.deps.Tick(80*time.Millisecond, func(time.Time) tea.Msg { return tickMsg{} })
 }
 
-// refresh scans the configured paths, reads each repo's branch and rewrites
-// the cache. It runs once per launch, when the cached list arrives, so no
-// two refreshes ever overlap.
+// refresh is the full refresh: it scans the configured paths, reads each
+// repo's branch and rewrites the cache.
 func (m Model) refresh() tea.Cmd {
 	return func() tea.Msg {
-		paths, missing := m.deps.Scan(m.deps.Paths)
-		list := cache.List{ScannedAt: m.deps.Now(), Paths: m.deps.Paths}
-		var repos []repo
-		for _, path := range paths {
-			r := repo{path: path, branch: m.deps.Branch(path)}
-			repos = append(repos, r)
-			list.Repos = append(list.Repos, cache.Repo{Path: r.path, Branch: r.branch})
-		}
-		// A cache that cannot be saved costs only the next launch its head
-		// start, as that launch scans again; the list shown is still right.
-		_ = m.deps.Cache.Save(list)
-		return scannedMsg{repos: repos, missing: missing}
+		missing := m.deps.Missing(m.deps.Paths)
+		return scannedMsg{repos: m.save(m.deps.Scan(m.deps.Paths), m.deps.Now()), missing: missing}
 	}
+}
+
+// reread is the light refresh: it drops the cached repos that are gone and
+// reads the branch of the rest, without scanning; it checks only that the
+// configured paths exist. The cache keeps the time of its scan, so it still
+// expires.
+func (m Model) reread(c cachedMsg) tea.Cmd {
+	return func() tea.Msg {
+		var paths []string
+		for _, r := range c.repos {
+			if m.deps.Exists(r.path) {
+				paths = append(paths, r.path)
+			}
+		}
+		return scannedMsg{repos: m.save(paths, c.scannedAt), missing: m.deps.Missing(m.deps.Paths)}
+	}
+}
+
+// save reads the branch of each repo in paths and rewrites the cache with
+// them, as scanned at scannedAt from the configured paths.
+func (m Model) save(paths []string, scannedAt time.Time) []repo {
+	list := cache.List{ScannedAt: scannedAt, Paths: m.deps.Paths}
+	var repos []repo
+	for _, path := range paths {
+		r := repo{path: path, branch: m.deps.Branch(path)}
+		repos = append(repos, r)
+		list.Repos = append(list.Repos, cache.Repo{Path: r.path, Branch: r.branch})
+	}
+	// A cache that cannot be saved costs only the next launch its head
+	// start, as that launch scans again; the list shown is still right.
+	_ = m.deps.Cache.Save(list)
+	return repos
+}
+
+// expired reports whether the cached list must be scanned again rather than
+// re-read: with no max age, when it is older than that, when it was scanned
+// from other paths (the same ones in another order count as other paths),
+// or when its scan time is later than now, as after the clock was turned
+// back, since such a cache would otherwise never age.
+func (m Model) expired(c cachedMsg) bool {
+	age := m.deps.Now().Sub(c.scannedAt)
+	return m.deps.CacheMaxAge == 0 || age > m.deps.CacheMaxAge || age < 0 ||
+		!slices.Equal(c.paths, m.deps.Paths)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -155,8 +203,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case cachedMsg:
 		m.loaded = true
-		m = m.relist(msg)
-		cmd = m.refresh()
+		m = m.relist(msg.repos)
+		if m.expired(msg) {
+			cmd = m.refresh()
+		} else {
+			cmd = m.reread(msg)
+		}
 	case scannedMsg:
 		m.refreshing = false
 		m.missing = msg.missing
@@ -187,7 +239,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.opening = false
 		m.menu, m.failure = false, newErrorDialog(msg) // the dialog replaces a menu opened while the target ran
 	case tickMsg:
-		if m.refreshing { // the spinner stops with the refresh
+		m.ticking = m.refreshing // the spinner stops with the refresh
+		if m.refreshing {
 			m.frame = (m.frame + 1) % len(spinner)
 			cmd = m.tick()
 		}
@@ -234,6 +287,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "s":
 			m.byName = !m.byName
 			m = m.relist(m.repos)
+		case "r":
+			if !m.refreshing {
+				m.refreshing = true
+				cmd = m.refresh()
+				if !m.ticking {
+					m.ticking = true
+					cmd = tea.Batch(cmd, m.tick())
+				}
+			}
 		default:
 			if t, ok := m.keyed(msg); ok {
 				return m.open(t)
@@ -354,7 +416,7 @@ func (m Model) View() tea.View {
 			keys += "  " + t.Key + " " + t.Name
 		}
 	}
-	keys += "  s sort  q quit"
+	keys += "  s sort  r refresh  q quit"
 	if m.notice != "" {
 		keys = " " + m.notice
 	}

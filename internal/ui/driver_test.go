@@ -251,7 +251,9 @@ func (e *env) launch() *driver {
 		ConfigFile: settings.File,
 		Paths:      settings.Paths,
 		Scan:       scanner.Scan,
+		Missing:    scanner.Missing,
 		Branch:     repoinfo.Branch,
+		Exists:     repoinfo.Exists,
 		Open:       func(t target.Target, path string) error { return target.Run(t, path, e.wait) },
 		Targets:    settings.Targets,
 		History:    history.New(e.home),
@@ -265,6 +267,7 @@ func (e *env) launch() *driver {
 		},
 		CloseOnOpen: settings.CloseOnOpen,
 		SortByName:  settings.SortByName,
+		CacheMaxAge: settings.CacheMaxAge,
 	})
 	d.run(d.model.Init())
 	d.send(tea.WindowSizeMsg{Width: 80, Height: 24})

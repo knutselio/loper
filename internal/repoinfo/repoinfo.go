@@ -26,6 +26,13 @@ func Branch(path string) string {
 	return "@" + head[:7]
 }
 
+// Exists reports whether path is still a repo: a folder that contains a
+// .git directory, as the scanner requires.
+func Exists(path string) bool {
+	info, err := os.Lstat(filepath.Join(path, ".git"))
+	return err == nil && info.IsDir()
+}
+
 // isHash reports whether s is a full SHA-1 or SHA-256 commit hash.
 func isHash(s string) bool {
 	if len(s) != 40 && len(s) != 64 {

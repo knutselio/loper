@@ -56,7 +56,9 @@ func startUI(home string, settings config.Settings) error {
 		ConfigFile:  settings.File,
 		Paths:       settings.Paths,
 		Scan:        scanner.Scan,
+		Missing:     scanner.Missing,
 		Branch:      repoinfo.Branch,
+		Exists:      repoinfo.Exists,
 		Open:        func(t target.Target, path string) error { return target.Run(t, path, 2*time.Second) },
 		Targets:     settings.Targets,
 		History:     history.New(home),
@@ -65,6 +67,7 @@ func startUI(home string, settings config.Settings) error {
 		Tick:        tea.Tick,
 		CloseOnOpen: settings.CloseOnOpen,
 		SortByName:  settings.SortByName,
+		CacheMaxAge: settings.CacheMaxAge,
 	})
 	_, err := tea.NewProgram(m).Run()
 	return err

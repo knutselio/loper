@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -27,6 +28,9 @@ type Settings struct {
 	Targets     []target.Target // at least one
 	CloseOnOpen bool            // quit after a successful open
 	SortByName  bool            // start sorted by name rather than by last opened
+	// CacheMaxAge is how old the cache may be before a launch scans again;
+	// 0 means every launch scans.
+	CacheMaxAge time.Duration
 }
 
 // file is the config file as written; a nil field was left out.
@@ -35,6 +39,7 @@ type file struct {
 	Targets     []targetFile `toml:"targets"`
 	CloseOnOpen bool         `toml:"close_on_open"`
 	Sort        string       `toml:"sort"`
+	CacheMaxAge string       `toml:"cache_max_age"`
 }
 
 type targetFile struct {
@@ -52,6 +57,7 @@ type checked struct {
 	Targets     []checkedTarget `toml:"targets"`
 	CloseOnOpen bool            `toml:"close_on_open"`
 	Sort        sortName        `toml:"sort"`
+	CacheMaxAge maxAge          `toml:"cache_max_age"`
 }
 
 type checkedTarget struct {
@@ -79,6 +85,24 @@ func (*sortName) UnmarshalText(b []byte) error {
 		return errors.New("not a sort")
 	}
 	return nil
+}
+
+// maxAge checks the cache_max_age setting: "0", or a positive interval in
+// Go's duration syntax, such as "4h" or "1h30m". Days are not a unit.
+type maxAge struct{}
+
+func (*maxAge) UnmarshalText(b []byte) error {
+	_, err := parseMaxAge(string(b))
+	return err
+}
+
+// parseMaxAge reads a cache_max_age value.
+func parseMaxAge(s string) (time.Duration, error) {
+	d, err := time.ParseDuration(s)
+	if err == nil && d < 0 {
+		err = errors.New("negative interval")
+	}
+	return d, err
 }
 
 // command checks a target command: words that split cleanly, one of them
@@ -149,6 +173,9 @@ func Load(path, home string) (Settings, error) {
 		f.Targets = []targetFile{{Name: "Zed", Key: "z", Command: "zed {path}"}}
 	}
 	s := Settings{File: path, CloseOnOpen: f.CloseOnOpen, SortByName: f.Sort == "name"}
+	if f.CacheMaxAge != "" {
+		s.CacheMaxAge, _ = parseMaxAge(f.CacheMaxAge) // cannot fail: the value was checked while decoding
+	}
 	for _, t := range f.Targets {
 		args, _ := split(t.Command) // cannot fail: the command was checked while decoding
 		s.Targets = append(s.Targets, target.Target{Name: t.Name, Key: t.Key, Args: args})
@@ -332,5 +359,6 @@ func describe(path string, err error) error {
 var wants = map[string]string{
 	"close_on_open": "true or false",
 	"sort":          `"last_opened" or "name"`,
+	"cache_max_age": `"0" or a positive interval such as "4h" or "30m" (units h, m, s)`,
 	"paths":         `a list of folders, each absolute or starting with ~/, such as ["~/code"]`,
 }

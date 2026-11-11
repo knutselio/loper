@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/knutselio/loper/internal/config"
 )
@@ -277,6 +278,35 @@ func TestTheUIIsToldWhichConfigFileWasUsedSoItCanNameIt(t *testing.T) {
 		})
 		if code != 0 || got != c.want {
 			t.Errorf("args %q: exit code %d, UI told %q, want 0 and %q", c.args, code, got, c.want)
+		}
+	}
+}
+
+func TestACacheMaxAgeThatIsNotAnIntervalStopsTheToolNamingTheFileAndLine(t *testing.T) {
+	for _, value := range []string{`"soon"`, `"-1h"`, `""`, `"4d"`, `0`, `"4"`} {
+		startupFails(t, "paths = [\"~/code\"]\n\ncache_max_age = "+value+"\n",
+			3, `invalid value for "cache_max_age": want "0" or a positive interval such as "4h" or "30m" (units h, m, s)`)
+	}
+}
+
+func TestACacheMaxAgeIsHandedToTheUI(t *testing.T) {
+	for body, want := range map[string]time.Duration{
+		"":                        0,
+		`cache_max_age = "0"`:     0,
+		`cache_max_age = "4h"`:    4 * time.Hour,
+		`cache_max_age = "1h30m"`: 90 * time.Minute,
+	} {
+		home := tempHome(t)
+		writeConfig(t, filepath.Join(home, ".config", "loper", "config.toml"), body+"\n")
+		var got time.Duration
+
+		code := run(nil, &strings.Builder{}, func(_ string, s config.Settings) error {
+			got = s.CacheMaxAge
+			return nil
+		})
+
+		if code != 0 || got != want {
+			t.Errorf("%q: exit code %d, UI told %v, want 0 and %v", body, code, got, want)
 		}
 	}
 }
