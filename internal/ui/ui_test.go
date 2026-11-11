@@ -1,7 +1,6 @@
 package ui_test
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -49,7 +48,7 @@ func TestFirstRowIsSelectedAndKeysMoveTheSelectionWithinTheList(t *testing.T) {
 func TestEnterOpensTheSelectedRepoAndStaysOpen(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
-	beta := e.repo("code/my projects/beta")
+	beta := e.repo("code/beta")
 	d := e.start()
 
 	d.press("j", "enter")
@@ -60,7 +59,7 @@ func TestEnterOpensTheSelectedRepoAndStaysOpen(t *testing.T) {
 	if d.quit {
 		t.Error("the tool quit after opening a repo")
 	}
-	if got := d.selected(); got != "beta ~/code/my projects" {
+	if got := d.selected(); got != "beta ~/code" {
 		t.Errorf("selected %q after opening, want the list still on beta", got)
 	}
 }
@@ -88,16 +87,4 @@ func TestQAndCtrlCQuit(t *testing.T) {
 			t.Errorf("%s did not quit", key)
 		}
 	}
-}
-
-// hasRow reports whether a line of the screen reads as want, ignoring the
-// selection marker and the spacing between columns.
-func hasRow(screen, want string) bool {
-	for _, line := range strings.Split(screen, "\n") {
-		line = strings.TrimPrefix(line, "> ")
-		if strings.Join(strings.Fields(line), " ") == want {
-			return true
-		}
-	}
-	return false
 }

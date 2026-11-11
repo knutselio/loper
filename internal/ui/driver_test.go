@@ -34,6 +34,10 @@ func newEnv(t *testing.T) *env {
 	t.Setenv("NO_COLOR", "1")
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_AUTHOR_NAME", "Test")
+	t.Setenv("GIT_AUTHOR_EMAIL", "test@example.com")
+	t.Setenv("GIT_COMMITTER_NAME", "Test")
+	t.Setenv("GIT_COMMITTER_EMAIL", "test@example.com")
 	if err := os.MkdirAll(e.home, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -49,6 +53,25 @@ func (e *env) repo(rel string) string {
 		e.t.Fatalf("git init %s: %v\n%s", dir, err, out)
 	}
 	return dir
+}
+
+// git runs git with args in dir.
+func (e *env) git(dir string, args ...string) {
+	e.t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		e.t.Fatalf("git %v in %s: %v\n%s", args, dir, err, out)
+	}
+}
+
+// symlink creates a symlink at rel, relative to the home folder, pointing
+// at target.
+func (e *env) symlink(target, rel string) {
+	e.t.Helper()
+	if err := os.Symlink(target, filepath.Join(e.home, rel)); err != nil {
+		e.t.Fatal(err)
+	}
 }
 
 // fakeTarget writes a script that records each argument on its own line.
@@ -163,4 +186,16 @@ func (d *driver) selected() string {
 	}
 	d.t.Fatalf("no selected row on screen:\n%s", d.screen())
 	return ""
+}
+
+// hasRow reports whether a line of the screen reads as want, ignoring the
+// selection marker and the spacing between columns.
+func hasRow(screen, want string) bool {
+	for _, line := range strings.Split(screen, "\n") {
+		line = strings.TrimPrefix(line, "> ")
+		if strings.Join(strings.Fields(line), " ") == want {
+			return true
+		}
+	}
+	return false
 }

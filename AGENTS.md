@@ -22,9 +22,9 @@ touch the real home, config, cache or state folders, and never run Zed.
 
 ## Commits
 
-One commit per ticket. The subject is one short imperative line that starts with
-Add, Fix, Change, Remove or Refactor, with no type prefix such as "feat:" and no
-trailing period. Make it specific without being verbose: "Add a local-only
+One commit per ticket. The subject is one imperative line of at most 50
+characters that starts with Add, Fix, Change, Remove or Refactor, with no type
+prefix such as "feat:" and no trailing period. Make it specific without being verbose: "Add a local-only
 development seeder for assignment", not "Add local seeder". Add a body only when
 it carries something the subject cannot, as one small paragraph, never a list.
 No AI attribution or co-author lines of any kind.
