@@ -104,7 +104,7 @@ func TestARepoInAFolderWithSpacesIsListedAndOpensWithItsPath(t *testing.T) {
 	if got := d.selected(); got != "my repo ~/code/side projects main" {
 		t.Errorf("selected %q, want the repo with spaces", got)
 	}
-	d.press("enter")
+	d.press("enter", "enter")
 	if got := e.targetArgs("zed"); len(got) != 1 || got[0] != spaced {
 		t.Errorf("target called with %q, want [%q]", got, spaced)
 	}

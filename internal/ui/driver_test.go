@@ -212,6 +212,7 @@ var namedKeys = map[string]tea.KeyPressMsg{
 	"down":   {Code: tea.KeyDown},
 	"up":     {Code: tea.KeyUp},
 	"enter":  {Code: tea.KeyEnter},
+	"esc":    {Code: tea.KeyEscape},
 	"ctrl+c": {Code: 'c', Mod: tea.ModCtrl},
 	"ctrl+d": {Code: 'd', Mod: tea.ModCtrl},
 	"ctrl+u": {Code: 'u', Mod: tea.ModCtrl},

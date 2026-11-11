@@ -45,13 +45,13 @@ func TestFirstRowIsSelectedAndKeysMoveTheSelectionWithinTheList(t *testing.T) {
 	}
 }
 
-func TestEnterOpensTheSelectedRepoAndStaysOpen(t *testing.T) {
+func TestEnterTwiceOpensTheSelectedRepoInTheFirstTargetAndStaysOpen(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	beta := e.repo("code/beta")
 	d := e.start()
 
-	d.press("j", "enter")
+	d.press("j", "enter", "enter")
 
 	if got := e.targetArgs("zed"); len(got) != 1 || got[0] != beta {
 		t.Errorf("target called with %q, want [%q]", got, beta)
@@ -69,6 +69,10 @@ func TestKeysOnAnEmptyListDoNothing(t *testing.T) {
 	d := e.start() // no repos: the list is empty
 
 	d.press("j", "k", "enter")
+	if got := menu(d); got != nil {
+		t.Errorf("enter on an empty list opened the menu: %q", got)
+	}
+	d.press("enter")
 
 	if got := e.targetArgs("zed"); got != nil {
 		t.Errorf("target called with %q on an empty list", got)
