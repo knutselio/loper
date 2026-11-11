@@ -69,7 +69,7 @@ func TestKeysOnAnEmptyListDoNothing(t *testing.T) {
 	d := e.start() // no repos: the list is empty
 
 	d.press("j", "k", "enter")
-	if got := menu(d); got != nil {
+	if got := boxRows(d); got != nil {
 		t.Errorf("enter on an empty list opened the menu: %q", got)
 	}
 	d.press("enter")

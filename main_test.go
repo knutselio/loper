@@ -246,3 +246,8 @@ func TestATargetKeyThatIsNotAPrintableCharacterStopsTheToolNamingTheFileAndLine(
 			8, `target key `+quoted+` is not a printable character`)
 	}
 }
+
+func TestACloseOnOpenThatIsNotTrueOrFalseStopsTheToolNamingTheFileAndLine(t *testing.T) {
+	startupFails(t, "paths = [\"~/code\"]\n\nclose_on_open = \"yes\"\n",
+		3, `invalid value for "close_on_open": want true or false`)
+}

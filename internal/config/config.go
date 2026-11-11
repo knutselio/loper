@@ -21,14 +21,16 @@ import (
 
 // Settings is the complete configuration, with every default applied.
 type Settings struct {
-	Paths   []string        // absolute folders to scan, or repos to list directly
-	Targets []target.Target // at least one
+	Paths       []string        // absolute folders to scan, or repos to list directly
+	Targets     []target.Target // at least one
+	CloseOnOpen bool            // quit after a successful open
 }
 
 // file is the config file as written; a nil field was left out.
 type file struct {
-	Paths   []string     `toml:"paths"`
-	Targets []targetFile `toml:"targets"`
+	Paths       []string     `toml:"paths"`
+	Targets     []targetFile `toml:"targets"`
+	CloseOnOpen bool         `toml:"close_on_open"`
 }
 
 type targetFile struct {
@@ -42,8 +44,9 @@ type targetFile struct {
 // succeeds: the library reports a wrong type without its line when the target
 // checks itself.
 type checked struct {
-	Paths   []folder        `toml:"paths"`
-	Targets []checkedTarget `toml:"targets"`
+	Paths       []folder        `toml:"paths"`
+	Targets     []checkedTarget `toml:"targets"`
+	CloseOnOpen bool            `toml:"close_on_open"`
 }
 
 type checkedTarget struct {
@@ -130,7 +133,7 @@ func Load(path, home string) (Settings, error) {
 	if len(f.Targets) == 0 {
 		f.Targets = []targetFile{{Name: "Zed", Key: "z", Command: "zed {path}"}}
 	}
-	var s Settings
+	s := Settings{CloseOnOpen: f.CloseOnOpen}
 	for _, t := range f.Targets {
 		args, _ := split(t.Command) // cannot fail: the command was checked while decoding
 		s.Targets = append(s.Targets, target.Target{Name: t.Name, Key: t.Key, Args: args})
@@ -316,5 +319,6 @@ func describe(path string, err error) error {
 
 // wants says, for each setting, what a valid value looks like.
 var wants = map[string]string{
-	"paths": `a list of folders, each absolute or starting with ~/, such as ["~/code"]`,
+	"close_on_open": "true or false",
+	"paths":         `a list of folders, each absolute or starting with ~/, such as ["~/code"]`,
 }

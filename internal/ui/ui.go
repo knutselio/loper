@@ -2,10 +2,12 @@
 package ui
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -22,6 +24,8 @@ type Deps struct {
 	Open    func(t target.Target, path string) error
 	Targets []target.Target // in the order the menu lists them
 	Now     func() time.Time
+	// CloseOnOpen quits the program after a successful open.
+	CloseOnOpen bool
 }
 
 // Model is the program state.
@@ -33,10 +37,12 @@ type Model struct {
 	offset   int // the first repo shown, so the selected one stays in view
 	width    int
 	height   int
-	notice   string // shown in place of the footer keys until the next key press
-	menu     bool   // the target menu is open
-	choice   int    // the target highlighted in the menu
-	menuTop  int    // the first target shown, so the highlighted one stays in view
+	notice   string       // shown in place of the footer keys until the next key press
+	menu     bool         // the target menu is open
+	choice   int          // the target highlighted in the menu
+	menuTop  int          // the first target shown, so the highlighted one stays in view
+	failure  *errorDialog // the error dialog for a failed open, or nil
+	opening  bool         // an open is running, so targets do nothing until it finishes
 }
 
 // repo is one row of the list.
@@ -53,6 +59,12 @@ type scannedMsg struct {
 // openedMsg reports that a repo opened in a target.
 type openedMsg struct {
 	repo, target string
+}
+
+// failedMsg reports that a repo did not open in a target.
+type failedMsg struct {
+	repo, target string
+	target.Failure
 }
 
 func New(deps Deps) Model {
@@ -75,7 +87,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case scannedMsg:
 		m.repos, m.missing = msg.repos, msg.missing
 	case openedMsg:
+		m.opening = false
 		m.notice = "Opened " + msg.repo + " in " + msg.target
+		if m.deps.CloseOnOpen && m.failure == nil { // never quit while an error is showing
+			return m, tea.Quit
+		}
+	case failedMsg:
+		m.opening = false
+		m.menu, m.failure = false, newErrorDialog(msg) // the dialog replaces a menu opened while the target ran
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.menu = m.menu && m.menuRows() > 0
@@ -84,6 +103,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.notice = ""
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
+		}
+		if m.failure != nil {
+			switch msg.String() {
+			case "q":
+				return m, tea.Quit
+			case "esc":
+				m.failure = nil
+			}
+			return m, nil
 		}
 		if m.menu {
 			m, cmd := m.menuKey(msg)
@@ -108,7 +136,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.menu, m.choice, m.menuTop = len(m.repos) > 0 && m.menuRows() > 0, 0, 0
 		default:
 			if t, ok := m.keyed(msg); ok {
-				return m, m.open(t)
+				return m.open(t)
 			}
 		}
 	}
@@ -127,14 +155,12 @@ func (m Model) menuKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case "k", "up":
 		m.choice = max(m.choice-1, 0)
 	case "enter":
-		m.menu = false
-		return m, m.open(m.deps.Targets[m.choice])
+		return m.open(m.deps.Targets[m.choice])
 	case "esc":
 		m.menu = false
 	default:
 		if t, ok := m.keyed(msg); ok {
-			m.menu = false
-			return m, m.open(t)
+			return m.open(t)
 		}
 	}
 	return m, nil
@@ -199,7 +225,10 @@ func (m Model) View() tea.View {
 	if m.notice != "" {
 		keys = " " + m.notice
 	}
-	if m.menu {
+	switch {
+	case m.failure != nil:
+		lines = m.overlayFailure(lines)
+	case m.menu:
 		lines = m.overlayMenu(lines)
 	}
 	lines = append(lines, rule, keys)
@@ -209,15 +238,20 @@ func (m Model) View() tea.View {
 	return v
 }
 
-// open opens the selected repo in t in the background.
-func (m Model) open(t target.Target) tea.Cmd {
-	if len(m.repos) == 0 {
-		return nil
+// open opens the selected repo in t in the background and closes the menu,
+// unless another open is still running: then it does nothing, so that one
+// open's result can never hide another's.
+func (m Model) open(t target.Target) (Model, tea.Cmd) {
+	if len(m.repos) == 0 || m.opening {
+		return m, nil
 	}
+	m.menu, m.opening = false, true
 	path := m.repos[m.selected].path
-	return func() tea.Msg {
+	return m, func() tea.Msg {
 		if err := m.deps.Open(t, path); err != nil {
-			return nil // a failed open stays silent for now
+			f := &target.Failure{Output: err.Error()} // in case the error is not a Failure
+			errors.As(err, &f)
+			return failedMsg{repo: filepath.Base(path), target: t.Name, Failure: *f}
 		}
 		return openedMsg{repo: filepath.Base(path), target: t.Name}
 	}
@@ -232,7 +266,7 @@ func (m Model) overlayMenu(lines []string) []string {
 	}
 	title := " Open " + filepath.Base(m.repos[m.selected].path) + " "
 	rows := make([]string, len(m.deps.Targets))
-	width := ansi.StringWidth(title) + 2 // a stroke of the border either side of the title
+	width := 0
 	for i, t := range m.deps.Targets {
 		marker := "  "
 		if i == m.choice {
@@ -241,14 +275,72 @@ func (m Model) overlayMenu(lines []string) []string {
 		rows[i] = " " + marker + pad(t.Key, keyWidth) + "  " + t.Name + " "
 		width = max(width, ansi.StringWidth(rows[i]))
 	}
-	width = max(min(width, m.width-2), 0) // inside the two side borders
+	return m.overlay(lines, m.box(title, rows[m.menuTop:m.menuTop+m.menuRows()], width))
+}
+
+// overlayFailure draws the error dialog centred over the list part of
+// lines: the command line that ran, then what it printed and why it failed,
+// cut to the space there is.
+func (m Model) overlayFailure(lines []string) []string {
+	space := m.listHeight() - 2 // the rows between the borders
+	if space < 1 {
+		return lines // no room: the dialog shows again once there is
+	}
+	f := m.failure
+	return m.overlay(lines, m.box(f.title, f.rows[:min(len(f.rows), space)], f.width))
+}
+
+// errorDialog is the error dialog's content, worked out once when the
+// failure arrives rather than on every render.
+type errorDialog struct {
+	title string
+	rows  []string // the command line that ran, then its output and why it failed
+	width int      // of the widest row
+}
+
+func newErrorDialog(msg failedMsg) *errorDialog {
+	d := &errorDialog{title: " Could not open " + msg.repo + " in " + msg.target + " "}
+	d.rows = []string{" $ " + clean(msg.Command) + " "}
+	for _, l := range strings.Split(strings.TrimRight(msg.Output, "\n"), "\n") {
+		d.rows = append(d.rows, " "+clean(l)+" ")
+	}
+	for _, r := range d.rows {
+		d.width = max(d.width, ansi.StringWidth(r))
+	}
+	return d
+}
+
+// clean makes s safe to draw on one line: escape sequences and control
+// characters, which would move the cursor or change the screen, are
+// dropped, and a tab becomes spaces.
+func clean(s string) string {
+	s = strings.ReplaceAll(ansi.Strip(s), "\t", "    ")
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+// box draws rows in a rounded border with title in its top edge. width is
+// what the rows want inside the border; the box grows to fit the title and
+// shrinks to fit the screen, cutting rows that are too long.
+func (m Model) box(title string, rows []string, width int) []string {
+	width = max(width, ansi.StringWidth(title)+2) // a stroke of the border either side of the title
+	width = max(min(width, m.width-2), 0)         // inside the two side borders
 	head := ansi.Truncate("─"+title, width, "")
 	box := []string{"╭" + head + strings.Repeat("─", width-ansi.StringWidth(head)) + "╮"}
-	for _, r := range rows[m.menuTop : m.menuTop+m.menuRows()] {
+	for _, r := range rows {
 		box = append(box, "│"+pad(ansi.Truncate(r, width, "…"), width)+"│")
 	}
-	box = append(box, "╰"+strings.Repeat("─", width)+"╯")
+	return append(box, "╰"+strings.Repeat("─", width)+"╯")
+}
 
+// overlay places box centred over the list part of lines, which stays
+// visible around it. The box must fit in the list's height.
+func (m Model) overlay(lines, box []string) []string {
+	width := ansi.StringWidth(box[0]) - 2
 	top := 2 + max(m.listHeight()-len(box), 0)/2
 	left := max(m.width-width-2, 0) / 2
 	for i, b := range box {

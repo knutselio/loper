@@ -24,12 +24,16 @@ type env struct {
 	t    *testing.T
 	root string // holds the home folder, the fake targets and their records
 	home string
+	wait time.Duration // how long a target runs before it counts as opened
 }
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
 	root := filepath.Join(t.TempDir(), "temp folder") // a space, so commands must quote paths
-	e := &env{t: t, root: root, home: filepath.Join(root, "home")}
+	// The wait is far longer than any fake target that exits takes, so a slow
+	// start never turns a failure into a success; tests of targets that keep
+	// running shorten it.
+	e := &env{t: t, root: root, home: filepath.Join(root, "home"), wait: 10 * time.Second}
 	t.Setenv("PATH", filepath.Join(root, "bin")+string(filepath.ListSeparator)+os.Getenv("PATH"))
 	t.Setenv("HOME", e.home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(e.home, ".config"))
@@ -113,9 +117,16 @@ func (e *env) writeFile(path, body string) {
 // a target command.
 func (e *env) fakeTarget(name string) string {
 	e.t.Helper()
-	script := filepath.Join(e.root, "bin", name)
 	record := filepath.Join(e.root, name)
-	e.writeFile(script, "#!/bin/sh\npwd > '"+record+".dir'\nprintf '%s\\n' \"$@\" > '"+record+".args'\n")
+	return e.script(name, "pwd > '"+record+".dir'\nprintf '%s\\n' \"$@\" > '"+record+".args'\n")
+}
+
+// script writes a shell script called name, on the PATH, with body as its
+// commands. It returns the script's path quoted for a target command.
+func (e *env) script(name, body string) string {
+	e.t.Helper()
+	script := filepath.Join(e.root, "bin", name)
+	e.writeFile(script, "#!/bin/sh\n"+body)
 	if err := os.Chmod(script, 0o755); err != nil {
 		e.t.Fatal(err)
 	}
@@ -160,6 +171,8 @@ type driver struct {
 	t     *testing.T
 	model tea.Model
 	quit  bool
+	hold  bool      // keep background work back instead of running it, until release
+	held  []tea.Cmd // the background work kept back, in the order it was started
 }
 
 // start launches the program on a fixed 80x24 screen and clock, with the
@@ -172,13 +185,14 @@ func (e *env) start() *driver {
 	}
 	d := &driver{t: e.t}
 	d.model = ui.New(ui.Deps{
-		Home:    e.home,
-		Paths:   settings.Paths,
-		Scan:    scanner.Scan,
-		Branch:  repoinfo.Branch,
-		Open:    target.Run,
-		Targets: settings.Targets,
-		Now:     func() time.Time { return time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC) },
+		Home:        e.home,
+		Paths:       settings.Paths,
+		Scan:        scanner.Scan,
+		Branch:      repoinfo.Branch,
+		Open:        func(t target.Target, path string) error { return target.Run(t, path, e.wait) },
+		Targets:     settings.Targets,
+		Now:         func() time.Time { return time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC) },
+		CloseOnOpen: settings.CloseOnOpen,
 	})
 	d.run(d.model.Init())
 	d.send(tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -195,6 +209,10 @@ func (d *driver) run(cmd tea.Cmd) {
 	if cmd == nil {
 		return
 	}
+	if d.hold {
+		d.held = append(d.held, cmd)
+		return
+	}
 	switch msg := cmd().(type) {
 	case nil:
 	case tea.QuitMsg:
@@ -205,6 +223,16 @@ func (d *driver) run(cmd tea.Cmd) {
 		}
 	default:
 		d.send(msg)
+	}
+}
+
+// release stops holding background work back and runs what was held, in
+// the order it was started.
+func (d *driver) release() {
+	held := d.held
+	d.hold, d.held = false, nil
+	for _, cmd := range held {
+		d.run(cmd)
 	}
 }
 

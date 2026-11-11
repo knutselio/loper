@@ -30,9 +30,10 @@ command = "` + e.fakeTarget("tab") + ` {path}"
 `)
 }
 
-// menu returns the rows of the target menu on screen, with their spacing
-// collapsed, or nil when no menu is shown.
-func menu(d *driver) []string {
+// boxRows returns the rows of the box drawn over the list, the target menu
+// or the error dialog, with their spacing collapsed, or nil when none is
+// shown.
+func boxRows(d *driver) []string {
 	var rows []string
 	for _, line := range strings.Split(d.screen(), "\n") {
 		first, last := strings.Index(line, "│"), strings.LastIndex(line, "│")
@@ -51,7 +52,7 @@ func TestEnterShowsAMenuNamingEveryTargetAndItsKeyAndRunsNothing(t *testing.T) {
 
 	d.press("enter")
 
-	if got, want := menu(d), []string{"> z Zed", "Menu only", "t Terminal tab"}; !slices.Equal(got, want) {
+	if got, want := boxRows(d), []string{"> z Zed", "Menu only", "t Terminal tab"}; !slices.Equal(got, want) {
 		t.Errorf("menu reads %q, want %q:\n%s", got, want, d.screen())
 	}
 	for _, name := range []string{"zed", "menu-only", "tab"} {
@@ -83,7 +84,7 @@ func TestJKAndTheArrowsMoveTheHighlightAndEnterRunsItOnTheSelectedRepo(t *testin
 	}
 	for _, s := range steps {
 		d.press(s.key)
-		if got := menu(d); !slices.Contains(got, s.want) {
+		if got := boxRows(d); !slices.Contains(got, s.want) {
 			t.Fatalf("after %s: menu reads %q, want the row %q highlighted", s.key, got, s.want)
 		}
 	}
@@ -111,7 +112,7 @@ func TestATargetsKeyInsideTheMenuRunsThatTarget(t *testing.T) {
 	if got := e.targetArgs("zed"); got != nil {
 		t.Errorf("zed called with %q, want only the target whose key was pressed", got)
 	}
-	if got := menu(d); got != nil {
+	if got := boxRows(d); got != nil {
 		t.Errorf("menu still shown after running a target: %q", got)
 	}
 	if got, want := footer(d), "Opened alpha in Terminal tab"; got != want {
@@ -127,7 +128,7 @@ func TestEscClosesTheMenuAndRunsNothing(t *testing.T) {
 
 	d.press("enter", "esc")
 
-	if got := menu(d); got != nil {
+	if got := boxRows(d); got != nil {
 		t.Errorf("menu still shown after esc: %q", got)
 	}
 	for _, name := range []string{"zed", "menu-only", "tab"} {
@@ -176,7 +177,7 @@ func TestAfterRunningATargetTheMenuIsClosedAndTheFooterConfirmsIt(t *testing.T) 
 
 	d.press("enter", "j", "enter")
 
-	if got := menu(d); got != nil {
+	if got := boxRows(d); got != nil {
 		t.Errorf("menu still shown after running a target: %q", got)
 	}
 	if got, want := footer(d), "Opened alpha in Menu only"; got != want {
@@ -243,7 +244,7 @@ func checkBox(t *testing.T, d *driver, width int) {
 	if tops != 1 || bottoms != 1 {
 		t.Errorf("menu has %d top and %d bottom borders, want one of each:\n%s", tops, bottoms, d.screen())
 	}
-	if !slices.ContainsFunc(menu(d), func(r string) bool { return strings.HasPrefix(r, "> ") }) {
+	if !slices.ContainsFunc(boxRows(d), func(r string) bool { return strings.HasPrefix(r, "> ") }) {
 		t.Errorf("no highlighted row is drawn:\n%s", d.screen())
 	}
 }
@@ -267,7 +268,7 @@ func TestTheMenuFitsANarrowScreen(t *testing.T) {
 	}
 	for _, s := range steps {
 		d.press(s.key)
-		if got := menu(d); !slices.Equal(got, s.want) {
+		if got := boxRows(d); !slices.Equal(got, s.want) {
 			t.Errorf("after %s: menu reads %q, want %q:\n%s", s.key, got, s.want, d.screen())
 		}
 		checkBox(t, d, 20)
@@ -300,7 +301,7 @@ func TestAMenuTallerThanTheListScrollsToKeepTheHighlightInView(t *testing.T) {
 	}
 	for _, s := range steps {
 		d.press(s.keys...)
-		if got := menu(d); !slices.Equal(got, s.want) {
+		if got := boxRows(d); !slices.Equal(got, s.want) {
 			t.Errorf("after %v: menu reads %q, want %q:\n%s", s.keys, got, s.want, d.screen())
 		}
 		checkBox(t, d, 40)
@@ -320,14 +321,14 @@ func TestTheMenuDoesNotOpenOrStayOpenWithoutRoomForIt(t *testing.T) {
 	d.send(tea.WindowSizeMsg{Width: 40, Height: 4}) // no list lines
 	d.press("enter")
 	d.send(tea.WindowSizeMsg{Width: 80, Height: 24})
-	if got := menu(d); got != nil {
+	if got := boxRows(d); got != nil {
 		t.Errorf("enter opened the menu on a screen with no room for it: %q", got)
 	}
 
 	d.press("enter")
 	d.send(tea.WindowSizeMsg{Width: 40, Height: 4})
 	d.send(tea.WindowSizeMsg{Width: 80, Height: 24})
-	if got := menu(d); got != nil {
+	if got := boxRows(d); got != nil {
 		t.Errorf("the menu stayed open through a screen with no room for it: %q", got)
 	}
 	d.press("j")
