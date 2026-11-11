@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -25,51 +26,49 @@ func TestTheHeaderShowsTheRepoCountOnTheLeftAndTheSortOnTheRight(t *testing.T) {
 	}
 }
 
-func TestPathWarningsThatDoNotFitTheHeaderAreCutAndTheSortStays(t *testing.T) {
+// The only full-screen snapshot in the suite: it guards the layout of
+// "Layout" in SPEC.md, a header and a footer each under or over a rule, with
+// the list between them.
+func TestTheScreenIsTheHeaderTheListAndTheFooterBetweenRules(t *testing.T) {
 	e := newEnv(t)
-	e.repo("code/alpha")
-	e.config(`paths = ["~/code", "~/a-folder-with-a-rather-long-name-that-does-not-exist"]`)
+	backend := e.repo("code/work/unlimited/backend")
+	e.git(backend, "checkout", "-q", "-b", "fix/bug-1116")
+	aycapi := e.repo("code/work/mono/aycapi")
+	exa := e.repo("code/work/mono/exa-men-v2")
+	e.git(exa, "checkout", "-q", "-b", "feature/aycid-login")
+	e.repo("dotfiles")
+	e.openedBefore(map[string]time.Duration{backend: 2 * time.Hour, aycapi: 26 * time.Hour, exa: 3 * 24 * time.Hour})
+	e.config(`paths = ["~/code", "~/dotfiles"]
+
+[[targets]]
+name = "Zed"
+key = "z"
+command = "zed {path}"
+
+[[targets]]
+name = "Terminal tab"
+key = "t"
+command = "` + e.fakeTarget("rex") + ` {path}"
+`)
 	d := e.start()
+	d.hold = true
+	d.press("r") // the refresh runs until released
+	d.send(tea.WindowSizeMsg{Width: 80, Height: 10})
 
-	for _, width := range []int{80, 50, 20, 5} {
-		d.send(tea.WindowSizeMsg{Width: width, Height: 24})
-		header := strings.SplitN(d.screen(), "\n", 2)[0]
-		if w := ansi.StringWidth(header); w > width {
-			t.Errorf("width %d: header is %d cells wide: %q", width, w, header)
-		}
-		if width >= 50 && (!strings.HasPrefix(header, " repos  1  ~/a-folder") || !strings.HasSuffix(header, " sort: last opened ")) {
-			t.Errorf("width %d: header %q does not keep the count, the start of the warning and the sort", width, header)
-		}
-	}
-}
-
-func TestTheListSitsBetweenRulesWithTheFooterOnTheLastLine(t *testing.T) {
-	e := newEnv(t)
-	e.repo("code/alpha")
-	e.repo("code/beta")
-
-	lines := strings.Split(e.start().screen(), "\n") // the screen is 80x24
-
-	if len(lines) != 24 {
-		t.Fatalf("screen has %d lines, want 24:\n%s", len(lines), strings.Join(lines, "\n"))
-	}
-	rule := " " + strings.Repeat("─", 78) + " " // a one-cell margin either side
-	if lines[1] != rule {
-		t.Errorf("line 2 is %q, want a rule inside the margin", lines[1])
-	}
-	if lines[22] != rule {
-		t.Errorf("line 23 is %q, want a rule inside the margin", lines[22])
-	}
-	if !strings.HasPrefix(lines[23], " enter open") || strings.Join(strings.Fields(lines[23]), " ") != "enter open z Zed / search s sort r refresh q quit" {
-		t.Errorf("footer reads %q, want %q after a one-cell margin", lines[23], "enter open z Zed / search s sort r refresh q quit")
-	}
-	for i, want := range map[int]string{0: " repos", 2: " > alpha", 3: "   beta"} {
-		if !strings.HasPrefix(lines[i], want) {
-			t.Errorf("line %d is %q, want it to start with %q", i+1, lines[i], want)
-		}
-	}
-	if !hasRow(lines[2], "alpha ~/code main") || !hasRow(lines[3], "beta ~/code main") {
-		t.Errorf("the list does not start under the rule:\n%s", strings.Join(lines, "\n"))
+	want := strings.Join([]string{
+		" repos  4                                      sort: last opened   ⠋ refreshing ",
+		" ────────────────────────────────────────────────────────────────────────────── ",
+		" > backend     ~/code/work/unlimited  fix/bug-1116         2h ago",
+		"   aycapi      ~/code/work/mono       main                 yesterday",
+		"   exa-men-v2  ~/code/work/mono       feature/aycid-login  3d ago",
+		"   dotfiles    ~                      main                 -",
+		"",
+		"",
+		" ────────────────────────────────────────────────────────────────────────────── ",
+		" enter open  z Zed  t Terminal tab  / search  s sort  r refresh  q quit",
+	}, "\n")
+	if got := d.screen(); got != want {
+		t.Errorf("screen reads\n%s\nwant\n%s", got, want)
 	}
 }
 

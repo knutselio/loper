@@ -355,21 +355,8 @@ func TestMatchedLettersAreHighlightedInEachColumn(t *testing.T) {
 	d.typeText("mn")
 
 	rows := styledRows(d)
-	if want := []string{"> [m]a[n]go {~/code} [m]ai[n] -", "web {~/code} [m]ai[n] -"}; !slices.Equal(rows, want) {
+	if want := []string{"[>] [m]a[n]go {~/code} [m]ai[n] -", "web {~/code} [m]ai[n] -"}; !slices.Equal(rows, want) {
 		t.Errorf("rows read %q, want %q", rows, want)
-	}
-}
-
-func TestWithNoColorASearchShowsNoEscapeCodes(t *testing.T) {
-	e := newEnv(t)
-	e.repo("code/mango")
-	d := e.start()
-
-	d.press("/")
-	d.typeText("mn")
-
-	if screen := d.screen(); strings.Contains(screen, "\x1b") {
-		t.Errorf("screen holds escape codes:\n%q", screen)
 	}
 }
 

@@ -8,9 +8,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/ansi"
 )
 
 // savedCache is the cache file as written.
@@ -155,24 +152,6 @@ func TestTheHeaderShowsTheSpinnerAndRefreshingWhileTheRefreshRunsAndNotAfter(t *
 	d.tick() // the tick that was on its way when the refresh finished
 	if d.tick() {
 		t.Error("the spinner still ticks after the refresh finished")
-	}
-}
-
-func TestTheHeaderWithTheSpinnerFitsTheWidthAndKeepsTheSortAndSpinnerOnTheRight(t *testing.T) {
-	e := newEnv(t)
-	e.repo("code/alpha")
-	e.start()
-	d := relaunch(e)
-
-	for _, width := range []int{80, 50, 20, 5} {
-		d.send(tea.WindowSizeMsg{Width: width, Height: 24})
-		head := strings.SplitN(d.screen(), "\n", 2)[0]
-		if w := ansi.StringWidth(head); w > width {
-			t.Errorf("width %d: header is %d cells wide: %q", width, w, head)
-		}
-		if width >= 50 && (!strings.HasPrefix(head, " repos  1 ") || !strings.HasSuffix(head, " sort: last opened   ⠋ refreshing ")) {
-			t.Errorf("width %d: header %q does not have the count on the left and the sort and spinner on the right", width, head)
-		}
 	}
 }
 

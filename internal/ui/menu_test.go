@@ -237,7 +237,7 @@ func checkBox(t *testing.T, d *driver, width int) {
 	for i, line := range strings.Split(d.screen(), "\n") {
 		tops += strings.Count(line, "╭")
 		bottoms += strings.Count(line, "╰")
-		if strings.ContainsAny(line, "╭│╰") && ansi.StringWidth(line) > width {
+		if ansi.StringWidth(line) > width {
 			t.Errorf("line %d is %d cells wide, wider than the screen: %q", i+1, ansi.StringWidth(line), line)
 		}
 	}
@@ -249,8 +249,6 @@ func checkBox(t *testing.T, d *driver, width int) {
 	}
 }
 
-// The list itself is not cut to a narrow screen yet, so this checks only the
-// lines the menu is drawn on.
 func TestTheMenuFitsANarrowScreen(t *testing.T) {
 	e := newEnv(t)
 	alpha := e.repo("code/a-repository-with-a-long-name")

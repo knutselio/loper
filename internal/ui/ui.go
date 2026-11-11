@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -48,8 +49,9 @@ type Deps struct {
 	// CacheMaxAge is how old the cache may be before a launch scans again
 	// rather than re-reading the cached repos; 0 means every launch scans.
 	CacheMaxAge time.Duration
-	// Color highlights matched letters and dims folders; it is off when
-	// NO_COLOR is set.
+	// Color turns the styles on: the selection marker, dimmed folders, rules
+	// and borders, and highlighted matches. It is off when NO_COLOR is set
+	// and non-empty, and then the output has no escape codes at all.
 	Color bool
 	// Columns are the columns to show, in order, out of name, folder, branch
 	// and last_opened.
@@ -147,13 +149,18 @@ type tickMsg struct{}
 // spinner is the frames of the refresh spinner.
 var spinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-// matchOn and matchOff start and end the highlight of a matched letter, and
-// dimOn and dimOff a dimmed part of a row.
+// The styles, from the terminal's own palette and attributes only, so the
+// tool follows the terminal's theme. matchOn and matchOff start and end the
+// highlight of a matched letter, dimOn and dimOff a dimmed part (a folder,
+// the path before a name, the rules and the borders of a box), and
+// pickedOn and pickedOff the marker of the selected row or target.
 var (
-	matchOn  = ansi.Style{}.Underline(true).String()
-	matchOff = ansi.Style{}.NoUnderline().String()
-	dimOn    = ansi.Style{}.Faint().String()
-	dimOff   = ansi.Style{}.Normal().String()
+	matchOn   = ansi.Style{}.Underline(true).String()
+	matchOff  = ansi.Style{}.NoUnderline().String()
+	dimOn     = ansi.Style{}.Faint().String()
+	dimOff    = ansi.Style{}.Normal().String()
+	pickedOn  = ansi.Style{}.Bold().String()
+	pickedOff = ansi.Style{}.Normal().String()
 )
 
 func New(deps Deps) Model {
@@ -466,32 +473,50 @@ func (m Model) keyed(msg tea.KeyPressMsg) (target.Target, bool) {
 
 func (m Model) View() tea.View {
 	now := m.deps.Now()
-	widths := make([]int, len(m.columns))
-	for _, r := range m.all { // all, so the columns stay put while searching
+	// The width of each column's widest value, over all repos, so the columns
+	// stay put while searching.
+	full := make([]int, len(m.columns))
+	for _, r := range m.all {
 		for i, c := range m.columns {
-			widths[i] = max(widths[i], ansi.StringWidth(m.cell(c, r, matcher.Match{}, now)))
+			full[i] = max(full[i], ansi.StringWidth(m.cell(c, r, matcher.Match{}, now, math.MaxInt)))
 		}
 	}
-	rule := " " + strings.Repeat("─", max(m.width-2, 0)) + " "
-	header := fmt.Sprintf(" repos  %d", len(m.repos))
+	shown, widths := m.fit(full)
+	rule := ansi.Truncate(" "+m.dim(strings.Repeat("─", max(m.width-2, 0)))+" ", m.width, "")
+	count, warnings := fmt.Sprintf(" repos  %d", len(m.repos)), ""
 	for _, path := range m.missing {
-		header += "  " + m.shorten(path) + " not found"
+		warnings += "  " + m.shorten(path) + " not found"
 	}
-	right := "  sort: last opened "
+	sort := "  sort: last opened "
 	if m.byName {
-		right = "  sort: name "
+		sort = "  sort: name "
 	}
 	if m.searching { // the search line replaces the count, the warnings and the sort
-		header, right = " /"+m.query, ""
+		count, warnings, sort = " /"+m.query, "", ""
 	}
+	spin := ""
 	if m.refreshing && len(m.all) > 0 { // with no list yet, the spinner is in the list
-		right += "  " + spinner[m.frame] + " refreshing "
+		spin = "  " + spinner[m.frame] + " refreshing "
 	}
-	// The sort and the spinner keep their place on the right; warnings that
-	// do not fit are cut.
-	room := max(m.width-ansi.StringWidth(right), 0)
-	header = ansi.Truncate(pad(ansi.Truncate(header, room, "…"), room)+right, m.width, "")
-	lines := []string{header, rule}
+	// The sort and the spinner keep their place on the right. What does not
+	// fit gives way: the warnings first, then the sort, then the spinner; the
+	// count, or the search line, is cut last.
+	right := sort + spin
+	if ansi.StringWidth(count+right) > m.width {
+		warnings, right = "", spin
+	}
+	if ansi.StringWidth(count+right) > m.width {
+		right = ""
+	}
+	room := m.width - ansi.StringWidth(right)
+	if over := ansi.StringWidth(count) - room; m.searching && over > 0 && room >= ansi.StringWidth(" /…") {
+		count = " /…" + cutStart(m.query, over+1) // the end of the query, where the typing is
+	}
+	left := ansi.Truncate(count, room, "…")
+	if rest := room - ansi.StringWidth(left); rest >= ansi.StringWidth("  …") { // less would not read as a cut warning
+		left += ansi.Truncate(warnings, rest, "…")
+	}
+	lines := []string{pad(left, room) + right, rule}
 	var empty []string // what an empty list says instead
 	switch {
 	case len(m.repos) > 0:
@@ -518,20 +543,24 @@ func (m Model) View() tea.View {
 		r := m.repos[i]
 		marker := "   "
 		if i == m.selected {
-			marker = " > "
+			marker = " " + m.picked(">") + " "
 		}
 		var h matcher.Match
 		if m.hits != nil {
 			h = m.hits[i]
 		}
-		cells := make([]string, len(m.columns))
-		for j, c := range m.columns {
-			cells[j] = m.cell(c, r, h, now)
+		cells := make([]string, len(shown))
+		for j, k := range shown {
+			room := widths[k]
+			if len(shown) == 1 { // the name alone has the whole row
+				room = max(m.width-3, 0)
+			}
+			cells[j] = m.cell(m.columns[k], r, h, now, room)
 			if j < len(cells)-1 { // the last column is not padded, so a row has no trailing spaces
-				cells[j] = pad(cells[j], widths[j])
+				cells[j] = pad(cells[j], widths[k])
 			}
 		}
-		lines = append(lines, marker+strings.Join(cells, "  "))
+		lines = append(lines, ansi.Truncate(marker+strings.Join(cells, "  "), m.width, "…"))
 	}
 	keys := " enter open"
 	for _, t := range m.deps.Targets {
@@ -549,16 +578,53 @@ func (m Model) View() tea.View {
 	case m.menu:
 		lines = m.overlayMenu(lines)
 	}
-	lines = append(lines, rule, keys)
+	lines = append(lines, rule, ansi.Truncate(keys, m.width, "…"))
 	lines = lines[:min(len(lines), m.height)] // never taller than the terminal
 	v := tea.NewView(strings.Join(lines, "\n"))
 	v.AltScreen = true
 	return v
 }
 
+// fit returns the indexes of the columns shown and the width of each column,
+// given the width of each column's widest value. While the rows would be
+// wider than the terminal, the folder and branch columns shrink, the widest
+// first, down to 12 cells; a column narrower than that keeps its width. When
+// that is not enough, last_opened is dropped, then branch, then folder,
+// whatever order the columns are in, and the columns left shrink again from
+// their full width. The name never shrinks here.
+func (m Model) fit(full []int) (shown, widths []int) {
+	shown = make([]int, len(m.columns))
+	for i := range shown {
+		shown[i] = i
+	}
+	for _, drop := range []string{"last_opened", "branch", "folder", ""} { // "" drops nothing: the last pass only shrinks
+		widths = slices.Clone(full)
+		for {
+			width := 3 + 2*(len(shown)-1) // the marker, and the gaps between columns
+			widest := -1                  // the folder or branch column to shrink next
+			for _, i := range shown {
+				width += widths[i]
+				if c := m.columns[i]; (c == "folder" || c == "branch") && widths[i] > 12 && (widest < 0 || widths[i] > widths[widest]) {
+					widest = i
+				}
+			}
+			if width <= m.width {
+				return shown, widths
+			}
+			if widest < 0 {
+				break
+			}
+			widths[widest]--
+		}
+		shown = slices.DeleteFunc(shown, func(i int) bool { return m.columns[i] == drop })
+	}
+	return shown, widths
+}
+
 // cell returns the text of column c for r, as of now, with the letters
-// matched by h highlighted.
-func (m Model) cell(c string, r repo, h matcher.Match, now time.Time) string {
+// matched by h highlighted, cut with … to room cells.
+func (m Model) cell(c string, r repo, h matcher.Match, now time.Time, room int) string {
+	var s string
 	switch c {
 	case "name":
 		// Under the root-path style, the path before the name is dimmed.
@@ -571,16 +637,35 @@ func (m Model) cell(c string, r repo, h matcher.Match, now time.Time) string {
 				rest = append(rest, p-k)
 			}
 		}
-		return m.dim(m.highlight(name[:cut], h.Name)) + m.highlight(name[cut:], rest)
+		path, base := m.highlight(name[:cut], h.Name), m.highlight(name[cut:], rest)
+		over := ansi.StringWidth(path+base) - room
+		switch {
+		case over <= 0:
+			return m.dim(path) + base
+		case ansi.StringWidth(base) < room: // the path gives way from its start, so the name stays whole
+			return m.dim("…"+cutStart(path, over+1)) + base
+		}
+		return ansi.Truncate(base, room, "…")
 	case "folder":
-		return m.dim(m.highlight(m.shorten(filepath.Dir(r.path)), h.Folder))
+		s = m.dim(m.highlight(m.shorten(filepath.Dir(r.path)), h.Folder))
 	case "branch":
-		return m.highlight(r.branch, h.Branch)
+		s = m.highlight(r.branch, h.Branch)
+	default: // last_opened
+		s = "-"
+		if at, ok := m.history[r.path]; ok {
+			s = reltime.Format(at, now)
+		}
 	}
-	if at, ok := m.history[r.path]; ok { // last_opened
-		return reltime.Format(at, now)
+	return ansi.Truncate(s, room, "…")
+}
+
+// cutStart removes the first n cells of s, and the rest of a wide character
+// the cut would split.
+func cutStart(s string, n int) string {
+	if cut := ansi.TruncateLeft(s, n, ""); ansi.StringWidth(cut) <= ansi.StringWidth(s)-n {
+		return cut
 	}
-	return "-"
+	return ansi.TruncateLeft(s, n+1, "")
 }
 
 // name is the text of r's name column: its name or, under the root-path
@@ -605,6 +690,14 @@ func (m Model) dim(s string) string {
 		return s
 	}
 	return dimOn + s + dimOff
+}
+
+// picked styles s as the marker of what is selected, unless colour is off.
+func (m Model) picked(s string) string {
+	if !m.deps.Color {
+		return s
+	}
+	return pickedOn + s + pickedOff
 }
 
 // highlight marks the characters of s at the positions pos, which are in
@@ -661,7 +754,7 @@ func (m Model) overlayMenu(lines []string) []string {
 	for i, t := range m.deps.Targets {
 		marker := "  "
 		if i == m.choice {
-			marker = "> "
+			marker = m.picked(">") + " "
 		}
 		rows[i] = " " + marker + pad(t.Key, keyWidth) + "  " + t.Name + " "
 		width = max(width, ansi.StringWidth(rows[i]))
@@ -720,12 +813,15 @@ func clean(s string) string {
 func (m Model) box(title string, rows []string, width int) []string {
 	width = max(width, ansi.StringWidth(title)+2) // a stroke of the border either side of the title
 	width = max(min(width, m.width-2), 0)         // inside the two side borders
-	head := ansi.Truncate("─"+title, width, "")
-	box := []string{"╭" + head + strings.Repeat("─", width-ansi.StringWidth(head)) + "╮"}
+	// One stroke of the border comes before the title, if there is room.
+	stroke := min(width, 1)
+	title = ansi.Truncate(title, width-stroke, "")
+	box := []string{m.dim("╭"+strings.Repeat("─", stroke)) + title + m.dim(strings.Repeat("─", width-stroke-ansi.StringWidth(title))+"╮")}
+	side := m.dim("│")
 	for _, r := range rows {
-		box = append(box, "│"+pad(ansi.Truncate(r, width, "…"), width)+"│")
+		box = append(box, side+pad(ansi.Truncate(r, width, "…"), width)+side)
 	}
-	return append(box, "╰"+strings.Repeat("─", width)+"╯")
+	return append(box, m.dim("╰"+strings.Repeat("─", width)+"╯"))
 }
 
 // overlay places box centred over the list part of lines, which stays
@@ -744,6 +840,10 @@ func (m Model) overlay(lines, box []string) []string {
 		if ansi.StringWidth(after) > ansi.StringWidth(line)-cut {
 			after = " " + ansi.TruncateLeft(after, 2, "")
 		}
+		// No style leaks across either edge of the box: Truncate keeps the
+		// codes after the cut, so the row's styles are closed before the
+		// box, and TruncateLeft keeps those before it, so the rest of the row
+		// is styled as it was.
 		lines[top+i] = ansi.Truncate(before+b+after, m.width, "")
 	}
 	return lines

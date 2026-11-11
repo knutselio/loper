@@ -118,8 +118,6 @@ func TestQAndCtrlCQuitFromInsideTheDialog(t *testing.T) {
 	}
 }
 
-// The list itself is not cut to a narrow screen yet, so this checks the
-// width of only the lines the dialog is drawn on.
 func TestADialogBiggerThanTheScreenKeepsItsBordersAndCutsItsContent(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
@@ -142,7 +140,7 @@ func TestADialogBiggerThanTheScreenKeepsItsBordersAndCutsItsContent(t *testing.T
 		t.Errorf("dialog does not have one top and one bottom border:\n%s", screen)
 	}
 	for i, line := range strings.Split(screen, "\n") {
-		if w := ansi.StringWidth(line); strings.ContainsAny(line, "╭│╰") && w > 30 {
+		if w := ansi.StringWidth(line); w > 30 {
 			t.Errorf("line %d is %d cells wide, wider than the screen: %q", i+1, w, line)
 		}
 	}

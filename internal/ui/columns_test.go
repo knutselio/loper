@@ -172,23 +172,38 @@ func TestUnderRootPathBothSortsOrderByTheDisplayedPathIgnoringCase(t *testing.T)
 
 // styled returns s with each run of dimmed text in braces, each run of
 // otherwise styled text in brackets, and every other escape sequence
-// removed, so a test sees what is dimmed and what is highlighted.
+// removed, so a test sees what is dimmed and what is highlighted. A run
+// with no text, which the screen does not show, is left out.
 func styled(s string) string {
 	dim, other := false, false
-	return sgr.ReplaceAllStringFunc(s, func(seq string) string {
-		d, o := dim, other
+	on := map[string]bool{} // the attributes and colours other than dim that are on
+	s = sgr.ReplaceAllStringFunc(s, func(seq string) string {
+		d := dim
 		for _, p := range strings.Split(seq[2:len(seq)-1], ";") {
 			switch {
 			case p == "" || p == "0":
-				d, o = false, false
+				d = false
+				clear(on)
 			case p == "2":
 				d = true
-			case p == "22":
+			case p == "22": // ends bold as well as dim
 				d = false
-			default: // 21 to 29 each turn one attribute off
-				o = len(p) != 2 || p[0] != '2'
+				delete(on, "1")
+			case p == "39":
+				delete(on, "foreground")
+			case p == "49":
+				delete(on, "background")
+			case len(p) == 2 && p[0] == '2': // 24 and 27 end underline and reverse
+				delete(on, p[1:])
+			case len(p) == 2 && (p[0] == '3' || p[0] == '9'):
+				on["foreground"] = true
+			case len(p) == 2 && p[0] == '4' || len(p) == 3:
+				on["background"] = true
+			default:
+				on[p] = true
 			}
 		}
+		o := len(on) > 0
 		var b strings.Builder
 		if other && !o {
 			b.WriteString("]")
@@ -205,6 +220,7 @@ func styled(s string) string {
 		dim, other = d, o
 		return b.String()
 	})
+	return strings.NewReplacer("[]", "", "{}", "").Replace(s)
 }
 
 // styledRows returns each row of the list as styled shows it, top to bottom,
@@ -225,9 +241,9 @@ func TestTheFolderAndThePathBeforeTheNameAreDimmed(t *testing.T) {
 		style string
 		want  []string
 	}{
-		{"name-folder", []string{"> backend {~/code/work/mono} main -", "dotfiles {~} main -"}},
-		{"root-path", []string{"> dotfiles main -", "{work/mono/}backend main -"}},
-		{"name", []string{"> backend main -", "dotfiles main -"}},
+		{"name-folder", []string{"[>] backend {~/code/work/mono} main -", "dotfiles {~} main -"}},
+		{"root-path", []string{"[>] dotfiles main -", "{work/mono/}backend main -"}},
+		{"name", []string{"[>] backend main -", "dotfiles main -"}},
 	} {
 		e := newEnv(t)
 		e.color = true
@@ -248,10 +264,10 @@ func TestMatchedLettersAreHighlightedInTheCellsOfEachRowStyle(t *testing.T) {
 		style, query string
 		want         []string
 	}{
-		{"name-folder", "wrk", []string{"> backend {~/code/[w]o[r][k]/mono} main -"}},
-		{"root-path", "monob", []string{"> {work/[m][o][n][o]/}[b]ackend main -"}},
-		{"root-path", "kend", []string{"> {work/mono/}bac[k][e][n][d] main -"}},
-		{"name", "back", []string{"> [b][a][c][k]end main -"}},
+		{"name-folder", "wrk", []string{"[>] backend {~/code/[w]o[r][k]/mono} main -"}},
+		{"root-path", "monob", []string{"[>] {work/[m][o][n][o]/}[b]ackend main -"}},
+		{"root-path", "kend", []string{"[>] {work/mono/}bac[k][e][n][d] main -"}},
+		{"name", "back", []string{"[>] [b][a][c][k]end main -"}},
 	} {
 		e := newEnv(t)
 		e.color = true
