@@ -15,13 +15,13 @@ import (
 
 // Deps is everything the UI needs from the outside world.
 type Deps struct {
-	Home   string   // shown as ~ in folders
-	Paths  []string // what to scan for repos
-	Scan   func(paths []string) (repos, missing []string)
-	Branch func(repo string) string
-	Open   func(t target.Target, path string) error
-	Target target.Target // what enter opens the selected repo in
-	Now    func() time.Time
+	Home    string   // shown as ~ in folders
+	Paths   []string // what to scan for repos
+	Scan    func(paths []string) (repos, missing []string)
+	Branch  func(repo string) string
+	Open    func(t target.Target, path string) error
+	Targets []target.Target // the first is what enter opens the selected repo in
+	Now     func() time.Time
 }
 
 // Model is the program state.
@@ -33,6 +33,7 @@ type Model struct {
 	offset   int // the first repo shown, so the selected one stays in view
 	width    int
 	height   int
+	notice   string // shown in place of the footer keys until the next key press
 }
 
 // repo is one row of the list.
@@ -44,6 +45,11 @@ type repo struct {
 type scannedMsg struct {
 	repos   []repo
 	missing []string
+}
+
+// openedMsg reports that a repo opened in a target.
+type openedMsg struct {
+	repo, target string
 }
 
 func New(deps Deps) Model {
@@ -65,9 +71,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case scannedMsg:
 		m.repos, m.missing = msg.repos, msg.missing
+	case openedMsg:
+		m.notice = "Opened " + msg.repo + " in " + msg.target
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 	case tea.KeyPressMsg:
+		m.notice = ""
 		switch msg.String() {
 		case "q", "ctrl+c":
 			return m, tea.Quit
@@ -84,13 +93,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "ctrl+u":
 			m.selected = max(m.selected-max(m.listHeight()/2, 1), 0)
 		case "enter":
-			if len(m.repos) == 0 {
-				return m, nil
-			}
-			path := m.repos[m.selected].path
-			return m, func() tea.Msg {
-				m.deps.Open(m.deps.Target, path)
-				return nil
+			return m, m.open(m.deps.Targets[0])
+		default:
+			for _, t := range m.deps.Targets {
+				if t.Key != "" && msg.Text == t.Key {
+					return m, m.open(t)
+				}
 			}
 		}
 	}
@@ -123,11 +131,35 @@ func (m Model) View() tea.View {
 		}
 		lines = append(lines, fmt.Sprintf("%s%s  %s  %s", marker, pad(filepath.Base(r.path), nameWidth), pad(m.shorten(filepath.Dir(r.path)), folderWidth), r.branch))
 	}
-	lines = append(lines, rule, " enter open  q quit")
+	keys := " enter open"
+	for _, t := range m.deps.Targets {
+		if t.Key != "" {
+			keys += "  " + t.Key + " " + t.Name
+		}
+	}
+	keys += "  q quit"
+	if m.notice != "" {
+		keys = " " + m.notice
+	}
+	lines = append(lines, rule, keys)
 	lines = lines[:min(len(lines), m.height)] // never taller than the terminal
 	v := tea.NewView(strings.Join(lines, "\n"))
 	v.AltScreen = true
 	return v
+}
+
+// open opens the selected repo in t in the background.
+func (m Model) open(t target.Target) tea.Cmd {
+	if len(m.repos) == 0 {
+		return nil
+	}
+	path := m.repos[m.selected].path
+	return func() tea.Msg {
+		if err := m.deps.Open(t, path); err != nil {
+			return nil // a failed open stays silent for now
+		}
+		return openedMsg{repo: filepath.Base(path), target: t.Name}
+	}
 }
 
 // listHeight is the number of screen lines left for the list between the

@@ -50,13 +50,13 @@ func run(args []string, stderr io.Writer, start func(home string, s config.Setti
 // startUI runs the picker until it quits.
 func startUI(home string, settings config.Settings) error {
 	m := ui.New(ui.Deps{
-		Home:   home,
-		Paths:  settings.Paths,
-		Scan:   scanner.Scan,
-		Branch: repoinfo.Branch,
-		Open:   target.Run,
-		Target: target.Target{Name: "Zed", Command: "zed {path}"},
-		Now:    time.Now,
+		Home:    home,
+		Paths:   settings.Paths,
+		Scan:    scanner.Scan,
+		Branch:  repoinfo.Branch,
+		Open:    target.Run,
+		Targets: settings.Targets,
+		Now:     time.Now,
 	})
 	_, err := tea.NewProgram(m).Run()
 	return err

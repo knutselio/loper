@@ -105,7 +105,7 @@ func TestARepoInAFolderWithSpacesIsListedAndOpensWithItsPath(t *testing.T) {
 		t.Errorf("selected %q, want the repo with spaces", got)
 	}
 	d.press("enter")
-	if got := e.targetArgs(); len(got) != 1 || got[0] != spaced {
+	if got := e.targetArgs("zed"); len(got) != 1 || got[0] != spaced {
 		t.Errorf("target called with %q, want [%q]", got, spaced)
 	}
 }

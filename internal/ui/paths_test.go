@@ -111,7 +111,7 @@ func TestASymlinkListedDirectlyIsFollowedAndShowsThePathAsWritten(t *testing.T) 
 		}
 	}
 	d.press("enter")
-	if got := e.targetArgs(); len(got) != 1 || got[0] != filepath.Join(e.home, "dots") {
+	if got := e.targetArgs("zed"); len(got) != 1 || got[0] != filepath.Join(e.home, "dots") {
 		t.Errorf("target called with %q, want the path as written", got)
 	}
 }

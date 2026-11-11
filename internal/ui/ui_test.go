@@ -53,7 +53,7 @@ func TestEnterOpensTheSelectedRepoAndStaysOpen(t *testing.T) {
 
 	d.press("j", "enter")
 
-	if got := e.targetArgs(); len(got) != 1 || got[0] != beta {
+	if got := e.targetArgs("zed"); len(got) != 1 || got[0] != beta {
 		t.Errorf("target called with %q, want [%q]", got, beta)
 	}
 	if d.quit {
@@ -70,7 +70,7 @@ func TestKeysOnAnEmptyListDoNothing(t *testing.T) {
 
 	d.press("j", "k", "enter")
 
-	if got := e.targetArgs(); got != nil {
+	if got := e.targetArgs("zed"); got != nil {
 		t.Errorf("target called with %q on an empty list", got)
 	}
 }

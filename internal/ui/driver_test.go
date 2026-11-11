@@ -18,17 +18,19 @@ import (
 )
 
 // env is a test's fixed environment: a temporary home with its config,
-// cache and state folders, and a fake target that records its arguments.
+// cache and state folders, and a fake zed first on the PATH, so the built-in
+// Zed target never runs the real program.
 type env struct {
 	t    *testing.T
+	root string // holds the home folder, the fake targets and their records
 	home string
-	log  string // where the fake target writes its arguments
 }
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
-	root := t.TempDir()
-	e := &env{t: t, home: filepath.Join(root, "home"), log: filepath.Join(root, "target.log")}
+	root := filepath.Join(t.TempDir(), "temp folder") // a space, so commands must quote paths
+	e := &env{t: t, root: root, home: filepath.Join(root, "home")}
+	t.Setenv("PATH", filepath.Join(root, "bin")+string(filepath.ListSeparator)+os.Getenv("PATH"))
 	t.Setenv("HOME", e.home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(e.home, ".config"))
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(e.home, ".cache"))
@@ -43,6 +45,7 @@ func newEnv(t *testing.T) *env {
 	if err := os.MkdirAll(e.home, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	e.fakeTarget("zed")
 	return e
 }
 
@@ -105,29 +108,50 @@ func (e *env) writeFile(path, body string) {
 	}
 }
 
-// fakeTarget writes a script that records each argument on its own line.
-func (e *env) fakeTarget() target.Target {
+// fakeTarget writes a program called name, on the PATH, that records its
+// arguments and its working folder. It returns the program's path quoted for
+// a target command.
+func (e *env) fakeTarget(name string) string {
 	e.t.Helper()
-	script := filepath.Join(filepath.Dir(e.log), "fake-target")
-	body := "#!/bin/sh\nprintf '%s\\n' \"$@\" > '" + e.log + "'\n"
-	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
+	script := filepath.Join(e.root, "bin", name)
+	record := filepath.Join(e.root, name)
+	e.writeFile(script, "#!/bin/sh\npwd > '"+record+".dir'\nprintf '%s\\n' \"$@\" > '"+record+".args'\n")
+	if err := os.Chmod(script, 0o755); err != nil {
 		e.t.Fatal(err)
 	}
-	return target.Target{Name: "Fake", Command: script + " {path}"}
+	return "'" + script + "'"
 }
 
-// targetArgs returns the arguments the fake target was called with, or nil
-// if it never ran.
-func (e *env) targetArgs() []string {
+// targetArgs returns the arguments the fake target name was called with, or
+// nil if it never ran.
+func (e *env) targetArgs(name string) []string {
 	e.t.Helper()
-	b, err := os.ReadFile(e.log)
-	if os.IsNotExist(err) {
+	b := e.record(name + ".args")
+	if b == "" {
 		return nil
+	}
+	return strings.Split(strings.TrimSuffix(b, "\n"), "\n")
+}
+
+// targetDir returns the working folder the fake target name ran in, or ""
+// if it never ran.
+func (e *env) targetDir(name string) string {
+	e.t.Helper()
+	return strings.TrimSuffix(e.record(name+".dir"), "\n")
+}
+
+// record returns what a fake target wrote to the file rel, or "" if it
+// never ran.
+func (e *env) record(rel string) string {
+	e.t.Helper()
+	b, err := os.ReadFile(filepath.Join(e.root, rel))
+	if os.IsNotExist(err) {
+		return ""
 	}
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	return strings.Split(strings.TrimSuffix(string(b), "\n"), "\n")
+	return string(b)
 }
 
 // driver feeds keys to the real program one at a time and runs any
@@ -148,13 +172,13 @@ func (e *env) start() *driver {
 	}
 	d := &driver{t: e.t}
 	d.model = ui.New(ui.Deps{
-		Home:   e.home,
-		Paths:  settings.Paths,
-		Scan:   scanner.Scan,
-		Branch: repoinfo.Branch,
-		Open:   target.Run,
-		Target: e.fakeTarget(),
-		Now:    func() time.Time { return time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC) },
+		Home:    e.home,
+		Paths:   settings.Paths,
+		Scan:    scanner.Scan,
+		Branch:  repoinfo.Branch,
+		Open:    target.Run,
+		Targets: settings.Targets,
+		Now:     func() time.Time { return time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC) },
 	})
 	d.run(d.model.Init())
 	d.send(tea.WindowSizeMsg{Width: 80, Height: 24})

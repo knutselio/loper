@@ -38,8 +38,8 @@ func TestTheListSitsBetweenRulesWithTheFooterOnTheLastLine(t *testing.T) {
 	if lines[22] != rule {
 		t.Errorf("line 23 is %q, want a rule inside the margin", lines[22])
 	}
-	if !strings.HasPrefix(lines[23], " enter open") || strings.Join(strings.Fields(lines[23]), " ") != "enter open q quit" {
-		t.Errorf("footer reads %q, want %q after a one-cell margin", lines[23], "enter open q quit")
+	if !strings.HasPrefix(lines[23], " enter open") || strings.Join(strings.Fields(lines[23]), " ") != "enter open z Zed q quit" {
+		t.Errorf("footer reads %q, want %q after a one-cell margin", lines[23], "enter open z Zed q quit")
 	}
 	for i, want := range map[int]string{0: " repos", 2: " > alpha", 3: "   beta"} {
 		if !strings.HasPrefix(lines[i], want) {
