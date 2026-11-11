@@ -342,27 +342,6 @@ func TestTheSearchLineKeepsTheSpinnerAndLeavesOutThePathWarnings(t *testing.T) {
 	}
 }
 
-// marked returns s with each run of styled text in brackets and every
-// other escape sequence removed, so a test sees which characters are
-// highlighted without depending on how.
-func marked(s string) string {
-	styled := false
-	return sgr.ReplaceAllStringFunc(s, func(seq string) string {
-		// An empty or 0 parameter resets every attribute, and 21 to 29 each
-		// turn one off.
-		params := seq[2 : len(seq)-1]
-		on := params != "" && params != "0" && !strings.HasPrefix(params, "2")
-		if on == styled {
-			return ""
-		}
-		styled = on
-		if on {
-			return "["
-		}
-		return "]"
-	})
-}
-
 var sgr = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 func TestMatchedLettersAreHighlightedInEachColumn(t *testing.T) {
@@ -375,11 +354,8 @@ func TestMatchedLettersAreHighlightedInEachColumn(t *testing.T) {
 	d.press("/")
 	d.typeText("mn")
 
-	var rows []string
-	for _, line := range strings.Split(d.screen(), "\n")[2:4] {
-		rows = append(rows, strings.Join(strings.Fields(marked(line)), " "))
-	}
-	if want := []string{"> [m]a[n]go ~/code [m]ai[n] -", "web ~/code [m]ai[n] -"}; !slices.Equal(rows, want) {
+	rows := styledRows(d)
+	if want := []string{"> [m]a[n]go {~/code} [m]ai[n] -", "web {~/code} [m]ai[n] -"}; !slices.Equal(rows, want) {
 		t.Errorf("rows read %q, want %q", rows, want)
 	}
 }

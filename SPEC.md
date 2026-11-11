@@ -186,7 +186,7 @@ Each module hides its details behind a small interface. The UI is the only modul
 ### Search
 
 - `/` starts the search. The header becomes the search line.
-- The query is matched fuzzily against name, folder and branch. A space separates terms, and a row matches when every term matches one of the three. Matching is case-insensitive unless the query contains a capital letter.
+- The query is matched fuzzily against name, folder and branch, also when their column is hidden. Under `root-path` the name is the path the row shows. A space separates terms, and a row matches when every term matches one of the three. Matching is case-insensitive unless the query contains a capital letter.
 - Only matching rows are shown, best match first. A match in the name ranks above a match in the folder or branch. Ties keep the current sort order.
 - The top match is selected automatically. Matched letters are highlighted.
 - While searching, letters go to the query, so target keys are inactive. `↑`/`↓` and `ctrl-p`/`ctrl-n` move through the matches, and `enter` opens the target menu for the selected match.
@@ -255,7 +255,7 @@ Inside the target menu, `j`/`k` and the arrow keys move, `enter` runs the highli
   - an unknown setting or an invalid value;
   - a target without `{path}`;
   - a target command with an unbalanced quote;
-  - a `columns` list without `name`;
+  - a `columns` list without `name`, or with a column listed twice;
   - a target key longer than one character;
   - two targets with the same key;
   - a target key that is one of the tool's own keys.
@@ -392,7 +392,7 @@ These were not discussed in the interview and are open to change:
 - **Target keys in my config.** The split uses `x`, because `s` is the sort key, and lazygit uses `l`.
 - **Changed paths.** A cache built from a different `paths` list counts as expired.
 - **History.** Entries for repos that are no longer found are kept.
-- **Config rules.** A target key is one character, duplicate target keys are an error, and `columns` must include `name`.
+- **Config rules.** A target key is one character, duplicate target keys are an error, and `columns` must include `name` and list each column once.
 - **Row styles and columns.** The `root-path` and `name` styles hide the `folder` column even when `columns` lists it.
 - **Alphabetical order under `root-path`.** It sorts on the displayed path, so repos group by folder.
 - **Narrow terminals.** The order in which columns are dropped is fixed and ignores the order in `columns`.

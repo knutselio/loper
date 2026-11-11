@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -19,16 +20,17 @@ import (
 	"github.com/knutselio/loper/internal/history"
 	"github.com/knutselio/loper/internal/matcher"
 	"github.com/knutselio/loper/internal/reltime"
+	"github.com/knutselio/loper/internal/scanner"
 	"github.com/knutselio/loper/internal/target"
 )
 
 // Deps is everything the UI needs from the outside world.
 type Deps struct {
-	Home       string                        // shown as ~ in folders
-	ConfigFile string                        // named when no repos are found
-	Paths      []string                      // what to scan for repos
-	Scan       func(paths []string) []string // the repos under paths
-	Missing    func(paths []string) []string // the paths that do not exist
+	Home       string                              // shown as ~ in folders
+	ConfigFile string                              // named when no repos are found
+	Paths      []string                            // what to scan for repos
+	Scan       func(paths []string) []scanner.Repo // the repos under paths
+	Missing    func(paths []string) []string       // the paths that do not exist
 	Branch     func(repo string) string
 	Exists     func(repo string) bool // whether a cached repo is still a repo
 	Open       func(t target.Target, path string) error
@@ -46,13 +48,20 @@ type Deps struct {
 	// CacheMaxAge is how old the cache may be before a launch scans again
 	// rather than re-reading the cached repos; 0 means every launch scans.
 	CacheMaxAge time.Duration
-	// Color highlights matched letters; it is off when NO_COLOR is set.
+	// Color highlights matched letters and dims folders; it is off when
+	// NO_COLOR is set.
 	Color bool
+	// Columns are the columns to show, in order, out of name, folder, branch
+	// and last_opened.
+	Columns []string
+	// RowStyle draws name and folder: "name-folder", "root-path" or "name".
+	RowStyle string
 }
 
 // Model is the program state.
 type Model struct {
 	deps     Deps
+	columns  []string             // the columns shown, in order
 	all      []repo               // every repo, in the current sort
 	repos    []repo               // the rows of the list: all, or the matches while searching
 	missing  []string             // configured paths that do not exist
@@ -97,6 +106,7 @@ type Model struct {
 // repo is one row of the list.
 type repo struct {
 	path   string
+	root   string // the configured path it was found under
 	branch string
 }
 
@@ -137,14 +147,23 @@ type tickMsg struct{}
 // spinner is the frames of the refresh spinner.
 var spinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
-// matchOn and matchOff start and end the highlight of a matched letter.
+// matchOn and matchOff start and end the highlight of a matched letter, and
+// dimOn and dimOff a dimmed part of a row.
 var (
 	matchOn  = ansi.Style{}.Underline(true).String()
 	matchOff = ansi.Style{}.NoUnderline().String()
+	dimOn    = ansi.Style{}.Faint().String()
+	dimOff   = ansi.Style{}.Normal().String()
 )
 
 func New(deps Deps) Model {
-	return Model{deps: deps, byName: deps.SortByName, refreshing: true, ticking: true}
+	m := Model{deps: deps, byName: deps.SortByName, refreshing: true, ticking: true}
+	for _, c := range deps.Columns {
+		if c != "folder" || deps.RowStyle == "name-folder" { // the other styles have no folder column
+			m.columns = append(m.columns, c)
+		}
+	}
+	return m
 }
 
 // Init reads the cache and the history. The refresh starts once the cached
@@ -154,7 +173,7 @@ func (m Model) Init() tea.Cmd {
 		list := m.deps.Cache.Load()
 		c := cachedMsg{scannedAt: list.ScannedAt, paths: list.Paths}
 		for _, r := range list.Repos {
-			c.repos = append(c.repos, repo{path: r.Path, branch: r.Branch})
+			c.repos = append(c.repos, repo{path: r.Path, root: r.Root, branch: r.Branch})
 		}
 		return c
 	}, func() tea.Msg { return historyMsg(m.deps.History.Load()) }, m.tick())
@@ -170,7 +189,11 @@ func (m Model) tick() tea.Cmd {
 func (m Model) refresh() tea.Cmd {
 	return func() tea.Msg {
 		missing := m.deps.Missing(m.deps.Paths)
-		return scannedMsg{repos: m.save(m.deps.Scan(m.deps.Paths), m.deps.Now()), missing: missing}
+		var found []repo
+		for _, r := range m.deps.Scan(m.deps.Paths) {
+			found = append(found, repo{path: r.Path, root: r.Root})
+		}
+		return scannedMsg{repos: m.save(found, m.deps.Now()), missing: missing}
 	}
 }
 
@@ -180,25 +203,25 @@ func (m Model) refresh() tea.Cmd {
 // expires.
 func (m Model) reread(c cachedMsg) tea.Cmd {
 	return func() tea.Msg {
-		var paths []string
+		var found []repo
 		for _, r := range c.repos {
 			if m.deps.Exists(r.path) {
-				paths = append(paths, r.path)
+				found = append(found, r)
 			}
 		}
-		return scannedMsg{repos: m.save(paths, c.scannedAt), missing: m.deps.Missing(m.deps.Paths)}
+		return scannedMsg{repos: m.save(found, c.scannedAt), missing: m.deps.Missing(m.deps.Paths)}
 	}
 }
 
-// save reads the branch of each repo in paths and rewrites the cache with
-// them, as scanned at scannedAt from the configured paths.
-func (m Model) save(paths []string, scannedAt time.Time) []repo {
+// save reads the branch of each of found and rewrites the cache with them,
+// as scanned at scannedAt from the configured paths.
+func (m Model) save(found []repo, scannedAt time.Time) []repo {
 	list := cache.List{ScannedAt: scannedAt, Paths: m.deps.Paths}
 	var repos []repo
-	for _, path := range paths {
-		r := repo{path: path, branch: m.deps.Branch(path)}
+	for _, r := range found {
+		r.branch = m.deps.Branch(r.path)
 		repos = append(repos, r)
-		list.Repos = append(list.Repos, cache.Repo{Path: r.path, Branch: r.branch})
+		list.Repos = append(list.Repos, cache.Repo{Path: r.path, Root: r.root, Branch: r.branch})
 	}
 	// A cache that cannot be saved costs only the next launch its head
 	// start, as that launch scans again; the list shown is still right.
@@ -385,7 +408,7 @@ func (m Model) filter() ([]repo, []matcher.Match) {
 	}
 	rows := make([]matcher.Row, len(m.all))
 	for i, r := range m.all {
-		rows[i] = matcher.Row{Name: filepath.Base(r.path), Folder: m.shorten(filepath.Dir(r.path)), Branch: r.branch}
+		rows[i] = matcher.Row{Name: m.name(r), Folder: m.shorten(filepath.Dir(r.path)), Branch: r.branch}
 	}
 	hits := matcher.Find(m.query, rows)
 	repos := make([]repo, len(hits))
@@ -442,11 +465,12 @@ func (m Model) keyed(msg tea.KeyPressMsg) (target.Target, bool) {
 }
 
 func (m Model) View() tea.View {
-	nameWidth, folderWidth, branchWidth := 0, 0, 0
+	now := m.deps.Now()
+	widths := make([]int, len(m.columns))
 	for _, r := range m.all { // all, so the columns stay put while searching
-		nameWidth = max(nameWidth, ansi.StringWidth(filepath.Base(r.path)))
-		folderWidth = max(folderWidth, ansi.StringWidth(m.shorten(filepath.Dir(r.path))))
-		branchWidth = max(branchWidth, ansi.StringWidth(r.branch))
+		for i, c := range m.columns {
+			widths[i] = max(widths[i], ansi.StringWidth(m.cell(c, r, matcher.Match{}, now)))
+		}
 	}
 	rule := " " + strings.Repeat("─", max(m.width-2, 0)) + " "
 	header := fmt.Sprintf(" repos  %d", len(m.repos))
@@ -482,7 +506,6 @@ func (m Model) View() tea.View {
 	case m.loaded:
 		empty = []string{spinner[m.frame] + " scanning…"}
 	}
-	now := m.deps.Now()
 	for i := m.offset; i < m.offset+m.listHeight(); i++ {
 		if i >= len(m.repos) {
 			line := ""
@@ -497,16 +520,18 @@ func (m Model) View() tea.View {
 		if i == m.selected {
 			marker = " > "
 		}
-		lastOpened := "-"
-		if at, ok := m.history[r.path]; ok {
-			lastOpened = reltime.Format(at, now)
-		}
-		name, folder, branch := filepath.Base(r.path), m.shorten(filepath.Dir(r.path)), r.branch
+		var h matcher.Match
 		if m.hits != nil {
-			h := m.hits[i]
-			name, folder, branch = m.highlight(name, h.Name), m.highlight(folder, h.Folder), m.highlight(branch, h.Branch)
+			h = m.hits[i]
 		}
-		lines = append(lines, fmt.Sprintf("%s%s  %s  %s  %s", marker, pad(name, nameWidth), pad(folder, folderWidth), pad(branch, branchWidth), lastOpened))
+		cells := make([]string, len(m.columns))
+		for j, c := range m.columns {
+			cells[j] = m.cell(c, r, h, now)
+			if j < len(cells)-1 { // the last column is not padded, so a row has no trailing spaces
+				cells[j] = pad(cells[j], widths[j])
+			}
+		}
+		lines = append(lines, marker+strings.Join(cells, "  "))
 	}
 	keys := " enter open"
 	for _, t := range m.deps.Targets {
@@ -531,8 +556,59 @@ func (m Model) View() tea.View {
 	return v
 }
 
+// cell returns the text of column c for r, as of now, with the letters
+// matched by h highlighted.
+func (m Model) cell(c string, r repo, h matcher.Match, now time.Time) string {
+	switch c {
+	case "name":
+		// Under the root-path style, the path before the name is dimmed.
+		name := m.name(r)
+		cut := strings.LastIndex(name, string(filepath.Separator)) + 1
+		k := utf8.RuneCountInString(name[:cut])
+		var rest []int // the matched positions in the name itself, counted from its start
+		for _, p := range h.Name {
+			if p >= k {
+				rest = append(rest, p-k)
+			}
+		}
+		return m.dim(m.highlight(name[:cut], h.Name)) + m.highlight(name[cut:], rest)
+	case "folder":
+		return m.dim(m.highlight(m.shorten(filepath.Dir(r.path)), h.Folder))
+	case "branch":
+		return m.highlight(r.branch, h.Branch)
+	}
+	if at, ok := m.history[r.path]; ok { // last_opened
+		return reltime.Format(at, now)
+	}
+	return "-"
+}
+
+// name is the text of r's name column: its name or, under the root-path
+// style, its path from its root, which for a repo listed directly in paths is
+// its name.
+func (m Model) name(r repo) string {
+	if m.deps.RowStyle == "root-path" {
+		// The error is dropped: in a list the tool scanned or cached itself, a
+		// repo's path is its root or a folder under it, both absolute. A cache
+		// edited by hand could break that; the row then shows "" or a path
+		// with "..", and the next refresh puts it right.
+		if rel, _ := filepath.Rel(r.root, r.path); rel != "." {
+			return rel
+		}
+	}
+	return filepath.Base(r.path)
+}
+
+// dim dims s, unless colour is off.
+func (m Model) dim(s string) string {
+	if !m.deps.Color || s == "" {
+		return s
+	}
+	return dimOn + s + dimOff
+}
+
 // highlight marks the characters of s at the positions pos, which are in
-// ascending order, unless colour is off.
+// ascending order and may go past the end of s, unless colour is off.
 func (m Model) highlight(s string, pos []int) string {
 	if !m.deps.Color || len(pos) == 0 {
 		return s
@@ -744,12 +820,13 @@ func (m Model) sorted(repos []repo) []repo {
 	return repos
 }
 
-// compareNames orders two repos by name, then by folder as shown. Case is
-// ignored, so Backend and backend sit together; the full path breaks any tie,
-// so the order never depends on the order the repos arrived in.
+// compareNames orders two repos by name as shown, which under the root-path
+// style is the path from the root, then by folder as shown. Case is ignored,
+// so Backend and backend sit together; the full path breaks any tie, so the
+// order never depends on the order the repos arrived in.
 func (m Model) compareNames(a, b repo) int {
 	return cmp.Or(
-		cmp.Compare(strings.ToLower(filepath.Base(a.path)), strings.ToLower(filepath.Base(b.path))),
+		cmp.Compare(strings.ToLower(m.name(a)), strings.ToLower(m.name(b))),
 		cmp.Compare(strings.ToLower(m.shorten(filepath.Dir(a.path))), strings.ToLower(m.shorten(filepath.Dir(b.path)))),
 		cmp.Compare(a.path, b.path),
 	)

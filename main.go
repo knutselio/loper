@@ -69,6 +69,8 @@ func startUI(home string, settings config.Settings) error {
 		SortByName:  settings.SortByName,
 		CacheMaxAge: settings.CacheMaxAge,
 		Color:       os.Getenv("NO_COLOR") == "",
+		Columns:     settings.Columns,
+		RowStyle:    settings.RowStyle,
 	})
 	_, err := tea.NewProgram(m).Run()
 	return err

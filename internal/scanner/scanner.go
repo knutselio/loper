@@ -10,14 +10,21 @@ import (
 	"github.com/knutselio/loper/internal/repoinfo"
 )
 
-// Scan returns every repo folder found under paths. A repo is a folder that
+// Repo is a repo found by a scan: its folder, and the configured path it was
+// found under, its root, both as written in the config.
+type Repo struct {
+	Path, Root string
+}
+
+// Scan returns every repo found under paths. A repo is a folder that
 // contains a .git directory; the scan does not descend into a repo or into a
 // folder whose name starts with a dot, and follows no symlink but a root. A
 // repo found under overlapping paths is listed once, at its first
-// occurrence.
-func Scan(paths []string) []string {
-	var repos []string
-	seen := map[string]bool{}
+// occurrence, with the root of that occurrence, unless it is also listed
+// directly: then it has that entry as its root.
+func Scan(paths []string) []Repo {
+	var repos []Repo
+	seen := map[string]int{} // the index in repos of each repo found
 	for _, root := range paths {
 		// A root may be a symlink, which is followed; the repos under it are
 		// reported under the root as written. A root that cannot be resolved
@@ -38,9 +45,12 @@ func Scan(paths []string) []string {
 			}
 			if repoinfo.Exists(path) {
 				rel, _ := filepath.Rel(walkRoot, path)
-				if repo := filepath.Join(root, rel); !seen[repo] {
-					seen[repo] = true
-					repos = append(repos, repo)
+				repo := filepath.Join(root, rel)
+				if i, ok := seen[repo]; !ok {
+					seen[repo] = len(repos)
+					repos = append(repos, Repo{Path: repo, Root: root})
+				} else if path == walkRoot {
+					repos[i].Root = root // listed directly as well: that root, whatever the order
 				}
 				return filepath.SkipDir
 			}

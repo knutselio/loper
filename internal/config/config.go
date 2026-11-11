@@ -28,6 +28,8 @@ type Settings struct {
 	Targets     []target.Target // at least one
 	CloseOnOpen bool            // quit after a successful open
 	SortByName  bool            // start sorted by name rather than by last opened
+	Columns     []string        // the columns shown, in order; "name" is one of them
+	RowStyle    string          // how name and folder are drawn: "name-folder", "root-path" or "name"
 	// CacheMaxAge is how old the cache may be before a launch scans again;
 	// 0 means every launch scans.
 	CacheMaxAge time.Duration
@@ -40,6 +42,8 @@ type file struct {
 	CloseOnOpen bool         `toml:"close_on_open"`
 	Sort        string       `toml:"sort"`
 	CacheMaxAge string       `toml:"cache_max_age"`
+	Columns     []string     `toml:"columns"`
+	RowStyle    string       `toml:"row_style"`
 }
 
 type targetFile struct {
@@ -58,6 +62,8 @@ type checked struct {
 	CloseOnOpen bool            `toml:"close_on_open"`
 	Sort        sortName        `toml:"sort"`
 	CacheMaxAge maxAge          `toml:"cache_max_age"`
+	Columns     []column        `toml:"columns"`
+	RowStyle    rowStyle        `toml:"row_style"`
 }
 
 type checkedTarget struct {
@@ -83,6 +89,26 @@ type sortName struct{}
 func (*sortName) UnmarshalText(b []byte) error {
 	if s := string(b); s != "last_opened" && s != "name" {
 		return errors.New("not a sort")
+	}
+	return nil
+}
+
+// column checks a columns entry: one of the four columns.
+type column struct{}
+
+func (*column) UnmarshalText(b []byte) error {
+	if !slices.Contains([]string{"name", "folder", "branch", "last_opened"}, string(b)) {
+		return errors.New("not a column")
+	}
+	return nil
+}
+
+// rowStyle checks the row_style setting: one of the three styles.
+type rowStyle struct{}
+
+func (*rowStyle) UnmarshalText(b []byte) error {
+	if !slices.Contains([]string{"name-folder", "root-path", "name"}, string(b)) {
+		return errors.New("not a row style")
 	}
 	return nil
 }
@@ -169,10 +195,19 @@ func Load(path, home string) (Settings, error) {
 	if err := checkTargets(path, b, f.Targets); err != nil {
 		return Settings{}, err
 	}
+	if err := checkColumns(path, b, f.Columns); err != nil {
+		return Settings{}, err
+	}
+	if f.Columns == nil {
+		f.Columns = []string{"name", "folder", "branch", "last_opened"}
+	}
+	if f.RowStyle == "" {
+		f.RowStyle = "name-folder"
+	}
 	if len(f.Targets) == 0 {
 		f.Targets = []targetFile{{Name: "Zed", Key: "z", Command: "zed {path}"}}
 	}
-	s := Settings{File: path, CloseOnOpen: f.CloseOnOpen, SortByName: f.Sort == "name"}
+	s := Settings{File: path, CloseOnOpen: f.CloseOnOpen, SortByName: f.Sort == "name", Columns: f.Columns, RowStyle: f.RowStyle}
 	if f.CacheMaxAge != "" {
 		s.CacheMaxAge, _ = parseMaxAge(f.CacheMaxAge) // cannot fail: the value was checked while decoding
 	}
@@ -206,6 +241,47 @@ func checkTargets(path string, b []byte, targets []targetFile) error {
 		}
 	}
 	return nil
+}
+
+// checkColumns reports what the per-value checks cannot see: a columns
+// list without name, and a column listed twice. b is the file at path; a nil
+// columns was left out.
+func checkColumns(path string, b []byte, columns []string) error {
+	if columns == nil {
+		return nil
+	}
+	start, lines := columnLines(b)
+	for i, c := range columns {
+		if slices.Contains(columns[:i], c) {
+			return fmt.Errorf("%s:%d: column %q is listed twice", path, lines[i], c)
+		}
+	}
+	if !slices.Contains(columns, "name") {
+		return fmt.Errorf("%s:%d: columns must include \"name\"", path, start)
+	}
+	return nil
+}
+
+// columnLines returns the line of the columns setting in b, a config file
+// that has already decoded cleanly, and the line of each of its entries.
+func columnLines(b []byte) (int, []int) {
+	var p unstable.Parser
+	p.Reset(b)
+	line := func(n *unstable.Node) int { return p.Shape(n.Raw).Start.Line }
+	for p.NextExpression() {
+		e := p.Expression()
+		if e.Kind != unstable.KeyValue || keyOf(e) != "columns" {
+			continue
+		}
+		var items []int
+		for c := e.Value().Children(); c.Next(); {
+			items = append(items, line(c.Node()))
+		}
+		k := e.Key()
+		k.Next()
+		return line(k.Node()), items
+	}
+	return 0, nil
 }
 
 // targetLine is where a target is in the config file.
@@ -360,5 +436,7 @@ var wants = map[string]string{
 	"close_on_open": "true or false",
 	"sort":          `"last_opened" or "name"`,
 	"cache_max_age": `"0" or a positive interval such as "4h" or "30m" (units h, m, s)`,
+	"columns":       `a list of "name", "folder", "branch" and "last_opened", including "name"`,
+	"row_style":     `"name-folder", "root-path" or "name"`,
 	"paths":         `a list of folders, each absolute or starting with ~/, such as ["~/code"]`,
 }

@@ -310,3 +310,53 @@ func TestACacheMaxAgeIsHandedToTheUI(t *testing.T) {
 		}
 	}
 }
+
+func TestAColumnsListWithoutNameStopsTheToolNamingTheFileAndLine(t *testing.T) {
+	for _, value := range []string{`["branch"]`, `[]`, "[\n  \"folder\",\n  \"branch\",\n]"} {
+		startupFails(t, "paths = [\"~/code\"]\n\ncolumns = "+value+"\n",
+			3, `columns must include "name"`)
+	}
+}
+
+func TestAnUnknownColumnStopsTheToolNamingTheFileAndLine(t *testing.T) {
+	startupFails(t, "paths = [\"~/code\"]\n\ncolumns = [\n  \"name\",\n  \"size\",\n]\n",
+		5, `invalid value for "columns": want a list of "name", "folder", "branch" and "last_opened", including "name"`)
+	startupFails(t, "columns = \"name\"\n",
+		1, `invalid value for "columns": want a list of "name", "folder", "branch" and "last_opened", including "name"`)
+}
+
+func TestAColumnListedTwiceStopsTheToolNamingTheFileAndLine(t *testing.T) {
+	startupFails(t, "paths = [\"~/code\"]\n\ncolumns = [\n  \"name\",\n  \"branch\",\n  \"branch\",\n]\n",
+		6, `column "branch" is listed twice`)
+}
+
+func TestARowStyleThatIsNotOneOfTheThreeStopsTheToolNamingTheFileAndLine(t *testing.T) {
+	for _, value := range []string{`"wide"`, `"Name"`, `1`} {
+		startupFails(t, "paths = [\"~/code\"]\n\nrow_style = "+value+"\n",
+			3, `invalid value for "row_style": want "name-folder", "root-path" or "name"`)
+	}
+}
+
+func TestColumnsAndRowStyleAreHandedToTheUIWithTheirDefaults(t *testing.T) {
+	for _, c := range []struct {
+		body     string
+		columns  []string
+		rowStyle string
+	}{
+		{"", []string{"name", "folder", "branch", "last_opened"}, "name-folder"},
+		{"columns = [\"branch\", \"name\"]\nrow_style = \"root-path\"", []string{"branch", "name"}, "root-path"},
+	} {
+		home := tempHome(t)
+		writeConfig(t, filepath.Join(home, ".config", "loper", "config.toml"), c.body+"\n")
+		var got config.Settings
+
+		code := run(nil, &strings.Builder{}, func(_ string, s config.Settings) error {
+			got = s
+			return nil
+		})
+
+		if code != 0 || !slices.Equal(got.Columns, c.columns) || got.RowStyle != c.rowStyle {
+			t.Errorf("%q: exit code %d, UI told %q and %q, want 0, %q and %q", c.body, code, got.Columns, got.RowStyle, c.columns, c.rowStyle)
+		}
+	}
+}

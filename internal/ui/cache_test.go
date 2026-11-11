@@ -470,3 +470,21 @@ func TestAKeyPressedWhileScanningLeavesTheTopRowSelectedOnceTheListArrives(t *te
 		t.Errorf("selected %q, want the top row, beta", got)
 	}
 }
+
+func TestACacheWrittenBeforeReposHadARootReadsAsNoCache(t *testing.T) {
+	e := newEnv(t)
+	alpha := e.repo("code/alpha")
+	e.config(`row_style = "root-path"`)
+	e.writeFile(filepath.Join(e.home, ".cache", "loper", "repos.json"),
+		`{"scanned_at": "2026-11-11T12:00:00Z", "paths": ["`+filepath.Join(e.home, "code")+`"], "repos": [{"path": "`+alpha+`", "branch": "main"}]}`)
+
+	d := relaunch(e)
+
+	if screen := d.screen(); !strings.Contains(screen, "\n   ⠋ scanning…") || hasRow(screen, "alpha") {
+		t.Errorf("before the refresh's result: want scanning… and no repos:\n%s", screen)
+	}
+	d.release()
+	if got, want := rows(d), []string{"alpha main -"}; !slices.Equal(got, want) {
+		t.Errorf("after the refresh: rows %q, want %q", got, want)
+	}
+}

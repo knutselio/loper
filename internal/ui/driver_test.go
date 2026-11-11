@@ -272,6 +272,8 @@ func (e *env) launch() *driver {
 		SortByName:  settings.SortByName,
 		CacheMaxAge: settings.CacheMaxAge,
 		Color:       e.color,
+		Columns:     settings.Columns,
+		RowStyle:    settings.RowStyle,
 	})
 	d.run(d.model.Init())
 	d.send(tea.WindowSizeMsg{Width: 80, Height: 24})
