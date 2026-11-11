@@ -1,6 +1,8 @@
 package ui_test
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,6 +21,24 @@ import (
 	"github.com/knutselio/loper/internal/ui"
 )
 
+// scripts holds every fake target script, written once per test binary and
+// named by a hash of its content: macOS takes well over 100 ms to run a newly
+// written executable for the first time, so tests share the files and each
+// test links them into its own bin folder.
+var scripts string
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "loper-scripts")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	scripts = dir
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
+}
+
 // env is a test's fixed environment: a temporary home with its config,
 // cache and state folders, and a fake zed first on the PATH, so the built-in
 // Zed target never runs the real program.
@@ -28,6 +48,9 @@ type env struct {
 	home string
 	wait time.Duration // how long a target runs before it counts as opened
 	now  time.Time     // the time on the program's clock
+	// lastFirst runs the commands of a batch last first, as a real program
+	// may finish them in any order.
+	lastFirst bool
 }
 
 func newEnv(t *testing.T) *env {
@@ -39,6 +62,7 @@ func newEnv(t *testing.T) *env {
 	e := &env{t: t, root: root, home: filepath.Join(root, "home"), wait: 10 * time.Second,
 		now: time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)}
 	t.Setenv("PATH", filepath.Join(root, "bin")+string(filepath.ListSeparator)+os.Getenv("PATH"))
+	t.Setenv("LOPER_TEST_RECORDS", root) // where fake targets write their records
 	t.Setenv("HOME", e.home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(e.home, ".config"))
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(e.home, ".cache"))
@@ -121,17 +145,34 @@ func (e *env) writeFile(path, body string) {
 // a target command.
 func (e *env) fakeTarget(name string) string {
 	e.t.Helper()
-	record := filepath.Join(e.root, name)
-	return e.script(name, "pwd > '"+record+".dir'\nprintf '%s\\n' \"$@\" > '"+record+".args'\n")
+	record := `"$LOPER_TEST_RECORDS"/'` + name + `'`
+	return e.script(name, "pwd > "+record+".dir\nprintf '%s\\n' \"$@\" > "+record+".args\n")
 }
 
-// script writes a shell script called name, on the PATH, with body as its
-// commands. It returns the script's path quoted for a target command.
+// script puts a shell script called name, with body as its commands, on the
+// PATH, as a link to the shared copy of that script. It returns the script's
+// path quoted for a target command.
 func (e *env) script(name, body string) string {
 	e.t.Helper()
+	content := "#!/bin/sh\n" + body
+	shared := filepath.Join(scripts, fmt.Sprintf("%x", sha256.Sum256([]byte(content))))
+	if _, err := os.Stat(shared); os.IsNotExist(err) {
+		// Written under another name and renamed, so a script is never run
+		// half written.
+		e.writeFile(shared+".tmp", content)
+		if err := os.Chmod(shared+".tmp", 0o755); err != nil {
+			e.t.Fatal(err)
+		}
+		if err := os.Rename(shared+".tmp", shared); err != nil {
+			e.t.Fatal(err)
+		}
+	}
 	script := filepath.Join(e.root, "bin", name)
-	e.writeFile(script, "#!/bin/sh\n"+body)
-	if err := os.Chmod(script, 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(script), 0o755); err != nil {
+		e.t.Fatal(err)
+	}
+	os.Remove(script) // a test may replace a script it made earlier
+	if err := os.Symlink(shared, script); err != nil {
 		e.t.Fatal(err)
 	}
 	return "'" + script + "'"
@@ -177,6 +218,8 @@ type driver struct {
 	quit  bool
 	hold  bool      // keep background work back instead of running it, until release
 	held  []tea.Cmd // the background work kept back, in the order it was started
+	// lastFirst runs the commands of a batch last first.
+	lastFirst bool
 }
 
 // start launches the program on a fixed 80x24 screen at e.now, with the
@@ -187,7 +230,7 @@ func (e *env) start() *driver {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	d := &driver{t: e.t}
+	d := &driver{t: e.t, lastFirst: e.lastFirst}
 	d.model = ui.New(ui.Deps{
 		Home:        e.home,
 		Paths:       settings.Paths,
@@ -198,6 +241,7 @@ func (e *env) start() *driver {
 		History:     history.New(e.home),
 		Now:         func() time.Time { return e.now },
 		CloseOnOpen: settings.CloseOnOpen,
+		SortByName:  settings.SortByName,
 	})
 	d.run(d.model.Init())
 	d.send(tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -223,6 +267,10 @@ func (d *driver) run(cmd tea.Cmd) {
 	case tea.QuitMsg:
 		d.quit = true
 	case tea.BatchMsg:
+		if d.lastFirst {
+			msg = slices.Clone(msg)
+			slices.Reverse(msg)
+		}
 		for _, c := range msg {
 			d.run(c)
 		}

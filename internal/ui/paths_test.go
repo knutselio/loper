@@ -2,6 +2,7 @@ package ui_test
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -110,7 +111,7 @@ func TestASymlinkListedDirectlyIsFollowedAndShowsThePathAsWritten(t *testing.T) 
 			t.Errorf("screen has no row %q:\n%s", row, screen)
 		}
 	}
-	d.press("enter", "enter")
+	d.press("j", "enter", "enter") // dots sorts after backend
 	if got := e.targetArgs("zed"); len(got) != 1 || got[0] != filepath.Join(e.home, "dots") {
 		t.Errorf("target called with %q, want the path as written", got)
 	}
@@ -144,19 +145,18 @@ func TestABareTildeInPathsIsTheHomeFolder(t *testing.T) {
 	}
 }
 
-func TestOverlappingPathsListARepoOnceAtItsFirstOccurrence(t *testing.T) {
+func TestOverlappingPathsListARepoOnce(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.repo("code/beta")
 	e.config(`paths = ["~/code/beta", "~/code", "~/code/beta"]`)
 
-	screen := e.start().screen()
+	d := e.start()
 
-	if !hasRow(screen, "repos 2") {
-		t.Errorf("header does not count 2 repos:\n%s", screen)
+	if !hasRow(d.screen(), "repos 2") {
+		t.Errorf("header does not count 2 repos:\n%s", d.screen())
 	}
-	lines := strings.Split(screen, "\n")
-	if !hasRow(lines[2], "beta ~/code main") || !hasRow(lines[3], "alpha ~/code main") {
-		t.Errorf("want beta then alpha, each once:\n%s", screen)
+	if got, want := order(d), []string{"alpha ~/code", "beta ~/code"}; !slices.Equal(got, want) {
+		t.Errorf("rows %q, want %q, each once", got, want)
 	}
 }

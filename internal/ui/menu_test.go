@@ -190,7 +190,7 @@ func TestTheMenuSitsOverTheListWhichStaysVisibleAroundIt(t *testing.T) {
 	for i := range 20 {
 		e.repo(fmt.Sprintf("code/repo%02d", i))
 	}
-	e.repo("code/a/folder/deep/enough/to/push/the/branch/past/the/menu/zeta")
+	e.repo("code/a/folder/deep/enough/to/push/the/branch/past/the/menu/alpha")
 	threeTargets(e)
 	d := e.start()
 
@@ -201,12 +201,12 @@ func TestTheMenuSitsOverTheListWhichStaysVisibleAroundIt(t *testing.T) {
 	if len(lines) != 24 {
 		t.Errorf("screen has %d lines with the menu open, want 24", len(lines))
 	}
-	for _, row := range []string{"repos 21", "enter open z Zed t Terminal tab q quit"} {
+	for _, row := range []string{"repos 21", "enter open z Zed t Terminal tab s sort q quit"} {
 		if !hasRow(screen, row) {
 			t.Errorf("screen has no row %q with the menu open:\n%s", row, screen)
 		}
 	}
-	if !strings.Contains(screen, "╭─ Open zeta ─") {
+	if !strings.Contains(screen, "╭─ Open alpha ─") {
 		t.Errorf("menu is not titled with the selected repo:\n%s", screen)
 	}
 	covered := 0

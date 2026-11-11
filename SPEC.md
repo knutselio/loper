@@ -180,7 +180,7 @@ Each module hides its details behind a small interface. The UI is the only modul
 ### Sorting
 
 - `last_opened` (default): most recently opened first. Repos never opened follow, ordered by name and then folder.
-- `name`: by name, then folder. Under `row_style = "root-path"` the alphabetical order is on the displayed path instead, so repos group by folder. The same rule orders never-opened repos in the `last_opened` sort.
+- `name`: by name, then folder, ignoring case. Under `row_style = "root-path"` the alphabetical order is on the displayed path instead, so repos group by folder. The same rule orders never-opened repos in the `last_opened` sort.
 - `s` switches between the two for the current session. The `sort` setting decides the starting order.
 
 ### Search

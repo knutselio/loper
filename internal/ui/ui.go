@@ -2,10 +2,12 @@
 package ui
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -30,6 +32,8 @@ type Deps struct {
 	Now     func() time.Time
 	// CloseOnOpen quits the program after a successful open.
 	CloseOnOpen bool
+	// SortByName starts the list sorted by name rather than by last opened.
+	SortByName bool
 }
 
 // Model is the program state.
@@ -48,6 +52,7 @@ type Model struct {
 	menuTop  int          // the first target shown, so the highlighted one stays in view
 	failure  *errorDialog // the error dialog for a failed open, or nil
 	opening  bool         // an open is running, so targets do nothing until it finishes
+	byName   bool         // sorted by name rather than by last opened
 }
 
 // repo is one row of the list.
@@ -79,7 +84,7 @@ type failedMsg struct {
 }
 
 func New(deps Deps) Model {
-	return Model{deps: deps}
+	return Model{deps: deps, byName: deps.SortByName}
 }
 
 func (m Model) Init() tea.Cmd {
@@ -97,6 +102,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case scannedMsg:
 		m.repos, m.missing = msg.repos, msg.missing
+		m.repos = m.sorted() // keeps the selected row, not the repo, so the top row stays selected at launch
 	case historyMsg:
 		// An open recorded before the history arrived is newer than the file
 		// that was read, so it stays.
@@ -104,12 +110,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		maps.Copy(h, msg)
 		maps.Copy(h, m.history)
 		m.history = h
+		m.repos = m.sorted() // keeps the selected row, not the repo, so the top row stays selected at launch
 	case openedMsg:
 		m.opening = false
 		h := map[string]time.Time{} // a new map: an older model may still hold the old one
 		maps.Copy(h, m.history)
 		h[msg.path] = msg.at
 		m.history = h
+		m = m.resorted()
 		m.notice = "Opened " + filepath.Base(msg.path) + " in " + msg.target
 		if msg.saveErr != nil { // the footer has one line: room to name the problem, not its cause
 			m.notice += ", but the history could not be saved"
@@ -159,6 +167,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selected = max(m.selected-max(m.listHeight()/2, 1), 0)
 		case "enter":
 			m.menu, m.choice, m.menuTop = len(m.repos) > 0 && m.menuRows() > 0, 0, 0
+		case "s":
+			m.byName = !m.byName
+			m = m.resorted()
 		default:
 			if t, ok := m.keyed(msg); ok {
 				return m.open(t)
@@ -228,6 +239,13 @@ func (m Model) View() tea.View {
 	for _, path := range m.missing {
 		header += "  " + m.shorten(path) + " not found"
 	}
+	sortLabel := "  sort: last opened "
+	if m.byName {
+		sortLabel = "  sort: name "
+	}
+	// The sort keeps its place on the right; warnings that do not fit are cut.
+	room := max(m.width-ansi.StringWidth(sortLabel), 0)
+	header = ansi.Truncate(pad(ansi.Truncate(header, room, "…"), room)+sortLabel, m.width, "")
 	lines := []string{header, rule}
 	now := m.deps.Now()
 	for i := m.offset; i < m.offset+m.listHeight(); i++ {
@@ -252,7 +270,7 @@ func (m Model) View() tea.View {
 			keys += "  " + t.Key + " " + t.Name
 		}
 	}
-	keys += "  q quit"
+	keys += "  s sort  q quit"
 	if m.notice != "" {
 		keys = " " + m.notice
 	}
@@ -391,6 +409,56 @@ func (m Model) overlay(lines, box []string) []string {
 		lines[top+i] = ansi.Truncate(before+b+after, m.width, "")
 	}
 	return lines
+}
+
+// resorted sorts the repos and keeps the selection on the selected repo,
+// wherever it moves.
+func (m Model) resorted() Model {
+	if len(m.repos) == 0 {
+		return m
+	}
+	path := m.repos[m.selected].path
+	m.repos = m.sorted()
+	m.selected = slices.IndexFunc(m.repos, func(r repo) bool { return r.path == path })
+	return m
+}
+
+// sorted returns the repos in a new slice, as an older model may still hold
+// the old one, in the current sort: by name, or most recently opened first
+// and then the repos never opened by name.
+func (m Model) sorted() []repo {
+	repos := slices.Clone(m.repos)
+	if m.byName {
+		slices.SortFunc(repos, m.compareNames)
+		return repos
+	}
+	slices.SortFunc(repos, func(a, b repo) int {
+		at, aOpened := m.history[a.path]
+		bt, bOpened := m.history[b.path]
+		switch {
+		case aOpened && bOpened:
+			if c := bt.Compare(at); c != 0 {
+				return c
+			}
+		case aOpened:
+			return -1
+		case bOpened:
+			return 1
+		}
+		return m.compareNames(a, b)
+	})
+	return repos
+}
+
+// compareNames orders two repos by name, then by folder as shown. Case is
+// ignored, so Backend and backend sit together; the full path breaks any tie,
+// so the order never depends on the order the repos arrived in.
+func (m Model) compareNames(a, b repo) int {
+	return cmp.Or(
+		cmp.Compare(strings.ToLower(filepath.Base(a.path)), strings.ToLower(filepath.Base(b.path))),
+		cmp.Compare(strings.ToLower(m.shorten(filepath.Dir(a.path))), strings.ToLower(m.shorten(filepath.Dir(b.path)))),
+		cmp.Compare(a.path, b.path),
+	)
 }
 
 // listHeight is the number of screen lines left for the list between the

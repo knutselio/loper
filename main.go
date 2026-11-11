@@ -60,6 +60,7 @@ func startUI(home string, settings config.Settings) error {
 		History:     history.New(home),
 		Now:         time.Now,
 		CloseOnOpen: settings.CloseOnOpen,
+		SortByName:  settings.SortByName,
 	})
 	_, err := tea.NewProgram(m).Run()
 	return err

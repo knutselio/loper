@@ -25,6 +25,7 @@ type Settings struct {
 	Paths       []string        // absolute folders to scan, or repos to list directly
 	Targets     []target.Target // at least one
 	CloseOnOpen bool            // quit after a successful open
+	SortByName  bool            // start sorted by name rather than by last opened
 }
 
 // file is the config file as written; a nil field was left out.
@@ -32,6 +33,7 @@ type file struct {
 	Paths       []string     `toml:"paths"`
 	Targets     []targetFile `toml:"targets"`
 	CloseOnOpen bool         `toml:"close_on_open"`
+	Sort        string       `toml:"sort"`
 }
 
 type targetFile struct {
@@ -48,6 +50,7 @@ type checked struct {
 	Paths       []folder        `toml:"paths"`
 	Targets     []checkedTarget `toml:"targets"`
 	CloseOnOpen bool            `toml:"close_on_open"`
+	Sort        sortName        `toml:"sort"`
 }
 
 type checkedTarget struct {
@@ -63,6 +66,16 @@ func (*folder) UnmarshalText(b []byte) error {
 	p := string(b)
 	if p != "~" && !strings.HasPrefix(p, "~/") && !filepath.IsAbs(p) {
 		return errors.New("not an absolute path")
+	}
+	return nil
+}
+
+// sortName checks the sort setting: one of the two sorts.
+type sortName struct{}
+
+func (*sortName) UnmarshalText(b []byte) error {
+	if s := string(b); s != "last_opened" && s != "name" {
+		return errors.New("not a sort")
 	}
 	return nil
 }
@@ -134,7 +147,7 @@ func Load(path, home string) (Settings, error) {
 	if len(f.Targets) == 0 {
 		f.Targets = []targetFile{{Name: "Zed", Key: "z", Command: "zed {path}"}}
 	}
-	s := Settings{CloseOnOpen: f.CloseOnOpen}
+	s := Settings{CloseOnOpen: f.CloseOnOpen, SortByName: f.Sort == "name"}
 	for _, t := range f.Targets {
 		args, _ := split(t.Command) // cannot fail: the command was checked while decoding
 		s.Targets = append(s.Targets, target.Target{Name: t.Name, Key: t.Key, Args: args})
@@ -317,5 +330,6 @@ func describe(path string, err error) error {
 // wants says, for each setting, what a valid value looks like.
 var wants = map[string]string{
 	"close_on_open": "true or false",
+	"sort":          `"last_opened" or "name"`,
 	"paths":         `a list of folders, each absolute or starting with ~/, such as ["~/code"]`,
 }

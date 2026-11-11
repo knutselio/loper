@@ -6,18 +6,40 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
-func TestTheHeaderShowsTheRepoCount(t *testing.T) {
+func TestTheHeaderShowsTheRepoCountOnTheLeftAndTheSortOnTheRight(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.repo("code/beta")
 	e.repo("code/gamma")
 
-	lines := strings.Split(e.start().screen(), "\n")
+	lines := strings.Split(e.start().screen(), "\n") // the screen is 80 wide
 
-	if got := strings.Fields(lines[0]); strings.Join(got, " ") != "repos 3" {
-		t.Errorf("header reads %q, want %q", lines[0], "repos 3")
+	if got := strings.Fields(lines[0]); strings.Join(got, " ") != "repos 3 sort: last opened" {
+		t.Errorf("header reads %q, want %q", lines[0], "repos 3 sort: last opened")
+	}
+	if !strings.HasPrefix(lines[0], " repos  3 ") || !strings.HasSuffix(lines[0], " sort: last opened ") || ansi.StringWidth(lines[0]) != 80 {
+		t.Errorf("header %q does not have the count on the left and the sort on the right, inside the margin", lines[0])
+	}
+}
+
+func TestPathWarningsThatDoNotFitTheHeaderAreCutAndTheSortStays(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	e.config(`paths = ["~/code", "~/a-folder-with-a-rather-long-name-that-does-not-exist"]`)
+	d := e.start()
+
+	for _, width := range []int{80, 50, 20, 5} {
+		d.send(tea.WindowSizeMsg{Width: width, Height: 24})
+		header := strings.SplitN(d.screen(), "\n", 2)[0]
+		if w := ansi.StringWidth(header); w > width {
+			t.Errorf("width %d: header is %d cells wide: %q", width, w, header)
+		}
+		if width >= 50 && (!strings.HasPrefix(header, " repos  1  ~/a-folder") || !strings.HasSuffix(header, " sort: last opened ")) {
+			t.Errorf("width %d: header %q does not keep the count, the start of the warning and the sort", width, header)
+		}
 	}
 }
 
@@ -38,8 +60,8 @@ func TestTheListSitsBetweenRulesWithTheFooterOnTheLastLine(t *testing.T) {
 	if lines[22] != rule {
 		t.Errorf("line 23 is %q, want a rule inside the margin", lines[22])
 	}
-	if !strings.HasPrefix(lines[23], " enter open") || strings.Join(strings.Fields(lines[23]), " ") != "enter open z Zed q quit" {
-		t.Errorf("footer reads %q, want %q after a one-cell margin", lines[23], "enter open z Zed q quit")
+	if !strings.HasPrefix(lines[23], " enter open") || strings.Join(strings.Fields(lines[23]), " ") != "enter open z Zed s sort q quit" {
+		t.Errorf("footer reads %q, want %q after a one-cell margin", lines[23], "enter open z Zed s sort q quit")
 	}
 	for i, want := range map[int]string{0: " repos", 2: " > alpha", 3: "   beta"} {
 		if !strings.HasPrefix(lines[i], want) {
