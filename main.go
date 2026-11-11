@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/knutselio/loper/internal/cache"
 	"github.com/knutselio/loper/internal/config"
 	"github.com/knutselio/loper/internal/history"
 	"github.com/knutselio/loper/internal/repoinfo"
@@ -52,13 +53,16 @@ func run(args []string, stderr io.Writer, start func(home string, s config.Setti
 func startUI(home string, settings config.Settings) error {
 	m := ui.New(ui.Deps{
 		Home:        home,
+		ConfigFile:  settings.File,
 		Paths:       settings.Paths,
 		Scan:        scanner.Scan,
 		Branch:      repoinfo.Branch,
 		Open:        func(t target.Target, path string) error { return target.Run(t, path, 2*time.Second) },
 		Targets:     settings.Targets,
 		History:     history.New(home),
+		Cache:       cache.New(home),
 		Now:         time.Now,
+		Tick:        tea.Tick,
 		CloseOnOpen: settings.CloseOnOpen,
 		SortByName:  settings.SortByName,
 	})

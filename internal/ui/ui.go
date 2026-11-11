@@ -15,6 +15,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/knutselio/loper/internal/cache"
 	"github.com/knutselio/loper/internal/history"
 	"github.com/knutselio/loper/internal/reltime"
 	"github.com/knutselio/loper/internal/target"
@@ -22,14 +23,19 @@ import (
 
 // Deps is everything the UI needs from the outside world.
 type Deps struct {
-	Home    string   // shown as ~ in folders
-	Paths   []string // what to scan for repos
-	Scan    func(paths []string) (repos, missing []string)
-	Branch  func(repo string) string
-	Open    func(t target.Target, path string) error
-	Targets []target.Target // in the order the menu lists them
-	History history.Store
-	Now     func() time.Time
+	Home       string   // shown as ~ in folders
+	ConfigFile string   // named when no repos are found
+	Paths      []string // what to scan for repos
+	Scan       func(paths []string) (repos, missing []string)
+	Branch     func(repo string) string
+	Open       func(t target.Target, path string) error
+	Targets    []target.Target // in the order the menu lists them
+	History    history.Store
+	Cache      cache.Store
+	Now        func() time.Time
+	// Tick is tea.Tick, which drives the refresh spinner. Tests deliver its
+	// ticks themselves, so the spinner needs no real time.
+	Tick func(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd
 	// CloseOnOpen quits the program after a successful open.
 	CloseOnOpen bool
 	// SortByName starts the list sorted by name rather than by last opened.
@@ -53,6 +59,16 @@ type Model struct {
 	failure  *errorDialog // the error dialog for a failed open, or nil
 	opening  bool         // an open is running, so targets do nothing until it finishes
 	byName   bool         // sorted by name rather than by last opened
+	// refreshing is true from launch until the refresh has finished.
+	refreshing bool
+	loaded     bool // the cache has been read
+	// follow is set by the first key pressed with a list on screen. From then
+	// on a change to the list keeps the selection on the selected repo;
+	// before it the top row stays selected, so the list opens on the repo
+	// opened most recently however the cache, the history and the refresh
+	// arrive.
+	follow bool
+	frame  int // the spinner's frame
 }
 
 // repo is one row of the list.
@@ -61,6 +77,10 @@ type repo struct {
 	branch string
 }
 
+// cachedMsg carries the repo list as cached by the last refresh.
+type cachedMsg []repo
+
+// scannedMsg carries the repo list as the refresh found it.
 type scannedMsg struct {
 	repos   []repo
 	missing []string
@@ -83,26 +103,64 @@ type failedMsg struct {
 	target.Failure
 }
 
+// tickMsg moves the spinner on a frame.
+type tickMsg struct{}
+
+// spinner is the frames of the refresh spinner.
+var spinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
 func New(deps Deps) Model {
-	return Model{deps: deps, byName: deps.SortByName}
+	return Model{deps: deps, byName: deps.SortByName, refreshing: true}
 }
 
+// Init reads the cache and the history. The refresh starts once the cached
+// list has arrived, so the list is on screen before the refresh's result.
 func (m Model) Init() tea.Cmd {
 	return tea.Batch(func() tea.Msg {
+		var repos []repo
+		for _, r := range m.deps.Cache.Load().Repos {
+			repos = append(repos, repo{path: r.Path, branch: r.Branch})
+		}
+		return cachedMsg(repos)
+	}, func() tea.Msg { return historyMsg(m.deps.History.Load()) }, m.tick())
+}
+
+// tick moves the spinner on after a while.
+func (m Model) tick() tea.Cmd {
+	return m.deps.Tick(80*time.Millisecond, func(time.Time) tea.Msg { return tickMsg{} })
+}
+
+// refresh scans the configured paths, reads each repo's branch and rewrites
+// the cache. It runs once per launch, when the cached list arrives, so no
+// two refreshes ever overlap.
+func (m Model) refresh() tea.Cmd {
+	return func() tea.Msg {
 		paths, missing := m.deps.Scan(m.deps.Paths)
+		list := cache.List{ScannedAt: m.deps.Now(), Paths: m.deps.Paths}
 		var repos []repo
 		for _, path := range paths {
-			repos = append(repos, repo{path: path, branch: m.deps.Branch(path)})
+			r := repo{path: path, branch: m.deps.Branch(path)}
+			repos = append(repos, r)
+			list.Repos = append(list.Repos, cache.Repo{Path: r.path, Branch: r.branch})
 		}
+		// A cache that cannot be saved costs only the next launch its head
+		// start, as that launch scans again; the list shown is still right.
+		_ = m.deps.Cache.Save(list)
 		return scannedMsg{repos: repos, missing: missing}
-	}, func() tea.Msg { return historyMsg(m.deps.History.Load()) })
+	}
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmd tea.Cmd
 	switch msg := msg.(type) {
+	case cachedMsg:
+		m.loaded = true
+		m = m.relist(msg)
+		cmd = m.refresh()
 	case scannedMsg:
-		m.repos, m.missing = msg.repos, msg.missing
-		m.repos = m.sorted() // keeps the selected row, not the repo, so the top row stays selected at launch
+		m.refreshing = false
+		m.missing = msg.missing
+		m = m.relist(msg.repos)
 	case historyMsg:
 		// An open recorded before the history arrived is newer than the file
 		// that was read, so it stays.
@@ -110,14 +168,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		maps.Copy(h, msg)
 		maps.Copy(h, m.history)
 		m.history = h
-		m.repos = m.sorted() // keeps the selected row, not the repo, so the top row stays selected at launch
+		m = m.relist(m.repos)
 	case openedMsg:
 		m.opening = false
 		h := map[string]time.Time{} // a new map: an older model may still hold the old one
 		maps.Copy(h, m.history)
 		h[msg.path] = msg.at
 		m.history = h
-		m = m.resorted()
+		m = m.relist(m.repos)
 		m.notice = "Opened " + filepath.Base(msg.path) + " in " + msg.target
 		if msg.saveErr != nil { // the footer has one line: room to name the problem, not its cause
 			m.notice += ", but the history could not be saved"
@@ -128,12 +186,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case failedMsg:
 		m.opening = false
 		m.menu, m.failure = false, newErrorDialog(msg) // the dialog replaces a menu opened while the target ran
+	case tickMsg:
+		if m.refreshing { // the spinner stops with the refresh
+			m.frame = (m.frame + 1) % len(spinner)
+			cmd = m.tick()
+		}
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.menu = m.menu && m.menuRows() > 0
 		m = m.scrollMenu()
 	case tea.KeyPressMsg:
 		m.notice = ""
+		m.follow = m.follow || len(m.repos) > 0
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
 		}
@@ -169,7 +233,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.menu, m.choice, m.menuTop = len(m.repos) > 0 && m.menuRows() > 0, 0, 0
 		case "s":
 			m.byName = !m.byName
-			m = m.resorted()
+			m = m.relist(m.repos)
 		default:
 			if t, ok := m.keyed(msg); ok {
 				return m.open(t)
@@ -178,7 +242,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	m.offset = min(m.offset, m.selected, max(len(m.repos)-m.listHeight(), 0))
 	m.offset = max(m.offset, m.selected-m.listHeight()+1)
-	return m, nil
+	return m, cmd
 }
 
 // menuKey handles a key press while the target menu is open.
@@ -239,18 +303,38 @@ func (m Model) View() tea.View {
 	for _, path := range m.missing {
 		header += "  " + m.shorten(path) + " not found"
 	}
-	sortLabel := "  sort: last opened "
+	right := "  sort: last opened "
 	if m.byName {
-		sortLabel = "  sort: name "
+		right = "  sort: name "
 	}
-	// The sort keeps its place on the right; warnings that do not fit are cut.
-	room := max(m.width-ansi.StringWidth(sortLabel), 0)
-	header = ansi.Truncate(pad(ansi.Truncate(header, room, "…"), room)+sortLabel, m.width, "")
+	if m.refreshing && len(m.repos) > 0 { // with no list yet, the spinner is in the list
+		right += "  " + spinner[m.frame] + " refreshing "
+	}
+	// The sort and the spinner keep their place on the right; warnings that
+	// do not fit are cut.
+	room := max(m.width-ansi.StringWidth(right), 0)
+	header = ansi.Truncate(pad(ansi.Truncate(header, room, "…"), room)+right, m.width, "")
 	lines := []string{header, rule}
+	var empty []string // what an empty list says instead
+	switch {
+	case len(m.repos) > 0:
+	case !m.refreshing:
+		paths := make([]string, len(m.deps.Paths))
+		for i, p := range m.deps.Paths {
+			paths[i] = m.shorten(p)
+		}
+		empty = []string{"No repos found in " + strings.Join(paths, ", "), "Change paths in " + m.shorten(m.deps.ConfigFile)}
+	case m.loaded:
+		empty = []string{spinner[m.frame] + " scanning…"}
+	}
 	now := m.deps.Now()
 	for i := m.offset; i < m.offset+m.listHeight(); i++ {
 		if i >= len(m.repos) {
-			lines = append(lines, "")
+			line := ""
+			if i < len(empty) {
+				line = ansi.Truncate("   "+empty[i], m.width, "…")
+			}
+			lines = append(lines, line)
 			continue
 		}
 		r := m.repos[i]
@@ -411,15 +495,31 @@ func (m Model) overlay(lines, box []string) []string {
 	return lines
 }
 
-// resorted sorts the repos and keeps the selection on the selected repo,
-// wherever it moves.
-func (m Model) resorted() Model {
-	if len(m.repos) == 0 {
-		return m
-	}
-	path := m.repos[m.selected].path
+// relist replaces the list with repos, in the current sort. Until the
+// selection follows the selected repo it keeps its row. After that it stays
+// on the selected repo; if that repo is gone, it moves to the nearest row of
+// the old list that is still there, below before above. The target menu
+// stays open only while its repo is still selected.
+func (m Model) relist(repos []repo) Model {
+	old, at := m.repos, m.selected
+	m.repos = repos
 	m.repos = m.sorted()
-	m.selected = slices.IndexFunc(m.repos, func(r repo) bool { return r.path == path })
+	m.selected = min(m.selected, max(len(m.repos)-1, 0))
+	if m.follow && len(old) > 0 {
+	nearest:
+		for d := range len(old) {
+			for _, i := range []int{at + d, at - d} {
+				if i < 0 || i >= len(old) {
+					continue
+				}
+				if j := slices.IndexFunc(m.repos, func(r repo) bool { return r.path == old[i].path }); j >= 0 {
+					m.selected = j
+					break nearest
+				}
+			}
+		}
+	}
+	m.menu = m.menu && len(m.repos) > 0 && m.repos[m.selected].path == old[at].path
 	return m
 }
 

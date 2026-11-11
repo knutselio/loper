@@ -258,3 +258,25 @@ func TestASortThatIsNotLastOpenedOrNameStopsTheToolNamingTheFileAndLine(t *testi
 			3, `invalid value for "sort": want "last_opened" or "name"`)
 	}
 }
+
+func TestTheUIIsToldWhichConfigFileWasUsedSoItCanNameIt(t *testing.T) {
+	home := tempHome(t)
+	file := filepath.Join(home, "try.toml")
+	writeConfig(t, file, "paths = [\"~/code\"]\n")
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{nil, filepath.Join(home, ".config", "loper", "config.toml")},
+		{[]string{"--config", file}, file},
+	} {
+		var got string
+		code := run(c.args, &strings.Builder{}, func(_ string, s config.Settings) error {
+			got = s.File
+			return nil
+		})
+		if code != 0 || got != c.want {
+			t.Errorf("args %q: exit code %d, UI told %q, want 0 and %q", c.args, code, got, c.want)
+		}
+	}
+}

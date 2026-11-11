@@ -22,6 +22,7 @@ import (
 
 // Settings is the complete configuration, with every default applied.
 type Settings struct {
+	File        string          // the config file, read or, when missing, where it would be
 	Paths       []string        // absolute folders to scan, or repos to list directly
 	Targets     []target.Target // at least one
 	CloseOnOpen bool            // quit after a successful open
@@ -147,7 +148,7 @@ func Load(path, home string) (Settings, error) {
 	if len(f.Targets) == 0 {
 		f.Targets = []targetFile{{Name: "Zed", Key: "z", Command: "zed {path}"}}
 	}
-	s := Settings{CloseOnOpen: f.CloseOnOpen, SortByName: f.Sort == "name"}
+	s := Settings{File: path, CloseOnOpen: f.CloseOnOpen, SortByName: f.Sort == "name"}
 	for _, t := range f.Targets {
 		args, _ := split(t.Command) // cannot fail: the command was checked while decoding
 		s.Targets = append(s.Targets, target.Target{Name: t.Name, Key: t.Key, Args: args})

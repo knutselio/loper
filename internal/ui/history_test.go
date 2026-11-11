@@ -306,3 +306,19 @@ func TestTheStateFolderIsCreatedPrivateToTheUser(t *testing.T) {
 		t.Errorf("state folder has mode %v, want %v", got, os.FileMode(0o700))
 	}
 }
+
+func TestAHistoryReadThatArrivesAfterAnOpenDoesNotUndoTheOpen(t *testing.T) {
+	e := newEnv(t)
+	alpha := e.repo("code/alpha")
+	e.repo("code/beta")
+	e.openedBefore(map[string]time.Duration{alpha: 3 * time.Hour})
+	e.start()
+	d := relaunch(e) // the history read's result is held back; it was read before the open
+
+	d.press("z") // alpha, the top row
+	d.releaseLastFirst()
+
+	if screen := d.screen(); !hasExactRow(screen, "alpha ~/code main just now") {
+		t.Errorf("want alpha opened just now, not 3h ago:\n%s", screen)
+	}
+}

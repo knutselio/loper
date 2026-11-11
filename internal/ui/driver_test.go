@@ -13,6 +13,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/knutselio/loper/internal/cache"
 	"github.com/knutselio/loper/internal/config"
 	"github.com/knutselio/loper/internal/history"
 	"github.com/knutselio/loper/internal/repoinfo"
@@ -48,9 +49,6 @@ type env struct {
 	home string
 	wait time.Duration // how long a target runs before it counts as opened
 	now  time.Time     // the time on the program's clock
-	// lastFirst runs the commands of a batch last first, as a real program
-	// may finish them in any order.
-	lastFirst bool
 }
 
 func newEnv(t *testing.T) *env {
@@ -216,30 +214,55 @@ type driver struct {
 	t     *testing.T
 	model tea.Model
 	quit  bool
-	hold  bool      // keep background work back instead of running it, until release
-	held  []tea.Cmd // the background work kept back, in the order it was started
-	// lastFirst runs the commands of a batch last first.
-	lastFirst bool
+	// hold keeps back what background work returns, in the order the work
+	// ran, instead of handing it to the program, until next or release.
+	hold bool
+	held []tea.Msg
+	// ticks are the spinner's pending ticks, which never come by themselves:
+	// a test delivers them with tick, so the spinner needs no real time and
+	// the driver never loops on it.
+	ticks []func(time.Time) tea.Msg
+	now   time.Time
 }
 
 // start launches the program on a fixed 80x24 screen at e.now, with the
-// settings loaded from the config file as the entry point does.
+// settings loaded from the config file as the entry point does, and hands
+// it the results of its launch work: the cached list, the history and the
+// refresh.
 func (e *env) start() *driver {
+	e.t.Helper()
+	d := e.launch()
+	d.release()
+	return d
+}
+
+// launch is start with the results of the launch work held back, in the
+// order the work ran: the cache read, then the history read. next and
+// release hand them over.
+func (e *env) launch() *driver {
 	e.t.Helper()
 	settings, err := config.Load("", e.home)
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	d := &driver{t: e.t, lastFirst: e.lastFirst}
+	d := &driver{t: e.t, hold: true, now: e.now}
 	d.model = ui.New(ui.Deps{
-		Home:        e.home,
-		Paths:       settings.Paths,
-		Scan:        scanner.Scan,
-		Branch:      repoinfo.Branch,
-		Open:        func(t target.Target, path string) error { return target.Run(t, path, e.wait) },
-		Targets:     settings.Targets,
-		History:     history.New(e.home),
-		Now:         func() time.Time { return e.now },
+		Home:       e.home,
+		ConfigFile: settings.File,
+		Paths:      settings.Paths,
+		Scan:       scanner.Scan,
+		Branch:     repoinfo.Branch,
+		Open:       func(t target.Target, path string) error { return target.Run(t, path, e.wait) },
+		Targets:    settings.Targets,
+		History:    history.New(e.home),
+		Cache:      cache.New(e.home),
+		Now:        func() time.Time { return e.now },
+		Tick: func(_ time.Duration, fn func(time.Time) tea.Msg) tea.Cmd {
+			return func() tea.Msg {
+				d.ticks = append(d.ticks, fn)
+				return nil
+			}
+		},
 		CloseOnOpen: settings.CloseOnOpen,
 		SortByName:  settings.SortByName,
 	})
@@ -258,35 +281,62 @@ func (d *driver) run(cmd tea.Cmd) {
 	if cmd == nil {
 		return
 	}
-	if d.hold {
-		d.held = append(d.held, cmd)
-		return
-	}
 	switch msg := cmd().(type) {
 	case nil:
 	case tea.QuitMsg:
 		d.quit = true
 	case tea.BatchMsg:
-		if d.lastFirst {
-			msg = slices.Clone(msg)
-			slices.Reverse(msg)
-		}
 		for _, c := range msg {
 			d.run(c)
 		}
 	default:
+		if d.hold {
+			d.held = append(d.held, msg)
+			return
+		}
 		d.send(msg)
 	}
 }
 
-// release stops holding background work back and runs what was held, in
-// the order it was started.
+// next hands the program the oldest result held back. What that sets off
+// is held back as well.
+func (d *driver) next() {
+	d.t.Helper()
+	if len(d.held) == 0 {
+		d.t.Fatal("nothing is held back")
+	}
+	msg := d.held[0]
+	d.held = d.held[1:]
+	d.send(msg)
+}
+
+// release stops holding back and hands the program what was held, in the
+// order the work ran.
 func (d *driver) release() {
 	held := d.held
 	d.hold, d.held = false, nil
-	for _, cmd := range held {
-		d.run(cmd)
+	for _, msg := range held {
+		d.send(msg)
 	}
+}
+
+// releaseLastFirst is release with the results handed over last first, as
+// a real program may receive them in any order.
+func (d *driver) releaseLastFirst() {
+	slices.Reverse(d.held)
+	d.release()
+}
+
+// tick delivers the spinner's oldest pending tick, if there is one, and
+// reports whether there was.
+func (d *driver) tick() bool {
+	if len(d.ticks) == 0 {
+		return false
+	}
+	fn := d.ticks[0]
+	d.ticks = d.ticks[1:]
+	d.send(fn(d.now))
+	return true
 }
 
 var namedKeys = map[string]tea.KeyPressMsg{

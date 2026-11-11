@@ -39,14 +39,18 @@ func order(d *driver) []string {
 func TestByDefaultOpenedReposComeFirstMostRecentFirstThenTheRestByName(t *testing.T) {
 	for _, lastFirst := range []bool{false, true} { // the scan or the history arriving first
 		e := newEnv(t)
-		e.lastFirst = lastFirst
 		alpha := e.repo("code/alpha")
 		e.repo("code/beta")
 		e.repo("code/delta")
 		gamma := e.repo("code/gamma")
 		e.openedBefore(map[string]time.Duration{gamma: time.Hour, alpha: 3 * time.Hour})
 
-		d := e.start()
+		d := e.launch()
+		if lastFirst {
+			d.releaseLastFirst()
+		} else {
+			d.release()
+		}
 
 		want := []string{"gamma ~/code", "alpha ~/code", "beta ~/code", "delta ~/code"}
 		if got := order(d); !slices.Equal(got, want) {
