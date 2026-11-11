@@ -50,7 +50,8 @@ type Deps struct {
 	// rather than re-reading the cached repos; 0 means every launch scans.
 	CacheMaxAge time.Duration
 	// Color turns the styles on: the selection marker, dimmed folders, rules
-	// and borders, and highlighted matches. It is off when NO_COLOR is set
+	// and borders, highlighted matches, and bold keys in the footer and the
+	// help. It is off when NO_COLOR is set
 	// and non-empty, and then the output has no escape codes at all.
 	Color bool
 	// Columns are the columns to show, in order, out of name, folder, branch
@@ -77,8 +78,14 @@ type Model struct {
 	choice   int          // the target highlighted in the menu
 	menuTop  int          // the first target shown, so the highlighted one stays in view
 	failure  *errorDialog // the error dialog for a failed open, or nil
+	help     bool         // the help overlay is open
+	helpTop  int          // the first row of the help shown, so the help scrolls when it does not fit
 	opening  bool         // an open is running, so targets do nothing until it finishes
 	byName   bool         // sorted by name rather than by last opened
+	// helpLines and helpWidth are the help's rows and the width of the
+	// widest, worked out once in New rather than on every render.
+	helpLines []string
+	helpWidth int
 	// refreshing is true from launch until the launch refresh has finished,
 	// and again while a refresh started with r runs. Only one refresh runs at
 	// a time, as each one rewrites the cache file.
@@ -153,14 +160,15 @@ var spinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "
 // tool follows the terminal's theme. matchOn and matchOff start and end the
 // highlight of a matched letter, dimOn and dimOff a dimmed part (a folder,
 // the path before a name, the rules and the borders of a box), and
-// pickedOn and pickedOff the marker of the selected row or target.
+// boldOn and boldOff the marker of the selected row or target and the keys of
+// the footer and the help.
 var (
-	matchOn   = ansi.Style{}.Underline(true).String()
-	matchOff  = ansi.Style{}.NoUnderline().String()
-	dimOn     = ansi.Style{}.Faint().String()
-	dimOff    = ansi.Style{}.Normal().String()
-	pickedOn  = ansi.Style{}.Bold().String()
-	pickedOff = ansi.Style{}.Normal().String()
+	matchOn  = ansi.Style{}.Underline(true).String()
+	matchOff = ansi.Style{}.NoUnderline().String()
+	dimOn    = ansi.Style{}.Faint().String()
+	dimOff   = ansi.Style{}.Normal().String()
+	boldOn   = ansi.Style{}.Bold().String()
+	boldOff  = ansi.Style{}.Normal().String()
 )
 
 func New(deps Deps) Model {
@@ -170,6 +178,7 @@ func New(deps Deps) Model {
 			m.columns = append(m.columns, c)
 		}
 	}
+	m.helpLines, m.helpWidth = m.helpContent()
 	return m
 }
 
@@ -286,7 +295,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case failedMsg:
 		m.opening = false
-		m.menu, m.failure = false, newErrorDialog(msg) // the dialog replaces a menu opened while the target ran
+		// The dialog replaces a menu or the help opened while the target ran.
+		m.menu, m.help, m.failure = false, false, newErrorDialog(msg)
 	case tickMsg:
 		m.ticking = m.refreshing // the spinner stops with the refresh
 		if m.refreshing {
@@ -301,6 +311,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.menu = m.menu && m.menuRows() > 0
 		m = m.scrollMenu()
+		m.help = m.help && m.helpRows() > 0
+		m.helpTop = min(m.helpTop, len(m.helpLines)-m.helpRows())
 	case tea.KeyPressMsg:
 		m.notice = ""
 		m.follow = m.follow || len(m.repos) > 0
@@ -315,6 +327,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.failure = nil
 			}
 			return m, nil
+		}
+		if m.help {
+			return m.helpKey(msg)
 		}
 		if m.menu {
 			m, cmd := m.menuKey(msg)
@@ -349,6 +364,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.before = m.repos[m.selected].path
 			}
 			m.repos, m.hits = m.filter() // an empty query matches every repo, in the order shown
+		case "?":
+			m.help, m.helpTop = m.helpRows() > 0, 0
 		case "s":
 			m.byName = !m.byName
 			m = m.relist(m.all)
@@ -461,6 +478,66 @@ func (m Model) scrollMenu() Model {
 	return m
 }
 
+// helpKey handles a key press while the help is open: it scrolls, closes
+// or quits, and every other key does nothing.
+func (m Model) helpKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
+	switch msg.String() {
+	case "q":
+		return m, tea.Quit
+	case "j", "down":
+		m.helpTop = min(m.helpTop+1, len(m.helpLines)-m.helpRows())
+	case "k", "up":
+		m.helpTop = max(m.helpTop-1, 0)
+	case "esc", "?":
+		m.help = false
+	}
+	return m, nil
+}
+
+// helpRows is the number of rows of the help there is room for between its
+// borders, or 0 when the list is too short for the help.
+func (m Model) helpRows() int {
+	return max(min(len(m.helpLines), m.listHeight()-2), 0)
+}
+
+// helpContent returns the rows of the help, the keys from KeyList and those
+// of the help itself, and the width of the widest.
+func (m Model) helpContent() (rows []string, width int) {
+	sections := append(KeyList(), Section{Title: "In this help", Bindings: []Binding{
+		{Keys: "j / k, ↓ / ↑", Action: "Scroll"},
+		{Keys: "esc, ?", Action: "Close the help"},
+	}})
+	keyWidth := 0
+	for _, s := range sections {
+		for _, b := range s.Bindings {
+			keyWidth = max(keyWidth, ansi.StringWidth(b.Keys))
+		}
+	}
+	for i, s := range sections {
+		if i > 0 {
+			rows = append(rows, "")
+		}
+		if s.Title != "" {
+			rows = append(rows, " "+s.Title+" ")
+		}
+		for _, b := range s.Bindings {
+			rows = append(rows, " "+pad(m.bold(b.Keys), keyWidth)+"  "+b.Action+" ")
+		}
+	}
+	rows = append(rows, "", " Targets ")
+	for _, t := range m.deps.Targets {
+		name := t.Name
+		if t.Key == "" {
+			name += " (through the menu)"
+		}
+		rows = append(rows, " "+pad(m.bold(t.Key), keyWidth)+"  "+name+" ")
+	}
+	for _, r := range rows {
+		width = max(width, ansi.StringWidth(r))
+	}
+	return rows, width
+}
+
 // keyed returns the target whose key was pressed, if any.
 func (m Model) keyed(msg tea.KeyPressMsg) (target.Target, bool) {
 	for _, t := range m.deps.Targets {
@@ -543,7 +620,7 @@ func (m Model) View() tea.View {
 		r := m.repos[i]
 		marker := "   "
 		if i == m.selected {
-			marker = " " + m.picked(">") + " "
+			marker = " " + m.bold(">") + " "
 		}
 		var h matcher.Match
 		if m.hits != nil {
@@ -562,27 +639,52 @@ func (m Model) View() tea.View {
 		}
 		lines = append(lines, ansi.Truncate(marker+strings.Join(cells, "  "), m.width, "…"))
 	}
-	keys := " enter open"
-	for _, t := range m.deps.Targets {
-		if t.Key != "" {
-			keys += "  " + t.Key + " " + t.Name
-		}
-	}
-	keys += "  / search  s sort  r refresh  q quit"
+	keys := m.footer()
 	if m.notice != "" {
-		keys = " " + m.notice
+		keys = ansi.Truncate(" "+m.notice, m.width, "…")
 	}
 	switch {
 	case m.failure != nil:
 		lines = m.overlayFailure(lines)
 	case m.menu:
 		lines = m.overlayMenu(lines)
+	case m.help:
+		lines = m.overlay(lines, m.box(" Help ", m.helpLines[m.helpTop:m.helpTop+m.helpRows()], m.helpWidth))
 	}
-	lines = append(lines, rule, ansi.Truncate(keys, m.width, "…"))
+	lines = append(lines, rule, keys)
 	lines = lines[:min(len(lines), m.height)] // never taller than the terminal
 	v := tea.NewView(strings.Join(lines, "\n"))
 	v.AltScreen = true
 	return v
+}
+
+// footer is the footer's line of keys: the tool's own keys, then the keyed
+// targets, separated by " | ". What does not fit gives way whole items at a
+// time from the end, and a … then ends the line.
+func (m Model) footer() string {
+	var items []string
+	for _, s := range KeyList() {
+		for _, b := range s.Bindings {
+			if b.FooterLabel != "" {
+				items = append(items, m.bold(b.FooterKey)+" "+b.FooterLabel)
+			}
+		}
+	}
+	for _, t := range m.deps.Targets {
+		if t.Key != "" {
+			items = append(items, m.bold(t.Key)+" "+t.Name)
+		}
+	}
+	for n := len(items); n >= 0; n-- {
+		shown := items[:n]
+		if n < len(items) {
+			shown = append(slices.Clone(shown), "…")
+		}
+		if line := " " + strings.Join(shown, m.dim(" | ")); ansi.StringWidth(line) <= m.width {
+			return line
+		}
+	}
+	return ansi.Truncate(" …", m.width, "")
 }
 
 // fit returns the indexes of the columns shown and the width of each column,
@@ -692,12 +794,13 @@ func (m Model) dim(s string) string {
 	return dimOn + s + dimOff
 }
 
-// picked styles s as the marker of what is selected, unless colour is off.
-func (m Model) picked(s string) string {
-	if !m.deps.Color {
+// bold styles s as the marker of what is selected or as a key, unless colour
+// is off.
+func (m Model) bold(s string) string {
+	if !m.deps.Color || s == "" {
 		return s
 	}
-	return pickedOn + s + pickedOff
+	return boldOn + s + boldOff
 }
 
 // highlight marks the characters of s at the positions pos, which are in
@@ -754,7 +857,7 @@ func (m Model) overlayMenu(lines []string) []string {
 	for i, t := range m.deps.Targets {
 		marker := "  "
 		if i == m.choice {
-			marker = m.picked(">") + " "
+			marker = m.bold(">") + " "
 		}
 		rows[i] = " " + marker + pad(t.Key, keyWidth) + "  " + t.Name + " "
 		width = max(width, ansi.StringWidth(rows[i]))

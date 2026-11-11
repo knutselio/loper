@@ -44,8 +44,8 @@ func TestNothingIsDrawnWiderOrTallerThanTheTerminalInAnyState(t *testing.T) {
 		name  string
 		extra string // settings for the config
 		setup func(e *env) *driver
-		// again are keys pressed after each resize, to bring back a menu that
-		// a screen too small for it closed.
+		// again are keys pressed after each resize, to bring back a menu or the
+		// help that a screen too small for it closed.
 		again []string
 	}{
 		{name: "refreshing with a path warning", setup: func(e *env) *driver {
@@ -76,6 +76,17 @@ func TestNothingIsDrawnWiderOrTallerThanTheTerminalInAnyState(t *testing.T) {
 			d.press("b")
 			return d
 		}},
+		{name: "help", setup: func(e *env) *driver {
+			d := e.start()
+			d.press("?")
+			return d
+		}, again: []string{"esc", "?"}},
+		{name: "help scrolled to its end", setup: func(e *env) *driver {
+			d := e.start()
+			d.press("?")
+			d.press(slices.Repeat([]string{"j"}, 40)...)
+			return d
+		}, again: append([]string{"esc", "?"}, slices.Repeat([]string{"j"}, 40)...)},
 		{name: "opened", setup: func(e *env) *driver {
 			d := e.start()
 			d.press("z")
@@ -112,12 +123,15 @@ func TestNothingIsDrawnWiderOrTallerThanTheTerminalInAnyState(t *testing.T) {
 	}
 }
 
-// sweep resizes d to every width up to 100 and a range of heights, pressing
-// again after each resize, and fails the test at the first screen wider or
+// sweep resizes d to every width up to 100 (with colour off, to widths 0 to
+// 3 and every tenth) and a range of heights, pressing again after each resize, and fails the test at the first screen wider or
 // taller than the terminal, or with escape codes it should not have.
 func sweep(t *testing.T, d *driver, color bool, again []string) {
 	t.Helper()
 	for w := 0; w <= 100; w++ {
+		if !color && w > 3 && w%10 != 0 { // colour off has only to show it draws no escape codes
+			continue
+		}
 		for _, h := range []int{0, 1, 2, 3, 4, 5, 6, 8, 10, 24} {
 			d.send(tea.WindowSizeMsg{Width: w, Height: h})
 			d.press(again...)
@@ -273,6 +287,54 @@ func TestANarrowHeaderGivesWayWarningsFirstThenTheSortThenTheSpinner(t *testing.
 	d.send(tea.WindowSizeMsg{Width: 10, Height: 24})
 	if got, want := strings.Split(d.screen(), "\n")[0], " /alpha   "; got != want {
 		t.Errorf("searching: header is %q, want the query kept over the spinner, %q", got, want)
+	}
+}
+
+func TestANarrowFooterDropsWholeItemsFromTheEndAndEndsWithAnEllipsis(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	d := e.start()
+
+	for _, c := range []struct {
+		width int
+		want  string
+	}{
+		{69, " enter open | / search | s sort | r refresh | ? help | q quit | z Zed"},
+		{68, " enter open | / search | s sort | r refresh | ? help | q quit | …"},
+		{65, " enter open | / search | s sort | r refresh | ? help | q quit | …"},
+		{64, " enter open | / search | s sort | r refresh | ? help | …"},
+		{15, " enter open | …"},
+		{14, " …"},
+		{2, " …"},
+		{1, " "},
+		{0, ""},
+	} {
+		d.send(tea.WindowSizeMsg{Width: c.width, Height: 24})
+		lines := strings.Split(d.screen(), "\n")
+		if got := lines[len(lines)-1]; got != c.want {
+			t.Errorf("width %d: footer is %q, want %q", c.width, got, c.want)
+		}
+	}
+}
+
+func TestWithColourTheFootersKeysAreBoldAndItsSeparatorsDimmed(t *testing.T) {
+	e := newEnv(t)
+	e.color = true
+	e.repo("code/alpha")
+	d := e.start()
+
+	for _, c := range []struct {
+		width int
+		want  string
+	}{
+		{80, " [enter] open{ | }[/] search{ | }[s] sort{ | }[r] refresh{ | }[?] help{ | }[q] quit{ | }[z] Zed"},
+		{68, " [enter] open{ | }[/] search{ | }[s] sort{ | }[r] refresh{ | }[?] help{ | }[q] quit{ | }…"},
+	} {
+		d.send(tea.WindowSizeMsg{Width: c.width, Height: 24})
+		lines := strings.Split(d.screen(), "\n")
+		if got := styled(lines[len(lines)-1]); got != c.want {
+			t.Errorf("width %d: footer reads %q, want %q", c.width, got, c.want)
+		}
 	}
 }
 

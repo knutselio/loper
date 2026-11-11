@@ -5,6 +5,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestWithNoTargetsConfiguredZOpensTheSelectedRepoInZed(t *testing.T) {
@@ -133,7 +135,7 @@ func footer(d *driver) string {
 	return strings.Join(strings.Fields(lines[len(lines)-1]), " ")
 }
 
-func TestTheFooterListsTheKeyedTargetsBeforeTheMainKeys(t *testing.T) {
+func TestTheFooterListsTheToolsOwnKeysThenTheKeyedTargets(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.config(`
@@ -152,8 +154,10 @@ key = "t"
 command = "zed {path}"
 `)
 	d := e.start()
+	d.send(tea.WindowSizeMsg{Width: 100, Height: 24}) // room for every item
 
-	if got, want := footer(d), "enter open z Zed t Terminal tab / search s sort r refresh q quit"; got != want {
+	lines := strings.Split(d.screen(), "\n")
+	if got, want := lines[len(lines)-1], " enter open | / search | s sort | r refresh | ? help | q quit | z Zed | t Terminal tab"; got != want {
 		t.Errorf("footer reads %q, want %q", got, want)
 	}
 }
@@ -170,7 +174,7 @@ func TestASuccessfulOpenIsConfirmedInTheFooterUntilTheNextKey(t *testing.T) {
 	}
 
 	d.press("k")
-	if got, want := footer(d), "enter open z Zed / search s sort r refresh q quit"; got != want {
+	if got, want := footer(d), "enter open | / search | s sort | r refresh | ? help | q quit | z Zed"; got != want {
 		t.Errorf("after the next key: footer reads %q, want %q", got, want)
 	}
 }
@@ -188,7 +192,7 @@ command = "false {path}"
 
 	d.press("b")
 
-	if got, want := footer(d), "enter open b Broken / search s sort r refresh q quit"; got != want {
+	if got, want := footer(d), "enter open | / search | s sort | r refresh | ? help | q quit | b Broken"; got != want {
 		t.Errorf("footer reads %q, want %q", got, want)
 	}
 }

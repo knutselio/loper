@@ -174,7 +174,7 @@ Each module hides its details behind a small interface. The UI is the only modul
   - `name`: the name only. The `folder` column is not shown, even when `columns` lists it.
 - `last_opened` shows a relative time, or `-` for a repo never opened with `loper`.
 - `branch` shows the branch name, the short commit hash prefixed with `@` for a detached HEAD, or the pending branch name for a repo with no commits.
-- In a narrow terminal, columns are dropped in a fixed order, whatever order `columns` puts them in: last opened first, then branch, then folder. Values that are still too long are cut with `…`.
+- In a narrow terminal, columns are dropped in a fixed order, whatever order `columns` puts them in: last opened first, then branch, then folder. Before a column is dropped, the folder and branch columns shrink to 12 cells, with long values cut by `…`. Values that are still too long are cut with `…`; under `root-path` the dimmed path is cut at its start, so the repo's name stays whole.
 - Colours come from the terminal's own palette. The tool honours `NO_COLOR`.
 
 ### Sorting
@@ -204,11 +204,11 @@ A single full-width scrolling list between a one-line header and a one-line foot
    exa-men-v2   ~/code/work/mono         feature/aycid-login    3d ago
    dotfiles     ~                        main                   -
  ──────────────────────────────────────────────────────────────────────────────
- enter open  z Zed  t Terminal tab  / search  s sort  r refresh  ? help  q quit
+ enter open | / search | s sort | r refresh | ? help | q quit | z Zed | …
 ```
 
 - **Header:** repo count, current sort, refresh spinner and any path warnings.
-- **Footer:** the targets with their keys, then the main keys. After a successful open it briefly shows a confirmation such as "Opened aycapi in Zed".
+- **Footer:** the tool's own keys, then the targets with their keys, separated by ` | `. With colour on, each key is bold and the separators are dimmed. When the line does not fit, whole items are dropped from the end and it ends with `…`. After a successful open it briefly shows a confirmation such as "Opened aycapi in Zed".
 - **Overlays:** the target menu, the error dialog and the help screen appear on top of the list. Nothing else does.
 - **Empty states:**
   - First launch with no cache: the spinner and "scanning…".
@@ -233,7 +233,7 @@ These keys are fixed in this version. Only target keys are configurable.
 | `q`, `ctrl-c`        | Quit                                        |
 | `esc`                | Close a menu or dialog, or clear the search |
 
-Inside the target menu, `j`/`k` and the arrow keys move, `enter` runs the highlighted target, a target's key runs that target, and `esc` closes the menu.
+Inside the target menu, `j`/`k` and the arrow keys move, `enter` runs the highlighted target, a target's key runs that target, and `esc` closes the menu; `q` and `ctrl-c` quit from inside the menu, the error dialog and the help overlay, and `esc` or `?` closes the help overlay.
 
 ### Open targets
 

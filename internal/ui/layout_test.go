@@ -65,7 +65,7 @@ command = "` + e.fakeTarget("rex") + ` {path}"
 		"",
 		"",
 		" ────────────────────────────────────────────────────────────────────────────── ",
-		" enter open  z Zed  t Terminal tab  / search  s sort  r refresh  q quit",
+		" enter open | / search | s sort | r refresh | ? help | q quit | z Zed | …",
 	}, "\n")
 	if got := d.screen(); got != want {
 		t.Errorf("screen reads\n%s\nwant\n%s", got, want)
