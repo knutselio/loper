@@ -1,0 +1,103 @@
+package ui_test
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestListsReposUnderCodeWithNameAndShortenedFolder(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/aycapi")
+	e.repo("code/work/backend")
+
+	screen := e.start().screen()
+
+	for _, row := range []string{"aycapi ~/code", "backend ~/code/work"} {
+		if !hasRow(screen, row) {
+			t.Errorf("screen has no row %q:\n%s", row, screen)
+		}
+	}
+}
+
+func TestFirstRowIsSelectedAndKeysMoveTheSelectionWithinTheList(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	e.repo("code/beta")
+	e.repo("code/gamma")
+	d := e.start()
+
+	steps := []struct {
+		keys []string
+		want string
+	}{
+		{nil, "alpha ~/code"},
+		{[]string{"j"}, "beta ~/code"},
+		{[]string{"down"}, "gamma ~/code"},
+		{[]string{"j", "down"}, "gamma ~/code"},
+		{[]string{"k"}, "beta ~/code"},
+		{[]string{"up"}, "alpha ~/code"},
+		{[]string{"k", "up"}, "alpha ~/code"},
+	}
+	for _, s := range steps {
+		d.press(s.keys...)
+		if got := d.selected(); got != s.want {
+			t.Fatalf("after %v: selected %q, want %q", s.keys, got, s.want)
+		}
+	}
+}
+
+func TestEnterOpensTheSelectedRepoAndStaysOpen(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	beta := e.repo("code/my projects/beta")
+	d := e.start()
+
+	d.press("j", "enter")
+
+	if got := e.targetArgs(); len(got) != 1 || got[0] != beta {
+		t.Errorf("target called with %q, want [%q]", got, beta)
+	}
+	if d.quit {
+		t.Error("the tool quit after opening a repo")
+	}
+	if got := d.selected(); got != "beta ~/code/my projects" {
+		t.Errorf("selected %q after opening, want the list still on beta", got)
+	}
+}
+
+func TestKeysOnAnEmptyListDoNothing(t *testing.T) {
+	e := newEnv(t)
+	d := e.start() // no repos: the list is empty
+
+	d.press("j", "k", "enter")
+
+	if got := e.targetArgs(); got != nil {
+		t.Errorf("target called with %q on an empty list", got)
+	}
+}
+
+func TestQAndCtrlCQuit(t *testing.T) {
+	for _, key := range []string{"q", "ctrl+c"} {
+		e := newEnv(t)
+		e.repo("code/alpha")
+		d := e.start()
+
+		d.press(key)
+
+		if !d.quit {
+			t.Errorf("%s did not quit", key)
+		}
+	}
+}
+
+// hasRow reports whether a line of the screen reads as want, ignoring the
+// selection marker and the spacing between columns.
+func hasRow(screen, want string) bool {
+	for _, line := range strings.Split(screen, "\n") {
+		line = strings.TrimPrefix(line, "> ")
+		if strings.Join(strings.Fields(line), " ") == want {
+			return true
+		}
+	}
+	return false
+}
