@@ -111,6 +111,25 @@ func TestATargetRunsWithTheRepoAsItsWorkingFolder(t *testing.T) {
 	}
 }
 
+func TestATargetRunsWithTheToolsOwnEnvironment(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	t.Setenv("LOPER_TEST_GREETING", "hello from the tool")
+	e.config(`
+[[targets]]
+name = "Env"
+key = "e"
+command = "` + e.script("env", `printf '%s\n' "$LOPER_TEST_GREETING" > "$LOPER_TEST_RECORDS"/env`) + ` {path}"
+`)
+	d := e.start()
+
+	d.press("e")
+
+	if got, want := e.record("env"), "hello from the tool\n"; got != want {
+		t.Errorf("the target saw LOPER_TEST_GREETING=%q, want %q", got, want)
+	}
+}
+
 func TestDefiningATargetRemovesTheBuiltInZed(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")

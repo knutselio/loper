@@ -173,9 +173,7 @@ func (*key) UnmarshalText(b []byte) error {
 // setting stands for home.
 func Load(path, home string) (Settings, error) {
 	standard := path == ""
-	if standard {
-		path = defaultPath(home)
-	}
+	path = Path(path, home)
 	var f file
 	b, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) && !standard {
@@ -344,8 +342,12 @@ func keyOf(n *unstable.Node) string {
 	return strings.Join(parts, ".")
 }
 
-// defaultPath is where the config file lives unless --config says otherwise.
-func defaultPath(home string) string {
+// Path returns the config file Load reads: path, as given to --config, or
+// the standard location when path is "".
+func Path(path, home string) string {
+	if path != "" {
+		return path
+	}
 	return filepath.Join(xdg.Dir("XDG_CONFIG_HOME", filepath.Join(home, ".config")), "loper", "config.toml")
 }
 

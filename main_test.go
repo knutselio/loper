@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/knutselio/loper/internal/config"
+	"github.com/knutselio/loper/internal/ui"
 )
 
 // startup runs the entry point with args in a temporary home and returns the
@@ -17,12 +18,20 @@ import (
 // UI starts.
 func startup(t *testing.T, args ...string) (int, string) {
 	t.Helper()
-	var stderr strings.Builder
-	code := run(args, &stderr, func(string, config.Settings) error {
+	code, _, stderr := withoutUI(t, args...)
+	return code, stderr
+}
+
+// withoutUI runs the entry point with args and returns the exit code and what
+// it wrote to stdout and stderr, failing the test if the UI starts.
+func withoutUI(t *testing.T, args ...string) (code int, stdout, stderr string) {
+	t.Helper()
+	var out, errs strings.Builder
+	code = run(args, &out, &errs, func(string, config.Settings) error {
 		t.Fatal("the UI started")
 		return nil
 	})
-	return code, stderr.String()
+	return code, out.String(), errs.String()
 }
 
 // tempHome points the home and XDG folders at a temporary tree and returns
@@ -131,7 +140,7 @@ func TestAValidConfigStartsTheUIWithTheConfiguredPaths(t *testing.T) {
 	var stderr strings.Builder
 	var got []string
 
-	code := run(nil, &stderr, func(_ string, s config.Settings) error {
+	code := run(nil, &strings.Builder{}, &stderr, func(_ string, s config.Settings) error {
 		got = s.Paths
 		return nil
 	})
@@ -272,7 +281,7 @@ func TestTheUIIsToldWhichConfigFileWasUsedSoItCanNameIt(t *testing.T) {
 		{[]string{"--config", file}, file},
 	} {
 		var got string
-		code := run(c.args, &strings.Builder{}, func(_ string, s config.Settings) error {
+		code := run(c.args, &strings.Builder{}, &strings.Builder{}, func(_ string, s config.Settings) error {
 			got = s.File
 			return nil
 		})
@@ -300,7 +309,7 @@ func TestACacheMaxAgeIsHandedToTheUI(t *testing.T) {
 		writeConfig(t, filepath.Join(home, ".config", "loper", "config.toml"), body+"\n")
 		var got time.Duration
 
-		code := run(nil, &strings.Builder{}, func(_ string, s config.Settings) error {
+		code := run(nil, &strings.Builder{}, &strings.Builder{}, func(_ string, s config.Settings) error {
 			got = s.CacheMaxAge
 			return nil
 		})
@@ -350,13 +359,149 @@ func TestColumnsAndRowStyleAreHandedToTheUIWithTheirDefaults(t *testing.T) {
 		writeConfig(t, filepath.Join(home, ".config", "loper", "config.toml"), c.body+"\n")
 		var got config.Settings
 
-		code := run(nil, &strings.Builder{}, func(_ string, s config.Settings) error {
+		code := run(nil, &strings.Builder{}, &strings.Builder{}, func(_ string, s config.Settings) error {
 			got = s
 			return nil
 		})
 
 		if code != 0 || !slices.Equal(got.Columns, c.columns) || got.RowStyle != c.rowStyle {
 			t.Errorf("%q: exit code %d, UI told %q and %q, want 0, %q and %q", c.body, code, got.Columns, got.RowStyle, c.columns, c.rowStyle)
+		}
+	}
+}
+
+func TestTheVersionFlagPrintsTheVersion(t *testing.T) {
+	tempHome(t)
+
+	code, stdout, stderr := withoutUI(t, "--version")
+
+	if code != 0 || stderr != "" {
+		t.Errorf("exit code %d, stderr %q; want 0 and nothing", code, stderr)
+	}
+	// The Go toolchain stamps a test binary with the version (devel).
+	if want := "loper (devel)\n"; stdout != want {
+		t.Errorf("stdout %q, want %q", stdout, want)
+	}
+}
+
+func TestTheHelpFlagPrintsTheUsageTheConfigFileAndTheKeys(t *testing.T) {
+	home := tempHome(t)
+	xdgConfig := filepath.Join(home, "elsewhere")
+	t.Setenv("XDG_CONFIG_HOME", xdgConfig)
+
+	code, stdout, stderr := withoutUI(t, "--help")
+
+	if code != 0 || stderr != "" {
+		t.Errorf("exit code %d, stderr %q; want 0 and nothing", code, stderr)
+	}
+	want := []string{"Usage: loper [--config <file>]", "Config file: " + filepath.Join(xdgConfig, "loper", "config.toml")}
+	for _, s := range ui.KeyList() {
+		want = append(want, s.Title)
+		for _, b := range s.Bindings {
+			want = append(want, b.Keys+"  ", b.Action)
+		}
+	}
+	for _, w := range want {
+		if !strings.Contains(stdout, w) {
+			t.Errorf("stdout does not contain %q:\n%s", w, stdout)
+		}
+	}
+}
+
+func TestTheHelpFlagWinsOverTheOtherFlagsAndNeverReadsTheConfigFile(t *testing.T) {
+	home := tempHome(t)
+	standard := filepath.Join(home, ".config", "loper", "config.toml")
+	bad := filepath.Join(home, "bad.toml")
+	writeConfig(t, bad, "colour = \"blue\"\n")
+	missing := filepath.Join(home, "missing.toml")
+	for _, c := range []struct {
+		args []string
+		file string
+	}{
+		{[]string{"-h"}, standard},
+		{[]string{"--version", "--help"}, standard},
+		{[]string{"--help", "--version"}, standard},
+		{[]string{"--config", bad, "--help"}, bad},
+		{[]string{"--help", "--config", missing}, missing},
+	} {
+		code, stdout, stderr := withoutUI(t, c.args...)
+
+		if code != 0 || stderr != "" {
+			t.Errorf("%q: exit code %d, stderr %q; want 0 and nothing", c.args, code, stderr)
+		}
+		if want := "Config file: " + c.file + "\n"; !strings.Contains(stdout, want) {
+			t.Errorf("%q: stdout does not contain %q:\n%s", c.args, want, stdout)
+		}
+	}
+}
+
+func TestTheHelpFlagNamesTheStandardConfigFileWhenItIsInvalid(t *testing.T) {
+	home := tempHome(t)
+	file := filepath.Join(home, ".config", "loper", "config.toml")
+	writeConfig(t, file, "paths = [\n")
+
+	code, stdout, stderr := withoutUI(t, "--help")
+
+	if code != 0 || stderr != "" {
+		t.Errorf("exit code %d, stderr %q; want 0 and nothing", code, stderr)
+	}
+	if want := "Config file: " + file + "\n"; !strings.Contains(stdout, want) {
+		t.Errorf("stdout does not contain %q:\n%s", want, stdout)
+	}
+}
+
+func TestAUsageErrorPrintsWhatIsWrongAndTheUsage(t *testing.T) {
+	tempHome(t)
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--colour"}, "loper: unknown flag --colour\n"},
+		{[]string{"-colour"}, "loper: unknown flag --colour\n"},
+		{[]string{"open"}, "loper: unexpected argument \"open\"\n"},
+		{[]string{"--config", "a.toml", "open"}, "loper: unexpected argument \"open\"\n"},
+		{[]string{"--config"}, "loper: --config needs a file\n"},
+		{[]string{"--config="}, "loper: --config needs a file\n"},
+		{[]string{"--config", ""}, "loper: --config needs a file\n"},
+	} {
+		code, stdout, stderr := withoutUI(t, c.args...)
+
+		if code != 2 || stdout != "" {
+			t.Errorf("%q: exit code %d, stdout %q; want 2 and nothing", c.args, code, stdout)
+		}
+		if want := c.want + "\nUsage: loper [--config <file>]\n"; !strings.HasPrefix(stderr, want) {
+			t.Errorf("%q: stderr %q does not start with %q", c.args, stderr, want)
+		}
+	}
+}
+
+func TestTheVersionAndHelpFlagsNeedNoHomeFolderUnlessHelpNamesAFileInIt(t *testing.T) {
+	home := tempHome(t)
+	t.Setenv("HOME", "")
+	file := filepath.Join(home, "try.toml")
+	for _, c := range []struct {
+		args    []string
+		xdg     string
+		want    string
+		wantErr bool
+	}{
+		{args: []string{"--version"}, want: "loper (devel)\n"},
+		{args: []string{"--help", "--config", file}, want: "Config file: " + file + "\n"},
+		{args: []string{"--help"}, xdg: filepath.Join(home, "xdg"), want: "Config file: " + filepath.Join(home, "xdg", "loper", "config.toml") + "\n"},
+		{args: []string{"--help"}, wantErr: true},
+	} {
+		t.Setenv("XDG_CONFIG_HOME", c.xdg)
+
+		code, stdout, stderr := withoutUI(t, c.args...)
+
+		if c.wantErr {
+			if code != 1 || !strings.HasPrefix(stderr, "loper: ") {
+				t.Errorf("%q without XDG_CONFIG_HOME: exit code %d, stderr %q; want 1 and an error", c.args, code, stderr)
+			}
+			continue
+		}
+		if code != 0 || stderr != "" || !strings.Contains(stdout, c.want) {
+			t.Errorf("%q: exit code %d, stderr %q, stdout %q; want 0, nothing and %q", c.args, code, stderr, stdout, c.want)
 		}
 	}
 }
