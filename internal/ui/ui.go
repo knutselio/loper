@@ -8,6 +8,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/knutselio/loper/internal/target"
 )
@@ -17,6 +18,7 @@ type Deps struct {
 	Home   string   // shown as ~ in folders
 	Paths  []string // what to scan for repos
 	Scan   func(paths []string) []string
+	Branch func(repo string) string
 	Open   func(t target.Target, path string) error
 	Target target.Target // what enter opens the selected repo in
 	Now    func() time.Time
@@ -25,18 +27,30 @@ type Deps struct {
 // Model is the program state.
 type Model struct {
 	deps     Deps
-	repos    []string
+	repos    []repo
 	selected int
 }
 
-type scannedMsg []string
+// repo is one row of the list.
+type repo struct {
+	path   string
+	branch string
+}
+
+type scannedMsg []repo
 
 func New(deps Deps) Model {
 	return Model{deps: deps}
 }
 
 func (m Model) Init() tea.Cmd {
-	return func() tea.Msg { return scannedMsg(m.deps.Scan(m.deps.Paths)) }
+	return func() tea.Msg {
+		var repos []repo
+		for _, path := range m.deps.Scan(m.deps.Paths) {
+			repos = append(repos, repo{path: path, branch: m.deps.Branch(path)})
+		}
+		return scannedMsg(repos)
+	}
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -55,9 +69,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(m.repos) == 0 {
 				return m, nil
 			}
-			repo := m.repos[m.selected]
+			path := m.repos[m.selected].path
 			return m, func() tea.Msg {
-				m.deps.Open(m.deps.Target, repo)
+				m.deps.Open(m.deps.Target, path)
 				return nil
 			}
 		}
@@ -66,9 +80,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) View() tea.View {
-	width := 0
+	nameWidth, folderWidth := 0, 0
 	for _, r := range m.repos {
-		width = max(width, len(filepath.Base(r)))
+		nameWidth = max(nameWidth, ansi.StringWidth(filepath.Base(r.path)))
+		folderWidth = max(folderWidth, ansi.StringWidth(m.shorten(filepath.Dir(r.path))))
 	}
 	var b strings.Builder
 	for i, r := range m.repos {
@@ -76,11 +91,16 @@ func (m Model) View() tea.View {
 		if i == m.selected {
 			marker = "> "
 		}
-		fmt.Fprintf(&b, "%s%-*s  %s\n", marker, width, filepath.Base(r), m.shorten(filepath.Dir(r)))
+		fmt.Fprintf(&b, "%s%s  %s  %s\n", marker, pad(filepath.Base(r.path), nameWidth), pad(m.shorten(filepath.Dir(r.path)), folderWidth), r.branch)
 	}
 	v := tea.NewView(b.String())
 	v.AltScreen = true
 	return v
+}
+
+// pad fills s with spaces to width display cells.
+func pad(s string, width int) string {
+	return s + strings.Repeat(" ", width-ansi.StringWidth(s))
 }
 
 // shorten replaces the home folder at the start of path with ~.

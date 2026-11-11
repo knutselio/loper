@@ -10,6 +10,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/knutselio/loper/internal/repoinfo"
 	"github.com/knutselio/loper/internal/scanner"
 	"github.com/knutselio/loper/internal/target"
 	"github.com/knutselio/loper/internal/ui"
@@ -65,6 +66,18 @@ func (e *env) git(dir string, args ...string) {
 	}
 }
 
+// gitOutput runs git with args in dir and returns its trimmed output.
+func (e *env) gitOutput(dir string, args ...string) string {
+	e.t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		e.t.Fatalf("git %v in %s: %v", args, dir, err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // symlink creates a symlink at rel, relative to the home folder, pointing
 // at target.
 func (e *env) symlink(target, rel string) {
@@ -116,6 +129,7 @@ func (e *env) start() *driver {
 		Home:   e.home,
 		Paths:  []string{filepath.Join(e.home, "code")},
 		Scan:   scanner.Scan,
+		Branch: repoinfo.Branch,
 		Open:   target.Run,
 		Target: e.fakeTarget(),
 		Now:    func() time.Time { return time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC) },

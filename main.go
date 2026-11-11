@@ -9,6 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/knutselio/loper/internal/repoinfo"
 	"github.com/knutselio/loper/internal/scanner"
 	"github.com/knutselio/loper/internal/target"
 	"github.com/knutselio/loper/internal/ui"
@@ -24,6 +25,7 @@ func main() {
 		Home:   home,
 		Paths:  []string{filepath.Join(home, "code")},
 		Scan:   scanner.Scan,
+		Branch: repoinfo.Branch,
 		Open:   target.Run,
 		Target: target.Target{Name: "Zed", Command: "zed {path}"},
 		Now:    time.Now,

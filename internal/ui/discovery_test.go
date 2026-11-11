@@ -13,7 +13,7 @@ func TestARepoSeveralLevelsDeepIsListed(t *testing.T) {
 
 	screen := e.start().screen()
 
-	if !hasRow(screen, "deep ~/code/a/b/c") {
+	if !hasRow(screen, "deep ~/code/a/b/c main") {
 		t.Errorf("screen has no row for deep:\n%s", screen)
 	}
 }
@@ -25,7 +25,7 @@ func TestARepoNestedInsideAnotherRepoIsNotListed(t *testing.T) {
 
 	screen := e.start().screen()
 
-	if !hasRow(screen, "outer ~/code") {
+	if !hasRow(screen, "outer ~/code main") {
 		t.Errorf("screen has no row for outer:\n%s", screen)
 	}
 	if strings.Contains(screen, "inner") {
@@ -40,7 +40,7 @@ func TestARepoInsideAHiddenFolderIsNotListed(t *testing.T) {
 
 	screen := e.start().screen()
 
-	if !hasRow(screen, "alpha ~/code") {
+	if !hasRow(screen, "alpha ~/code main") {
 		t.Errorf("screen has no row for alpha:\n%s", screen)
 	}
 	if strings.Contains(screen, "hidden") {
@@ -57,7 +57,7 @@ func TestARepoReachableOnlyThroughASymlinkIsNotListed(t *testing.T) {
 
 	screen := e.start().screen()
 
-	if !hasRow(screen, "alpha ~/code") {
+	if !hasRow(screen, "alpha ~/code main") {
 		t.Errorf("screen has no row for alpha:\n%s", screen)
 	}
 	if strings.Contains(screen, "linked") {
@@ -88,7 +88,7 @@ func TestALinkedWorktreeIsNotListedButItsPrimaryRepoIs(t *testing.T) {
 
 	screen := e.start().screen()
 
-	if !hasRow(screen, "primary ~/code") {
+	if !hasRow(screen, "primary ~/code main") {
 		t.Errorf("screen has no row for primary:\n%s", screen)
 	}
 	if strings.Contains(screen, "feature-tree") {
@@ -101,7 +101,7 @@ func TestARepoInAFolderWithSpacesIsListedAndOpensWithItsPath(t *testing.T) {
 	spaced := e.repo("code/side projects/my repo")
 	d := e.start()
 
-	if got := d.selected(); got != "my repo ~/code/side projects" {
+	if got := d.selected(); got != "my repo ~/code/side projects main" {
 		t.Errorf("selected %q, want the repo with spaces", got)
 	}
 	d.press("enter")

@@ -11,7 +11,7 @@ func TestListsReposUnderCodeWithNameAndShortenedFolder(t *testing.T) {
 
 	screen := e.start().screen()
 
-	for _, row := range []string{"aycapi ~/code", "backend ~/code/work"} {
+	for _, row := range []string{"aycapi ~/code main", "backend ~/code/work main"} {
 		if !hasRow(screen, row) {
 			t.Errorf("screen has no row %q:\n%s", row, screen)
 		}
@@ -29,13 +29,13 @@ func TestFirstRowIsSelectedAndKeysMoveTheSelectionWithinTheList(t *testing.T) {
 		keys []string
 		want string
 	}{
-		{nil, "alpha ~/code"},
-		{[]string{"j"}, "beta ~/code"},
-		{[]string{"down"}, "gamma ~/code"},
-		{[]string{"j", "down"}, "gamma ~/code"},
-		{[]string{"k"}, "beta ~/code"},
-		{[]string{"up"}, "alpha ~/code"},
-		{[]string{"k", "up"}, "alpha ~/code"},
+		{nil, "alpha ~/code main"},
+		{[]string{"j"}, "beta ~/code main"},
+		{[]string{"down"}, "gamma ~/code main"},
+		{[]string{"j", "down"}, "gamma ~/code main"},
+		{[]string{"k"}, "beta ~/code main"},
+		{[]string{"up"}, "alpha ~/code main"},
+		{[]string{"k", "up"}, "alpha ~/code main"},
 	}
 	for _, s := range steps {
 		d.press(s.keys...)
@@ -59,7 +59,7 @@ func TestEnterOpensTheSelectedRepoAndStaysOpen(t *testing.T) {
 	if d.quit {
 		t.Error("the tool quit after opening a repo")
 	}
-	if got := d.selected(); got != "beta ~/code" {
+	if got := d.selected(); got != "beta ~/code main" {
 		t.Errorf("selected %q after opening, want the list still on beta", got)
 	}
 }
