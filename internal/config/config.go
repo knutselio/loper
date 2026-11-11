@@ -17,6 +17,7 @@ import (
 	"github.com/pelletier/go-toml/v2/unstable"
 
 	"github.com/knutselio/loper/internal/target"
+	"github.com/knutselio/loper/internal/xdg"
 )
 
 // Settings is the complete configuration, with every default applied.
@@ -228,11 +229,7 @@ func keyOf(n *unstable.Node) string {
 
 // defaultPath is where the config file lives unless --config says otherwise.
 func defaultPath(home string) string {
-	dir := os.Getenv("XDG_CONFIG_HOME")
-	if !filepath.IsAbs(dir) { // unset, empty or relative, which XDG says to ignore
-		dir = filepath.Join(home, ".config")
-	}
-	return filepath.Join(dir, "loper", "config.toml")
+	return filepath.Join(xdg.Dir("XDG_CONFIG_HOME", filepath.Join(home, ".config")), "loper", "config.toml")
 }
 
 // expand replaces a leading ~ with the home folder.

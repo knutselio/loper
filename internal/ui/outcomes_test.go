@@ -91,7 +91,7 @@ func TestEscClosesTheDialogAndTheListWorksAgain(t *testing.T) {
 		t.Errorf("dialog still shown after esc: %q", got)
 	}
 	d.press("j", "z")
-	if got := d.selected(); got != "beta ~/code main" {
+	if got := d.selected(); !startsWith(got, "beta ~/code main") {
 		t.Errorf("selected %q after esc and j, want beta", got)
 	}
 	if got, want := e.targetArgs("zed"), []string{beta}; !slices.Equal(got, want) {

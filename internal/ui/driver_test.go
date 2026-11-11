@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/knutselio/loper/internal/config"
+	"github.com/knutselio/loper/internal/history"
 	"github.com/knutselio/loper/internal/repoinfo"
 	"github.com/knutselio/loper/internal/scanner"
 	"github.com/knutselio/loper/internal/target"
@@ -25,6 +27,7 @@ type env struct {
 	root string // holds the home folder, the fake targets and their records
 	home string
 	wait time.Duration // how long a target runs before it counts as opened
+	now  time.Time     // the time on the program's clock
 }
 
 func newEnv(t *testing.T) *env {
@@ -33,7 +36,8 @@ func newEnv(t *testing.T) *env {
 	// The wait is far longer than any fake target that exits takes, so a slow
 	// start never turns a failure into a success; tests of targets that keep
 	// running shorten it.
-	e := &env{t: t, root: root, home: filepath.Join(root, "home"), wait: 10 * time.Second}
+	e := &env{t: t, root: root, home: filepath.Join(root, "home"), wait: 10 * time.Second,
+		now: time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)}
 	t.Setenv("PATH", filepath.Join(root, "bin")+string(filepath.ListSeparator)+os.Getenv("PATH"))
 	t.Setenv("HOME", e.home)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(e.home, ".config"))
@@ -175,7 +179,7 @@ type driver struct {
 	held  []tea.Cmd // the background work kept back, in the order it was started
 }
 
-// start launches the program on a fixed 80x24 screen and clock, with the
+// start launches the program on a fixed 80x24 screen at e.now, with the
 // settings loaded from the config file as the entry point does.
 func (e *env) start() *driver {
 	e.t.Helper()
@@ -191,7 +195,8 @@ func (e *env) start() *driver {
 		Branch:      repoinfo.Branch,
 		Open:        func(t target.Target, path string) error { return target.Run(t, path, e.wait) },
 		Targets:     settings.Targets,
-		Now:         func() time.Time { return time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC) },
+		History:     history.New(e.home),
+		Now:         func() time.Time { return e.now },
 		CloseOnOpen: settings.CloseOnOpen,
 	})
 	d.run(d.model.Init())
@@ -279,14 +284,31 @@ func (d *driver) selected() string {
 	return ""
 }
 
-// hasRow reports whether a line of the screen reads as want, ignoring the
-// margin, the selection marker and the spacing between columns.
+// hasRow reports whether a line of the screen starts with the words of
+// want, ignoring the margin, the selection marker and the spacing between
+// columns, so a test names only the columns it is about.
 func hasRow(screen, want string) bool {
 	for _, line := range strings.Split(screen, "\n") {
-		line = strings.TrimPrefix(line, " > ")
-		if strings.Join(strings.Fields(line), " ") == want {
+		if startsWith(strings.TrimPrefix(line, " > "), want) {
 			return true
 		}
 	}
 	return false
+}
+
+// hasExactRow is hasRow for a whole row, every column included.
+func hasExactRow(screen, want string) bool {
+	for _, line := range strings.Split(screen, "\n") {
+		if strings.Join(strings.Fields(strings.TrimPrefix(line, " > ")), " ") == want {
+			return true
+		}
+	}
+	return false
+}
+
+// startsWith reports whether the words of row start with the words of want,
+// compared as whole words.
+func startsWith(row, want string) bool {
+	words, prefix := strings.Fields(row), strings.Fields(want)
+	return len(words) >= len(prefix) && slices.Equal(words[:len(prefix)], prefix)
 }

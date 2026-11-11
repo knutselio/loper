@@ -95,7 +95,7 @@ func TestARepoWithACorruptHeadShowsNoBranch(t *testing.T) {
 
 	screen := e.start().screen()
 
-	if !hasRow(screen, "alpha ~/code") {
-		t.Errorf("screen has no row %q:\n%s", "alpha ~/code", screen)
+	if !hasExactRow(screen, "alpha ~/code -") {
+		t.Errorf("screen has no row %q:\n%s", "alpha ~/code -", screen)
 	}
 }

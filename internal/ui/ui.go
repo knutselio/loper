@@ -4,6 +4,7 @@ package ui
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"strings"
 	"time"
@@ -12,6 +13,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/knutselio/loper/internal/history"
+	"github.com/knutselio/loper/internal/reltime"
 	"github.com/knutselio/loper/internal/target"
 )
 
@@ -23,6 +26,7 @@ type Deps struct {
 	Branch  func(repo string) string
 	Open    func(t target.Target, path string) error
 	Targets []target.Target // in the order the menu lists them
+	History history.Store
 	Now     func() time.Time
 	// CloseOnOpen quits the program after a successful open.
 	CloseOnOpen bool
@@ -32,7 +36,8 @@ type Deps struct {
 type Model struct {
 	deps     Deps
 	repos    []repo
-	missing  []string // configured paths that do not exist
+	missing  []string             // configured paths that do not exist
+	history  map[string]time.Time // when each repo was last opened, by path
 	selected int
 	offset   int // the first repo shown, so the selected one stays in view
 	width    int
@@ -56,9 +61,15 @@ type scannedMsg struct {
 	missing []string
 }
 
-// openedMsg reports that a repo opened in a target.
+// historyMsg carries the history as loaded at launch.
+type historyMsg map[string]time.Time
+
+// openedMsg reports that a repo opened in a target at a time, which is
+// already recorded in the history unless saving it failed.
 type openedMsg struct {
-	repo, target string
+	path, target string
+	at           time.Time
+	saveErr      error
 }
 
 // failedMsg reports that a repo did not open in a target.
@@ -72,23 +83,37 @@ func New(deps Deps) Model {
 }
 
 func (m Model) Init() tea.Cmd {
-	return func() tea.Msg {
+	return tea.Batch(func() tea.Msg {
 		paths, missing := m.deps.Scan(m.deps.Paths)
 		var repos []repo
 		for _, path := range paths {
 			repos = append(repos, repo{path: path, branch: m.deps.Branch(path)})
 		}
 		return scannedMsg{repos: repos, missing: missing}
-	}
+	}, func() tea.Msg { return historyMsg(m.deps.History.Load()) })
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case scannedMsg:
 		m.repos, m.missing = msg.repos, msg.missing
+	case historyMsg:
+		// An open recorded before the history arrived is newer than the file
+		// that was read, so it stays.
+		h := map[string]time.Time{}
+		maps.Copy(h, msg)
+		maps.Copy(h, m.history)
+		m.history = h
 	case openedMsg:
 		m.opening = false
-		m.notice = "Opened " + msg.repo + " in " + msg.target
+		h := map[string]time.Time{} // a new map: an older model may still hold the old one
+		maps.Copy(h, m.history)
+		h[msg.path] = msg.at
+		m.history = h
+		m.notice = "Opened " + filepath.Base(msg.path) + " in " + msg.target
+		if msg.saveErr != nil { // the footer has one line: room to name the problem, not its cause
+			m.notice += ", but the history could not be saved"
+		}
 		if m.deps.CloseOnOpen && m.failure == nil { // never quit while an error is showing
 			return m, tea.Quit
 		}
@@ -192,10 +217,11 @@ func (m Model) keyed(msg tea.KeyPressMsg) (target.Target, bool) {
 }
 
 func (m Model) View() tea.View {
-	nameWidth, folderWidth := 0, 0
+	nameWidth, folderWidth, branchWidth := 0, 0, 0
 	for _, r := range m.repos {
 		nameWidth = max(nameWidth, ansi.StringWidth(filepath.Base(r.path)))
 		folderWidth = max(folderWidth, ansi.StringWidth(m.shorten(filepath.Dir(r.path))))
+		branchWidth = max(branchWidth, ansi.StringWidth(r.branch))
 	}
 	rule := " " + strings.Repeat("─", max(m.width-2, 0)) + " "
 	header := fmt.Sprintf(" repos  %d", len(m.repos))
@@ -203,6 +229,7 @@ func (m Model) View() tea.View {
 		header += "  " + m.shorten(path) + " not found"
 	}
 	lines := []string{header, rule}
+	now := m.deps.Now()
 	for i := m.offset; i < m.offset+m.listHeight(); i++ {
 		if i >= len(m.repos) {
 			lines = append(lines, "")
@@ -213,7 +240,11 @@ func (m Model) View() tea.View {
 		if i == m.selected {
 			marker = " > "
 		}
-		lines = append(lines, fmt.Sprintf("%s%s  %s  %s", marker, pad(filepath.Base(r.path), nameWidth), pad(m.shorten(filepath.Dir(r.path)), folderWidth), r.branch))
+		lastOpened := "-"
+		if at, ok := m.history[r.path]; ok {
+			lastOpened = reltime.Format(at, now)
+		}
+		lines = append(lines, fmt.Sprintf("%s%s  %s  %s  %s", marker, pad(filepath.Base(r.path), nameWidth), pad(m.shorten(filepath.Dir(r.path)), folderWidth), pad(r.branch, branchWidth), lastOpened))
 	}
 	keys := " enter open"
 	for _, t := range m.deps.Targets {
@@ -253,7 +284,11 @@ func (m Model) open(t target.Target) (Model, tea.Cmd) {
 			errors.As(err, &f)
 			return failedMsg{repo: filepath.Base(path), target: t.Name, Failure: *f}
 		}
-		return openedMsg{repo: filepath.Base(path), target: t.Name}
+		// Recorded before the open is reported, so it is on disk even when the
+		// tool quits on the report. Round(0) keeps only the wall clock, as the
+		// file does: a monotonic reading can stop while the computer sleeps.
+		at := m.deps.Now().Round(0)
+		return openedMsg{path: path, target: t.Name, at: at, saveErr: m.deps.History.Record(path, at)}
 	}
 }
 

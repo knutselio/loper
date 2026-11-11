@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/knutselio/loper/internal/config"
+	"github.com/knutselio/loper/internal/history"
 	"github.com/knutselio/loper/internal/repoinfo"
 	"github.com/knutselio/loper/internal/scanner"
 	"github.com/knutselio/loper/internal/target"
@@ -56,6 +57,7 @@ func startUI(home string, settings config.Settings) error {
 		Branch:      repoinfo.Branch,
 		Open:        func(t target.Target, path string) error { return target.Run(t, path, 2*time.Second) },
 		Targets:     settings.Targets,
+		History:     history.New(home),
 		Now:         time.Now,
 		CloseOnOpen: settings.CloseOnOpen,
 	})

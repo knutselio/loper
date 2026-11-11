@@ -59,11 +59,11 @@ func TestGJumpsToTheTopAndCapitalGToTheBottom(t *testing.T) {
 	d := e.start()
 
 	d.press("G")
-	if got := d.selected(); got != "gamma ~/code main" {
+	if got := d.selected(); !startsWith(got, "gamma ~/code main") {
 		t.Errorf("after G: selected %q, want the last row", got)
 	}
 	d.press("g")
-	if got := d.selected(); got != "alpha ~/code main" {
+	if got := d.selected(); !startsWith(got, "alpha ~/code main") {
 		t.Errorf("after g: selected %q, want the first row", got)
 	}
 }
@@ -87,7 +87,7 @@ func TestCtrlDAndCtrlUMoveHalfAPageAndStopAtTheEnds(t *testing.T) {
 	}
 	for _, s := range steps {
 		d.press(s.key)
-		if got, want := d.selected(), s.want+" ~/code main"; got != want {
+		if got, want := d.selected(), s.want+" ~/code main"; !startsWith(got, want) {
 			t.Fatalf("after %s: selected %q, want %q", s.key, got, want)
 		}
 	}
@@ -120,7 +120,7 @@ func TestMovingPastTheLastVisibleRowScrollsTheList(t *testing.T) {
 		if len(lines) != 10 || !strings.HasPrefix(lines[9], " enter open") {
 			t.Fatalf("after %v: the list overflows the screen:\n%s", s.keys, d.screen())
 		}
-		if got, want := d.selected(), s.want+" ~/code main"; got != want {
+		if got, want := d.selected(), s.want+" ~/code main"; !startsWith(got, want) {
 			t.Fatalf("after %v: selected %q, want %q", s.keys, got, want)
 		}
 		if !hasRow(lines[2], s.first+" ~/code main") {
@@ -143,7 +143,7 @@ func TestGrowingTheWindowAfterScrollingShowsEveryRepoThatFits(t *testing.T) {
 	if lines := strings.Split(d.screen(), "\n"); !hasRow(lines[2], "repo0 ~/code main") {
 		t.Errorf("top row is %q, want repo0 once all repos fit:\n%s", lines[2], d.screen())
 	}
-	if got := d.selected(); got != "repo9 ~/code main" {
+	if got := d.selected(); !startsWith(got, "repo9 ~/code main") {
 		t.Errorf("selected %q, want repo9 still selected", got)
 	}
 }
@@ -156,11 +156,11 @@ func TestCtrlDAndCtrlUMoveAtLeastOneRowOnAOneRowList(t *testing.T) {
 	d.send(tea.WindowSizeMsg{Width: 80, Height: 5}) // room for 1 row
 
 	d.press("ctrl+d")
-	if got := d.selected(); got != "beta ~/code main" {
+	if got := d.selected(); !startsWith(got, "beta ~/code main") {
 		t.Errorf("after ctrl+d: selected %q, want beta", got)
 	}
 	d.press("ctrl+u")
-	if got := d.selected(); got != "alpha ~/code main" {
+	if got := d.selected(); !startsWith(got, "alpha ~/code main") {
 		t.Errorf("after ctrl+u: selected %q, want alpha", got)
 	}
 }
@@ -188,7 +188,7 @@ func TestShrinkingTheWindowKeepsTheSelectedRowVisible(t *testing.T) {
 
 	d.send(tea.WindowSizeMsg{Width: 80, Height: 8}) // room for 4 rows
 
-	if got := d.selected(); got != "repo9 ~/code main" {
+	if got := d.selected(); !startsWith(got, "repo9 ~/code main") {
 		t.Errorf("selected %q, want repo9 still visible", got)
 	}
 }

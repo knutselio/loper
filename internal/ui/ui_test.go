@@ -39,7 +39,7 @@ func TestFirstRowIsSelectedAndKeysMoveTheSelectionWithinTheList(t *testing.T) {
 	}
 	for _, s := range steps {
 		d.press(s.keys...)
-		if got := d.selected(); got != s.want {
+		if got := d.selected(); !startsWith(got, s.want) {
 			t.Fatalf("after %v: selected %q, want %q", s.keys, got, s.want)
 		}
 	}
@@ -59,7 +59,7 @@ func TestEnterTwiceOpensTheSelectedRepoInTheFirstTargetAndStaysOpen(t *testing.T
 	if d.quit {
 		t.Error("the tool quit after opening a repo")
 	}
-	if got := d.selected(); got != "beta ~/code main" {
+	if got := d.selected(); !startsWith(got, "beta ~/code main") {
 		t.Errorf("selected %q after opening, want the list still on beta", got)
 	}
 }

@@ -164,7 +164,7 @@ func TestListKeysDoNotMoveTheSelectionWhileTheMenuIsOpen(t *testing.T) {
 
 	d.press("enter", "j", "down", "G", "ctrl+d", "esc")
 
-	if got := d.selected(); got != "alpha ~/code main" {
+	if got := d.selected(); !startsWith(got, "alpha ~/code main") {
 		t.Errorf("selected %q after keys in the menu, want alpha still selected", got)
 	}
 }
@@ -220,7 +220,7 @@ func TestTheMenuSitsOverTheListWhichStaysVisibleAroundIt(t *testing.T) {
 		}
 		covered++
 		left, right := strings.Fields(line[:first]), strings.Fields(line[last+len("│"):])
-		if len(left) == 0 || !strings.HasPrefix(left[0], "repo") || len(right) == 0 || right[len(right)-1] != "main" {
+		if len(left) == 0 || !strings.HasPrefix(left[0], "repo") || len(right) < 2 || strings.Join(right[len(right)-2:], " ") != "main -" {
 			t.Errorf("line %d does not show its list row either side of the menu: %q", i+1, line)
 		}
 	}
@@ -332,7 +332,7 @@ func TestTheMenuDoesNotOpenOrStayOpenWithoutRoomForIt(t *testing.T) {
 		t.Errorf("the menu stayed open through a screen with no room for it: %q", got)
 	}
 	d.press("j")
-	if got := d.selected(); got != "beta ~/code main" {
+	if got := d.selected(); !startsWith(got, "beta ~/code main") {
 		t.Errorf("selected %q, want j to move the list once the menu is closed", got)
 	}
 	if got := e.targetArgs("zed"); got != nil {
