@@ -451,7 +451,7 @@ func TestACacheThatCannotBeWrittenLeavesTheRefreshedListOnScreen(t *testing.T) {
 	if screen := d.screen(); !hasExactRow(screen, "alpha ~/code main -") || header(d) != "repos 1 sort: last opened" {
 		t.Errorf("want the refreshed list:\n%s", screen)
 	}
-	if got, want := footer(d), "enter open z Zed s sort r refresh q quit"; got != want {
+	if got, want := footer(d), "enter open z Zed / search s sort r refresh q quit"; got != want {
 		t.Errorf("footer reads %q, want %q", got, want)
 	}
 }

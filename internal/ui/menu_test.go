@@ -201,7 +201,7 @@ func TestTheMenuSitsOverTheListWhichStaysVisibleAroundIt(t *testing.T) {
 	if len(lines) != 24 {
 		t.Errorf("screen has %d lines with the menu open, want 24", len(lines))
 	}
-	for _, row := range []string{"repos 21", "enter open z Zed t Terminal tab s sort r refresh q quit"} {
+	for _, row := range []string{"repos 21", "enter open z Zed t Terminal tab / search s sort r refresh q quit"} {
 		if !hasRow(screen, row) {
 			t.Errorf("screen has no row %q with the menu open:\n%s", row, screen)
 		}

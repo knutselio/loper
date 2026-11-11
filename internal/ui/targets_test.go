@@ -153,7 +153,7 @@ command = "zed {path}"
 `)
 	d := e.start()
 
-	if got, want := footer(d), "enter open z Zed t Terminal tab s sort r refresh q quit"; got != want {
+	if got, want := footer(d), "enter open z Zed t Terminal tab / search s sort r refresh q quit"; got != want {
 		t.Errorf("footer reads %q, want %q", got, want)
 	}
 }
@@ -170,7 +170,7 @@ func TestASuccessfulOpenIsConfirmedInTheFooterUntilTheNextKey(t *testing.T) {
 	}
 
 	d.press("k")
-	if got, want := footer(d), "enter open z Zed s sort r refresh q quit"; got != want {
+	if got, want := footer(d), "enter open z Zed / search s sort r refresh q quit"; got != want {
 		t.Errorf("after the next key: footer reads %q, want %q", got, want)
 	}
 }
@@ -188,7 +188,7 @@ command = "false {path}"
 
 	d.press("b")
 
-	if got, want := footer(d), "enter open b Broken s sort r refresh q quit"; got != want {
+	if got, want := footer(d), "enter open b Broken / search s sort r refresh q quit"; got != want {
 		t.Errorf("footer reads %q, want %q", got, want)
 	}
 }

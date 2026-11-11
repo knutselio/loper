@@ -17,6 +17,7 @@ import (
 
 	"github.com/knutselio/loper/internal/cache"
 	"github.com/knutselio/loper/internal/history"
+	"github.com/knutselio/loper/internal/matcher"
 	"github.com/knutselio/loper/internal/reltime"
 	"github.com/knutselio/loper/internal/target"
 )
@@ -45,12 +46,15 @@ type Deps struct {
 	// CacheMaxAge is how old the cache may be before a launch scans again
 	// rather than re-reading the cached repos; 0 means every launch scans.
 	CacheMaxAge time.Duration
+	// Color highlights matched letters; it is off when NO_COLOR is set.
+	Color bool
 }
 
 // Model is the program state.
 type Model struct {
 	deps     Deps
-	repos    []repo
+	all      []repo               // every repo, in the current sort
+	repos    []repo               // the rows of the list: all, or the matches while searching
 	missing  []string             // configured paths that do not exist
 	history  map[string]time.Time // when each repo was last opened, by path
 	selected int
@@ -79,6 +83,15 @@ type Model struct {
 	// ticking is true while a spinner tick is on its way, so a refresh
 	// started before that tick arrives never starts a second chain of ticks.
 	ticking bool
+	// searching is true from / until esc. While it is, the list shows only
+	// the repos matching query, best match first, and hits holds where each
+	// row matched.
+	searching bool
+	query     string
+	hits      []matcher.Match
+	// before is the repo selected when the search started, selected again
+	// when it ends. If it disappears meanwhile it becomes the nearest repo.
+	before string
 }
 
 // repo is one row of the list.
@@ -123,6 +136,12 @@ type tickMsg struct{}
 
 // spinner is the frames of the refresh spinner.
 var spinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
+// matchOn and matchOff start and end the highlight of a matched letter.
+var (
+	matchOn  = ansi.Style{}.Underline(true).String()
+	matchOff = ansi.Style{}.NoUnderline().String()
+)
 
 func New(deps Deps) Model {
 	return Model{deps: deps, byName: deps.SortByName, refreshing: true, ticking: true}
@@ -220,14 +239,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		maps.Copy(h, msg)
 		maps.Copy(h, m.history)
 		m.history = h
-		m = m.relist(m.repos)
+		m = m.relist(m.all)
 	case openedMsg:
 		m.opening = false
 		h := map[string]time.Time{} // a new map: an older model may still hold the old one
 		maps.Copy(h, m.history)
 		h[msg.path] = msg.at
 		m.history = h
-		m = m.relist(m.repos)
+		m = m.relist(m.all)
 		m.notice = "Opened " + filepath.Base(msg.path) + " in " + msg.target
 		if msg.saveErr != nil { // the footer has one line: room to name the problem, not its cause
 			m.notice += ", but the history could not be saved"
@@ -243,6 +262,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.refreshing {
 			m.frame = (m.frame + 1) % len(spinner)
 			cmd = m.tick()
+		}
+	case tea.PasteMsg:
+		if m.searching && !m.menu && m.failure == nil { // as typed text, which only a search takes
+			m = m.search(m.query + clean(msg.Content))
 		}
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -267,6 +290,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m, cmd := m.menuKey(msg)
 			return m.scrollMenu(), cmd
 		}
+		if m.searching {
+			var handled bool
+			if m, handled = m.searchKey(msg); handled {
+				break
+			}
+		}
 		switch msg.String() {
 		case "q":
 			return m, tea.Quit
@@ -284,9 +313,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selected = max(m.selected-max(m.listHeight()/2, 1), 0)
 		case "enter":
 			m.menu, m.choice, m.menuTop = len(m.repos) > 0 && m.menuRows() > 0, 0, 0
+		case "/":
+			m.searching, m.before = true, ""
+			if len(m.repos) > 0 {
+				m.before = m.repos[m.selected].path
+			}
+			m.repos, m.hits = m.filter() // an empty query matches every repo, in the order shown
 		case "s":
 			m.byName = !m.byName
-			m = m.relist(m.repos)
+			m = m.relist(m.all)
 		case "r":
 			if !m.refreshing {
 				m.refreshing = true
@@ -305,6 +340,59 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.offset = min(m.offset, m.selected, max(len(m.repos)-m.listHeight(), 0))
 	m.offset = max(m.offset, m.selected-m.listHeight()+1)
 	return m, cmd
+}
+
+// searchKey handles a key press while searching and reports whether it did.
+// Printable characters go to the query, so target keys and list keys are
+// text. Keys it does not handle, such as the arrows and enter, act as in the
+// list.
+func (m Model) searchKey(msg tea.KeyPressMsg) (Model, bool) {
+	if msg.Text != "" {
+		return m.search(m.query + msg.Text), true
+	}
+	switch msg.String() {
+	case "backspace":
+		if q := []rune(m.query); len(q) > 0 {
+			m = m.search(string(q[:len(q)-1]))
+		}
+	case "ctrl+n":
+		m.selected = min(m.selected+1, max(len(m.repos)-1, 0))
+	case "ctrl+p":
+		m.selected = max(m.selected-1, 0)
+	case "esc":
+		m.searching, m.query = false, ""
+		m.repos, m.hits = m.filter()
+		m.selected = max(slices.IndexFunc(m.repos, func(r repo) bool { return r.path == m.before }), 0)
+	default:
+		return m, false
+	}
+	return m, true
+}
+
+// search shows the repos matching query, with the best match selected.
+func (m Model) search(query string) Model {
+	m.query = query
+	m.repos, m.hits = m.filter()
+	m.selected = 0
+	return m
+}
+
+// filter returns the rows of the list: every repo, or while searching the
+// repos matching the query, best match first, with where each matched.
+func (m Model) filter() ([]repo, []matcher.Match) {
+	if !m.searching {
+		return m.all, nil
+	}
+	rows := make([]matcher.Row, len(m.all))
+	for i, r := range m.all {
+		rows[i] = matcher.Row{Name: filepath.Base(r.path), Folder: m.shorten(filepath.Dir(r.path)), Branch: r.branch}
+	}
+	hits := matcher.Find(m.query, rows)
+	repos := make([]repo, len(hits))
+	for i, h := range hits {
+		repos[i] = m.all[h.Row]
+	}
+	return repos, hits
 }
 
 // menuKey handles a key press while the target menu is open.
@@ -355,7 +443,7 @@ func (m Model) keyed(msg tea.KeyPressMsg) (target.Target, bool) {
 
 func (m Model) View() tea.View {
 	nameWidth, folderWidth, branchWidth := 0, 0, 0
-	for _, r := range m.repos {
+	for _, r := range m.all { // all, so the columns stay put while searching
 		nameWidth = max(nameWidth, ansi.StringWidth(filepath.Base(r.path)))
 		folderWidth = max(folderWidth, ansi.StringWidth(m.shorten(filepath.Dir(r.path))))
 		branchWidth = max(branchWidth, ansi.StringWidth(r.branch))
@@ -369,7 +457,10 @@ func (m Model) View() tea.View {
 	if m.byName {
 		right = "  sort: name "
 	}
-	if m.refreshing && len(m.repos) > 0 { // with no list yet, the spinner is in the list
+	if m.searching { // the search line replaces the count, the warnings and the sort
+		header, right = " /"+m.query, ""
+	}
+	if m.refreshing && len(m.all) > 0 { // with no list yet, the spinner is in the list
 		right += "  " + spinner[m.frame] + " refreshing "
 	}
 	// The sort and the spinner keep their place on the right; warnings that
@@ -380,6 +471,8 @@ func (m Model) View() tea.View {
 	var empty []string // what an empty list says instead
 	switch {
 	case len(m.repos) > 0:
+	case m.searching && len(m.all) > 0:
+		empty = []string{"No matches"}
 	case !m.refreshing:
 		paths := make([]string, len(m.deps.Paths))
 		for i, p := range m.deps.Paths {
@@ -408,7 +501,12 @@ func (m Model) View() tea.View {
 		if at, ok := m.history[r.path]; ok {
 			lastOpened = reltime.Format(at, now)
 		}
-		lines = append(lines, fmt.Sprintf("%s%s  %s  %s  %s", marker, pad(filepath.Base(r.path), nameWidth), pad(m.shorten(filepath.Dir(r.path)), folderWidth), pad(r.branch, branchWidth), lastOpened))
+		name, folder, branch := filepath.Base(r.path), m.shorten(filepath.Dir(r.path)), r.branch
+		if m.hits != nil {
+			h := m.hits[i]
+			name, folder, branch = m.highlight(name, h.Name), m.highlight(folder, h.Folder), m.highlight(branch, h.Branch)
+		}
+		lines = append(lines, fmt.Sprintf("%s%s  %s  %s  %s", marker, pad(name, nameWidth), pad(folder, folderWidth), pad(branch, branchWidth), lastOpened))
 	}
 	keys := " enter open"
 	for _, t := range m.deps.Targets {
@@ -416,7 +514,7 @@ func (m Model) View() tea.View {
 			keys += "  " + t.Key + " " + t.Name
 		}
 	}
-	keys += "  s sort  r refresh  q quit"
+	keys += "  / search  s sort  r refresh  q quit"
 	if m.notice != "" {
 		keys = " " + m.notice
 	}
@@ -431,6 +529,24 @@ func (m Model) View() tea.View {
 	v := tea.NewView(strings.Join(lines, "\n"))
 	v.AltScreen = true
 	return v
+}
+
+// highlight marks the characters of s at the positions pos, which are in
+// ascending order, unless colour is off.
+func (m Model) highlight(s string, pos []int) string {
+	if !m.deps.Color || len(pos) == 0 {
+		return s
+	}
+	var b strings.Builder
+	for i, r := range []rune(s) {
+		if len(pos) > 0 && pos[0] == i {
+			b.WriteString(matchOn + string(r) + matchOff)
+			pos = pos[1:]
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // open opens the selected repo in t in the background and closes the menu,
@@ -560,24 +676,23 @@ func (m Model) overlay(lines, box []string) []string {
 // relist replaces the list with repos, in the current sort. Until the
 // selection follows the selected repo it keeps its row. After that it stays
 // on the selected repo; if that repo is gone, it moves to the nearest row of
-// the old list that is still there, below before above. The target menu
-// stays open only while its repo is still selected.
+// the old list that is still there. The repo to select when a search ends
+// moves the same way. The target menu stays open only while its repo is
+// still selected.
 func (m Model) relist(repos []repo) Model {
-	old, at := m.repos, m.selected
-	m.repos = repos
-	m.repos = m.sorted()
+	old, at, oldAll := m.repos, m.selected, m.all
+	m.all = m.sorted(repos)
+	m.repos, m.hits = m.filter()
 	m.selected = min(m.selected, max(len(m.repos)-1, 0))
-	if m.follow && len(old) > 0 {
-	nearest:
-		for d := range len(old) {
-			for _, i := range []int{at + d, at - d} {
-				if i < 0 || i >= len(old) {
-					continue
-				}
-				if j := slices.IndexFunc(m.repos, func(r repo) bool { return r.path == old[i].path }); j >= 0 {
-					m.selected = j
-					break nearest
-				}
+	if m.follow {
+		if j := nearest(old, at, m.repos); j >= 0 {
+			m.selected = j
+		}
+	}
+	if m.searching {
+		if i := slices.IndexFunc(oldAll, func(r repo) bool { return r.path == m.before }); i >= 0 {
+			if j := nearest(oldAll, i, m.all); j >= 0 {
+				m.before = m.all[j].path
 			}
 		}
 	}
@@ -585,11 +700,28 @@ func (m Model) relist(repos []repo) Model {
 	return m
 }
 
-// sorted returns the repos in a new slice, as an older model may still hold
+// nearest returns the index in repos of old[at] or, if repos lacks it, of
+// the nearest repo of old that repos has, below before above; -1 if there
+// is none.
+func nearest(old []repo, at int, repos []repo) int {
+	for d := range len(old) {
+		for _, i := range []int{at + d, at - d} {
+			if i < 0 || i >= len(old) {
+				continue
+			}
+			if j := slices.IndexFunc(repos, func(r repo) bool { return r.path == old[i].path }); j >= 0 {
+				return j
+			}
+		}
+	}
+	return -1
+}
+
+// sorted returns repos in a new slice, as an older model may still hold
 // the old one, in the current sort: by name, or most recently opened first
 // and then the repos never opened by name.
-func (m Model) sorted() []repo {
-	repos := slices.Clone(m.repos)
+func (m Model) sorted(repos []repo) []repo {
+	repos = slices.Clone(repos)
 	if m.byName {
 		slices.SortFunc(repos, m.compareNames)
 		return repos

@@ -49,6 +49,9 @@ type env struct {
 	home string
 	wait time.Duration // how long a target runs before it counts as opened
 	now  time.Time     // the time on the program's clock
+	// color turns colour on, as an unset NO_COLOR does; tests leave it off
+	// unless they are about colour.
+	color bool
 }
 
 func newEnv(t *testing.T) *env {
@@ -268,6 +271,7 @@ func (e *env) launch() *driver {
 		CloseOnOpen: settings.CloseOnOpen,
 		SortByName:  settings.SortByName,
 		CacheMaxAge: settings.CacheMaxAge,
+		Color:       e.color,
 	})
 	d.run(d.model.Init())
 	d.send(tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -343,13 +347,17 @@ func (d *driver) tick() bool {
 }
 
 var namedKeys = map[string]tea.KeyPressMsg{
-	"down":   {Code: tea.KeyDown},
-	"up":     {Code: tea.KeyUp},
-	"enter":  {Code: tea.KeyEnter},
-	"esc":    {Code: tea.KeyEscape},
-	"ctrl+c": {Code: 'c', Mod: tea.ModCtrl},
-	"ctrl+d": {Code: 'd', Mod: tea.ModCtrl},
-	"ctrl+u": {Code: 'u', Mod: tea.ModCtrl},
+	"down":      {Code: tea.KeyDown},
+	"up":        {Code: tea.KeyUp},
+	"enter":     {Code: tea.KeyEnter},
+	"esc":       {Code: tea.KeyEscape},
+	"ctrl+c":    {Code: 'c', Mod: tea.ModCtrl},
+	"ctrl+d":    {Code: 'd', Mod: tea.ModCtrl},
+	"ctrl+u":    {Code: 'u', Mod: tea.ModCtrl},
+	"ctrl+n":    {Code: 'n', Mod: tea.ModCtrl},
+	"ctrl+p":    {Code: 'p', Mod: tea.ModCtrl},
+	"backspace": {Code: tea.KeyBackspace},
+	"space":     {Code: tea.KeySpace, Text: " "},
 }
 
 // press sends each key in turn: a named key such as "down" or "ctrl+c",
@@ -367,6 +375,11 @@ func (d *driver) press(keys ...string) {
 		}
 		d.send(msg)
 	}
+}
+
+// paste sends text as the terminal sends a paste.
+func (d *driver) paste(text string) {
+	d.send(tea.PasteMsg{Content: text})
 }
 
 func (d *driver) screen() string {

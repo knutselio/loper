@@ -186,7 +186,7 @@ Each module hides its details behind a small interface. The UI is the only modul
 ### Search
 
 - `/` starts the search. The header becomes the search line.
-- The query is matched fuzzily against name, folder and branch. Matching is case-insensitive unless the query contains a capital letter.
+- The query is matched fuzzily against name, folder and branch. A space separates terms, and a row matches when every term matches one of the three. Matching is case-insensitive unless the query contains a capital letter.
 - Only matching rows are shown, best match first. A match in the name ranks above a match in the folder or branch. Ties keep the current sort order.
 - The top match is selected automatically. Matched letters are highlighted.
 - While searching, letters go to the query, so target keys are inactive. `↑`/`↓` and `ctrl-p`/`ctrl-n` move through the matches, and `enter` opens the target menu for the selected match.
