@@ -150,6 +150,7 @@ func startUI(home string, settings config.Settings) error {
 		Cache:       cache.New(home),
 		Now:         time.Now,
 		Tick:        tea.Tick,
+		NoticeFor:   3 * time.Second,
 		CloseOnOpen: settings.CloseOnOpen,
 		SortByName:  settings.SortByName,
 		CacheMaxAge: settings.CacheMaxAge,

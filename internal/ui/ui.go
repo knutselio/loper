@@ -39,9 +39,11 @@ type Deps struct {
 	History    history.Store
 	Cache      cache.Store
 	Now        func() time.Time
-	// Tick is tea.Tick, which drives the refresh spinner. Tests deliver its
-	// ticks themselves, so the spinner needs no real time.
+	// Tick is tea.Tick, which drives the refresh spinner and ends footer
+	// notices. Tests deliver its ticks themselves, so neither needs real time.
 	Tick func(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd
+	// NoticeFor is how long a footer notice shows before the keys return.
+	NoticeFor time.Duration
 	// CloseOnOpen quits the program after a successful open.
 	CloseOnOpen bool
 	// SortByName starts the list sorted by name rather than by last opened.
@@ -79,7 +81,8 @@ type Model struct {
 	offset   int // the first repo shown, so the selected one stays in view
 	width    int
 	height   int
-	notice   string       // shown in place of the footer keys until the next key press
+	notice   string       // shown in place of the footer keys for a moment, or until the next key press
+	notices  int          // how many notices have shown, so the end of an earlier one's moment leaves a later one
 	menu     bool         // the target menu is open
 	choice   int          // the target highlighted in the menu
 	menuTop  int          // the first target shown, so the highlighted one stays in view
@@ -186,6 +189,9 @@ type addedMsg struct {
 // tickMsg moves the spinner on a frame.
 type tickMsg struct{}
 
+// noticeEndMsg ends the moment of the footer notice it counts.
+type noticeEndMsg int
+
 // examples are what the add dialog shows, dimmed, in its empty fields: the
 // name, the key and the command of a target.
 var examples = [3]string{"Zed", "z", "zed {path}"}
@@ -245,6 +251,14 @@ func (m Model) Init() tea.Cmd {
 // tick moves the spinner on after a while.
 func (m Model) tick() tea.Cmd {
 	return m.deps.Tick(80*time.Millisecond, func(time.Time) tea.Msg { return tickMsg{} })
+}
+
+// showNotice shows text in the footer for a moment.
+func (m Model) showNotice(text string) (Model, tea.Cmd) {
+	m.notice = text
+	m.notices++
+	n := noticeEndMsg(m.notices)
+	return m, m.deps.Tick(m.deps.NoticeFor, func(time.Time) tea.Msg { return n })
 }
 
 // refresh is the full refresh: it scans the configured paths, reads each
@@ -333,10 +347,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h[msg.path] = msg.at
 		m.history = h
 		m = m.relist(m.all)
-		m.notice = "Opened " + filepath.Base(msg.path) + " in " + msg.target
+		notice := "Opened " + filepath.Base(msg.path) + " in " + msg.target
 		if msg.saveErr != nil { // the footer has one line: room to name the problem, not its cause
-			m.notice += ", but the history could not be saved"
+			notice += ", but the history could not be saved"
 		}
+		m, cmd = m.showNotice(notice)
 		if m.deps.CloseOnOpen && m.failure == nil && !m.add.open { // never quit while an error or the add dialog is showing
 			return m, tea.Quit
 		}
@@ -360,7 +375,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.add = addDialog{}
 		m.deps.Targets = msg.targets
 		m.helpLines, m.helpWidth = m.helpContent()
-		m.notice = "Added " + msg.targets[len(msg.targets)-1].Name
+		m, cmd = m.showNotice("Added " + msg.targets[len(msg.targets)-1].Name)
+	case noticeEndMsg:
+		if int(msg) == m.notices {
+			m.notice = ""
+		}
 	case tickMsg:
 		m.ticking = m.refreshing // the spinner stops with the refresh
 		if m.refreshing {

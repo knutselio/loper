@@ -52,7 +52,10 @@ type env struct {
 	root string // holds the home folder, the fake targets and their records
 	home string
 	wait time.Duration // how long a target runs before it counts as opened
-	now  time.Time     // the time on the program's clock
+	// notice is how long a footer notice shows; the driver never waits for
+	// it, but records it with the notice's tick.
+	notice time.Duration
+	now    time.Time // the time on the program's clock
 	// color turns colour on, as an unset NO_COLOR does; tests leave it off
 	// unless they are about colour.
 	color bool
@@ -67,7 +70,7 @@ func newEnv(t *testing.T) *env {
 	// The wait is far longer than any fake target that exits takes, so a slow
 	// start never turns a failure into a success; tests of targets that keep
 	// running shorten it.
-	e := &env{t: t, root: root, home: filepath.Join(root, "home"), wait: 10 * time.Second,
+	e := &env{t: t, root: root, home: filepath.Join(root, "home"), wait: 10 * time.Second, notice: 3 * time.Second,
 		now: time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)}
 	t.Setenv("PATH", filepath.Join(root, "bin")+string(filepath.ListSeparator)+os.Getenv("PATH"))
 	t.Setenv("LOPER_TEST_RECORDS", root) // where fake targets write their records
@@ -228,11 +231,18 @@ type driver struct {
 	// ran, instead of handing it to the program, until next or release.
 	hold bool
 	held []tea.Msg
-	// ticks are the spinner's pending ticks, which never come by themselves:
-	// a test delivers them with tick, so the spinner needs no real time and
-	// the driver never loops on it.
-	ticks []func(time.Time) tea.Msg
+	// ticks are the pending ticks of the spinner and of footer notices, which
+	// never come by themselves: a test delivers them with tick, so neither
+	// needs real time and the driver never loops on the spinner.
+	ticks []pendingTick
 	now   time.Time
+}
+
+// pendingTick is a tick on its way: after how long it was asked for, and
+// what it delivers.
+type pendingTick struct {
+	after time.Duration
+	fn    func(time.Time) tea.Msg
 }
 
 // start launches the program on a fixed 80x24 screen at e.now, with the
@@ -269,12 +279,13 @@ func (e *env) launch() *driver {
 		History:    history.New(e.home),
 		Cache:      cache.New(e.home),
 		Now:        func() time.Time { return e.now },
-		Tick: func(_ time.Duration, fn func(time.Time) tea.Msg) tea.Cmd {
+		Tick: func(after time.Duration, fn func(time.Time) tea.Msg) tea.Cmd {
 			return func() tea.Msg {
-				d.ticks = append(d.ticks, fn)
+				d.ticks = append(d.ticks, pendingTick{after, fn})
 				return nil
 			}
 		},
+		NoticeFor:   e.notice,
 		CloseOnOpen: settings.CloseOnOpen,
 		SortByName:  settings.SortByName,
 		CacheMaxAge: settings.CacheMaxAge,
@@ -345,15 +356,15 @@ func (d *driver) releaseLastFirst() {
 	d.release()
 }
 
-// tick delivers the spinner's oldest pending tick, if there is one, and
+// tick delivers the oldest pending tick, if there is one, and
 // reports whether there was.
 func (d *driver) tick() bool {
 	if len(d.ticks) == 0 {
 		return false
 	}
-	fn := d.ticks[0]
+	next := d.ticks[0]
 	d.ticks = d.ticks[1:]
-	d.send(fn(d.now))
+	d.send(next.fn(d.now))
 	return true
 }
 

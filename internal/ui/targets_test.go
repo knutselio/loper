@@ -276,7 +276,7 @@ command = "zed {path}"
 	}
 }
 
-func TestASuccessfulOpenIsConfirmedInTheFooterUntilTheNextKey(t *testing.T) {
+func TestASuccessfulOpenIsConfirmedInTheFooterAndTheNextKeyClearsItAtOnce(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.repo("code/aycapi")
