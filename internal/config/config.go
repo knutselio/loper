@@ -26,7 +26,7 @@ import (
 type Settings struct {
 	File        string          // the config file, read or, when missing, where it would be
 	Paths       []string        // absolute folders to scan, or repos to list directly
-	Targets     []target.Target // at least one
+	Targets     []target.Target // in the order they are written, perhaps none
 	CloseOnOpen bool            // quit after a successful open
 	SortByName  bool            // start sorted by name rather than by last opened
 	Columns     []string        // the columns shown, in order; "name" is one of them
@@ -207,9 +207,6 @@ func parse(path, home string, b []byte) (Settings, error) {
 	}
 	if f.RowStyle == "" {
 		f.RowStyle = "name-folder"
-	}
-	if len(f.Targets) == 0 {
-		f.Targets = []targetFile{{Name: "Zed", Key: "z", Command: "zed {path}"}}
 	}
 	s := Settings{File: path, CloseOnOpen: f.CloseOnOpen, SortByName: f.Sort == "name", Columns: f.Columns, RowStyle: f.RowStyle}
 	if f.CacheMaxAge != "" {

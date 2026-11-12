@@ -186,6 +186,10 @@ type addedMsg struct {
 // tickMsg moves the spinner on a frame.
 type tickMsg struct{}
 
+// examples are what the add dialog shows, dimmed, in its empty fields: the
+// name, the key and the command of a target.
+var examples = [3]string{"Zed", "z", "zed {path}"}
+
 // headings are the column headings, by column.
 var headings = map[string]string{"name": "NAME", "folder": "FOLDER", "branch": "BRANCH", "last_opened": "OPENED"}
 
@@ -513,6 +517,17 @@ func (m Model) filter() ([]repo, []matcher.Match) {
 
 // menuKey handles a key press while the target menu is open.
 func (m Model) menuKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
+	if len(m.deps.Targets) == 0 { // the menu says there are none, and a adds one
+		switch msg.String() {
+		case "q":
+			return m, tea.Quit
+		case "a":
+			m.menu, m.add = false, addDialog{open: true}
+		case "esc":
+			m.menu = false
+		}
+		return m, nil
+	}
 	switch msg.String() {
 	case "q":
 		return m, tea.Quit
@@ -592,9 +607,10 @@ func (m Model) write() tea.Cmd {
 }
 
 // menuRows is the number of targets the menu has room to show between its
-// borders, or 0 when the list is too short for the menu.
+// borders, or 0 when the list is too short for the menu. With no targets
+// the menu is the one row that says so.
 func (m Model) menuRows() int {
-	return max(min(len(m.deps.Targets), m.listHeight()-2), 0)
+	return max(min(max(len(m.deps.Targets), 1), m.listHeight()-2), 0)
 }
 
 // scrollMenu moves the menu's first shown target so the highlighted one is
@@ -653,6 +669,9 @@ func (m Model) helpContent() (rows []string, width int) {
 		}
 	}
 	rows = append(rows, "", " Targets ")
+	if len(m.deps.Targets) == 0 {
+		rows = append(rows, " None yet. Press "+m.key("a")+" to add one. ")
+	}
 	for _, t := range m.deps.Targets {
 		name := t.Name
 		if t.Key == "" {
@@ -1016,8 +1035,12 @@ func (m Model) open(t target.Target) (Model, tea.Cmd) {
 }
 
 // overlayMenu draws the target menu centred over the list part of lines,
-// which stays visible around it.
+// which stays visible around it, or with no targets a box that says so.
 func (m Model) overlayMenu(lines []string) []string {
+	if len(m.deps.Targets) == 0 {
+		row := " No targets yet. Press " + m.key("a") + " to add one. "
+		return m.overlay(lines, m.box("", []string{row}, ansi.StringWidth(row)))
+	}
 	keyWidth := 0
 	for _, t := range m.deps.Targets {
 		keyWidth = max(keyWidth, ansi.StringWidth(t.Key))
@@ -1085,6 +1108,9 @@ func (m Model) overlayAdd(lines []string) []string {
 			value := a.fields[i]
 			if over := ansi.StringWidth(value) - (width - 13); over > 0 { // 13: the margins, the marker and the label
 				value = "…" + cutStart(value, over+1)
+			}
+			if value == "" && m.deps.Color { // without colour the example would read as typed
+				value = m.dim(examples[i])
 			}
 			rows = append(rows, " "+marker+pad(label, 7)+"  "+value+" ")
 		}

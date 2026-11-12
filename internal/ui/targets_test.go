@@ -9,16 +9,128 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-func TestWithNoTargetsConfiguredZOpensTheSelectedRepoInZed(t *testing.T) {
+func TestWithNoTargetsTheFooterListsNoneAndZRunsNothing(t *testing.T) {
+	for _, body := range []string{"", "targets = []\n", "sort = \"name\"\n"} {
+		e := newEnv(t)
+		e.repo("code/alpha")
+		if body != "" {
+			e.config(body)
+		}
+		d := e.start()
+
+		if !hasExactRow(d.screen(), "alpha ~/code main -") {
+			t.Errorf("config %q: want the list as before:\n%s", body, d.screen())
+		}
+		if got, want := footer(d), "enter open | / search | s sort | r refresh | ? help | q quit | a add"; got != want {
+			t.Errorf("config %q: footer reads %q, want %q", body, got, want)
+		}
+		d.press("z")
+
+		if got := e.targetArgs("zed"); got != nil {
+			t.Errorf("config %q: z ran zed with %q", body, got)
+		}
+		if h := savedHistory(t, filepath.Join(e.home, ".local", "state")); h != nil {
+			t.Errorf("config %q: z recorded %v in the history", body, h)
+		}
+		d.press("enter")
+		if got, want := boxRows(d), []string{noTargets}; !slices.Equal(got, want) {
+			t.Errorf("config %q: enter shows %q, want %q", body, got, want)
+		}
+	}
+}
+
+// noTargets is what enter shows in the menu's place when there are no targets.
+const noTargets = "No targets yet. Press a to add one."
+
+func TestEnterWithNoTargetsShowsAMessageInsteadOfTheMenu(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
-	beta := e.repo("code/beta")
+	e.repo("code/beta")
 	d := e.start()
 
-	d.press("j", "z")
+	d.press("enter")
+	if got, want := boxRows(d), []string{noTargets}; !slices.Equal(got, want) {
+		t.Fatalf("enter shows %q, want %q:\n%s", got, want, d.screen())
+	}
+	if strings.Contains(d.screen(), "Open alpha") {
+		t.Errorf("enter opened a menu:\n%s", d.screen())
+	}
 
-	if got := e.targetArgs("zed"); len(got) != 1 || got[0] != beta {
-		t.Errorf("zed called with %q, want [%q]", got, beta)
+	d.press("j", "k", "down", "enter", "z", "?", "s", "/")
+	if got, want := boxRows(d), []string{noTargets}; !slices.Equal(got, want) {
+		t.Errorf("after other keys: box reads %q, want the message %q:\n%s", got, want, d.screen())
+	}
+	if got, want := header(d), "loper · 2 repos sort: last opened"; got != want {
+		t.Errorf("header reads %q, want no search and no sort switch: %q", got, want)
+	}
+
+	d.press("esc")
+	if got := boxRows(d); got != nil {
+		t.Errorf("after esc: box reads %q, want none", got)
+	}
+	if got := d.selected(); !startsWith(got, "alpha ~/code") {
+		t.Errorf("selected %q, want alpha still selected", got)
+	}
+
+	d.press("enter", "a")
+	if screen := d.screen(); !strings.Contains(screen, "╭─ Add a target ─") || strings.Contains(screen, noTargets) {
+		t.Errorf("a from the message does not show the add dialog alone:\n%s", screen)
+	}
+	d.press("esc")
+	if got := boxRows(d); got != nil {
+		t.Errorf("after esc in the dialog: box reads %q, want none", got)
+	}
+
+	d.press("/", "b", "enter", "a")
+	if screen := d.screen(); !strings.Contains(screen, "╭─ Add a target ─") || strings.Contains(screen, noTargets) {
+		t.Errorf("a from the message during a search does not show the add dialog alone:\n%s", screen)
+	}
+}
+
+func TestWithNoTargetsTheHelpSaysHowToAddOne(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	d := e.start()
+	d.send(tea.WindowSizeMsg{Width: 80, Height: 60}) // room for the whole help
+
+	d.press("?")
+
+	if rows := boxRows(d); len(rows) < 2 || !slices.Equal(rows[len(rows)-2:], []string{"Targets", "None yet. Press a to add one."}) {
+		t.Errorf("help ends with %q, want the Targets heading and how to add one:\n%s", rows, d.screen())
+	}
+}
+
+func TestQAndCtrlCQuitFromTheNoTargetsMessage(t *testing.T) {
+	for _, key := range []string{"q", "ctrl+c"} {
+		e := newEnv(t)
+		e.repo("code/alpha")
+		d := e.start()
+
+		d.press("enter", key)
+
+		if !d.quit {
+			t.Errorf("%s did not quit from the message", key)
+		}
+	}
+}
+
+func TestTheFirstTargetAddedMakesEnterOpenTheMenuWithIt(t *testing.T) {
+	e := newEnv(t)
+	alpha := e.repo("code/alpha")
+	e.fakeTarget("tab")
+	d := e.start()
+
+	d.press("enter")
+	d.fill("Tab", "t", "tab {path}") // a, from the message
+	d.press("enter", "enter")
+
+	d.press("enter")
+	if got, want := boxRows(d), []string{"> t Tab"}; !slices.Equal(got, want) {
+		t.Fatalf("menu reads %q, want %q:\n%s", got, want, d.screen())
+	}
+	d.press("enter")
+	if got, want := e.targetArgs("tab"), []string{alpha}; !slices.Equal(got, want) {
+		t.Errorf("tab called with %q, want %q", got, want)
 	}
 }
 
@@ -98,6 +210,7 @@ command = """` + e.fakeTarget("shell") + ` -c 'cd "$1" && ls' "two words" it\\'s
 func TestATargetRunsWithTheRepoAsItsWorkingFolder(t *testing.T) {
 	e := newEnv(t)
 	alpha := e.repo("code/alpha")
+	e.config(zedTarget)
 	d := e.start()
 
 	d.press("z")
@@ -127,24 +240,6 @@ command = "` + e.script("env", `printf '%s\n' "$LOPER_TEST_GREETING" > "$LOPER_T
 
 	if got, want := e.record("env"), "hello from the tool\n"; got != want {
 		t.Errorf("the target saw LOPER_TEST_GREETING=%q, want %q", got, want)
-	}
-}
-
-func TestDefiningATargetRemovesTheBuiltInZed(t *testing.T) {
-	e := newEnv(t)
-	e.repo("code/alpha")
-	e.config(`
-[[targets]]
-name = "Terminal tab"
-key = "t"
-command = "` + e.fakeTarget("tab") + ` {path}"
-`)
-	d := e.start()
-
-	d.press("z")
-
-	if got := e.targetArgs("zed"); got != nil {
-		t.Errorf("zed called with %q after a target was configured", got)
 	}
 }
 
@@ -185,6 +280,7 @@ func TestASuccessfulOpenIsConfirmedInTheFooterUntilTheNextKey(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.repo("code/aycapi")
+	e.config(zedTarget)
 	d := e.start()
 
 	d.press("j", "z")

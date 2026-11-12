@@ -142,6 +142,7 @@ func TestQAndCtrlCQuitFromInsideTheMenu(t *testing.T) {
 	for _, key := range []string{"q", "ctrl+c"} {
 		e := newEnv(t)
 		e.repo("code/alpha")
+		e.config(zedTarget)
 		d := e.start()
 
 		d.press("enter", key)
@@ -160,6 +161,7 @@ func TestListKeysDoNotMoveTheSelectionWhileTheMenuIsOpen(t *testing.T) {
 	for _, name := range []string{"alpha", "beta", "gamma"} {
 		e.repo("code/" + name)
 	}
+	e.config(zedTarget)
 	d := e.start()
 
 	d.press("enter", "j", "down", "G", "ctrl+d", "esc")
@@ -314,6 +316,7 @@ func TestTheMenuDoesNotOpenOrStayOpenWithoutRoomForIt(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.repo("code/beta")
+	e.config(zedTarget)
 	d := e.start()
 
 	d.send(tea.WindowSizeMsg{Width: 40, Height: 4}) // no list lines
@@ -348,6 +351,7 @@ func TestWideCharactersUnderTheMenuEdgesKeepTheRestOfTheirRowInPlace(t *testing.
 		// character across it.
 		e.repo(fmt.Sprintf("code/1%02d%s%s", i, strings.Repeat("x", i%2), wide))
 	}
+	e.config(zedTarget)
 	d := e.start()
 
 	d.press("enter")

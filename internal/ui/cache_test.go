@@ -311,6 +311,7 @@ func TestTheTargetMenuClosesWhenItsRepoDisappearsAndStaysWhenAnotherDoes(t *test
 		{[]string{"alpha", "beta", "gamma"}, "", ""},
 	} {
 		e := newEnv(t)
+		e.config(zedTarget)
 		repos := alphaBetaGamma(e)
 		for _, name := range c.gone {
 			remove(t, repos[name])
@@ -423,6 +424,7 @@ func TestTheCacheFolderIsPrivateToTheUserAndHoldsOnlyTheCacheFile(t *testing.T) 
 func TestACacheThatCannotBeWrittenLeavesTheRefreshedListOnScreen(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
+	e.config(zedTarget)
 	e.writeFile(filepath.Join(e.home, ".cache", "loper"), "a file where the folder should be")
 
 	d := e.start()

@@ -58,6 +58,7 @@ func TestAOpensTheAddDialogAndEveryPrintableKeyLandsInItsFields(t *testing.T) {
 	e := newEnv(t)
 	alpha := e.repo("code/alpha")
 	e.repo("code/beta")
+	e.config(zedTarget)
 	d := e.start()
 
 	d.press("a")
@@ -578,7 +579,7 @@ func TestAConfigThatLinksToAFileThatDoesNotExistIsRefusedAndLeftAlone(t *testing
 func TestWithCloseOnOpenAnOpenThatSucceedsWhileTheDialogIsOpenDoesNotQuit(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
-	e.config("close_on_open = true\n")
+	e.config("close_on_open = true\n" + zedTarget)
 	d := e.start()
 
 	d.hold = true
@@ -592,5 +593,75 @@ func TestWithCloseOnOpenAnOpenThatSucceedsWhileTheDialogIsOpenDoesNotQuit(t *tes
 	}
 	if got, want := boxRows(d), "> Name Tab"; !slices.Contains(got, want) {
 		t.Errorf("dialog reads %q, want the row %q", got, want)
+	}
+}
+
+// dialogRows is the add dialog's rows as styled shows them, with their
+// spacing collapsed.
+func dialogRows(d *driver) []string {
+	var rows []string
+	for _, line := range strings.Split(d.screen(), "\n") {
+		if s := styled(line); strings.Contains(s, "│") {
+			rows = append(rows, strings.Join(strings.Fields(s), " "))
+		}
+	}
+	return rows
+}
+
+func TestTheEmptyFieldsShowTheZedExampleDimmedOnlyWithColour(t *testing.T) {
+	e := newEnv(t)
+	e.color = true
+	e.repo("code/alpha")
+	d := e.start()
+
+	d.press("a")
+	for _, want := range []string{"{│} [>] Name {Zed} {│}", "{│} Key {z} {│}", "{│} Command {zed {path}} {│}"} {
+		if !slices.Contains(dialogRows(d), want) {
+			t.Errorf("dialog has no row %q: %q", want, dialogRows(d))
+		}
+	}
+	d.typeText("T")
+	if rows := dialogRows(d); !slices.Contains(rows, "{│} [>] Name T {│}") {
+		t.Errorf("after typing: dialog reads %q, want the name without its example", rows)
+	}
+
+	e.color = false
+	d = e.start()
+	d.press("a")
+	if got, want := boxRows(d), []string{"> Name", "Key", "Command"}; len(got) < 3 || !slices.Equal(got[:3], want) {
+		t.Errorf("colour off: fields read %q, want them empty, %q", got, want)
+	}
+}
+
+func TestAFieldLeftEmptyIsNeverTakenAsItsExample(t *testing.T) {
+	for _, c := range []struct {
+		name, key, command string
+		reason             string // why it is refused, or "" when it is written
+	}{
+		{"Tab", "", "tab {path}", ""},
+		{"", "t", "tab {path}", "a target needs a name"},
+		{"Tab", "t", "", `target command "" has no {path}`},
+	} {
+		e := newEnv(t)
+		e.color = true
+		e.repo("code/alpha")
+		d := e.start()
+
+		d.fill(c.name, c.key, c.command)
+		d.press("enter", "enter")
+
+		got, _ := fileText(t, configPath())
+		if c.reason == "" {
+			if want := "[[targets]]\nname = 'Tab'\ncommand = 'tab {path}'\n"; got != want {
+				t.Errorf("%q: config is %q, want %q", c, got, want)
+			}
+			continue
+		}
+		if got != "" {
+			t.Errorf("%q: config is %q, want nothing written", c, got)
+		}
+		if text := strings.Join(dialogRows(d), " "); !strings.Contains(text, c.reason) {
+			t.Errorf("%q: dialog reads %q, want the reason %q", c, text, c.reason)
+		}
 	}
 }

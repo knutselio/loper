@@ -40,9 +40,13 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// zedTarget is a config's target Zed, key z, which runs the fake zed. It goes
+// at the end of a config, after the settings.
+const zedTarget = "\n[[targets]]\nname = \"Zed\"\nkey = \"z\"\ncommand = \"zed {path}\"\n"
+
 // env is a test's fixed environment: a temporary home with its config,
-// cache and state folders, and a fake zed first on the PATH, so the built-in
-// Zed target never runs the real program.
+// cache and state folders, and a fake zed first on the PATH, so a target
+// that runs zed never runs the real program.
 type env struct {
 	t    *testing.T
 	root string // holds the home folder, the fake targets and their records

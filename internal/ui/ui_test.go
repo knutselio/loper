@@ -49,6 +49,7 @@ func TestEnterTwiceOpensTheSelectedRepoInTheFirstTargetAndStaysOpen(t *testing.T
 	e := newEnv(t)
 	e.repo("code/alpha")
 	beta := e.repo("code/beta")
+	e.config(zedTarget)
 	d := e.start()
 
 	d.press("j", "enter", "enter")
@@ -66,6 +67,7 @@ func TestEnterTwiceOpensTheSelectedRepoInTheFirstTargetAndStaysOpen(t *testing.T
 
 func TestKeysOnAnEmptyListDoNothing(t *testing.T) {
 	e := newEnv(t)
+	e.config(zedTarget)
 	d := e.start() // no repos: the list is empty
 
 	d.press("j", "k", "enter")

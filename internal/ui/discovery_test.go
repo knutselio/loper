@@ -99,6 +99,7 @@ func TestALinkedWorktreeIsNotListedButItsPrimaryRepoIs(t *testing.T) {
 func TestARepoInAFolderWithSpacesIsListedAndOpensWithItsPath(t *testing.T) {
 	e := newEnv(t)
 	spaced := e.repo("code/side projects/my repo")
+	e.config(zedTarget)
 	d := e.start()
 
 	if got := d.selected(); !startsWith(got, "my repo ~/code/side projects main") {

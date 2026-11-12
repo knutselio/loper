@@ -182,6 +182,7 @@ func TestSKeepsTheSelectedRepoSelected(t *testing.T) {
 func TestOpeningARepoMovesItToTheTopAndKeepsItSelected(t *testing.T) {
 	e := newEnv(t)
 	recentAndAlphabetical(e)
+	e.config(zedTarget)
 	d := e.start()
 
 	d.press("G", "z") // beta, never opened
@@ -198,6 +199,7 @@ func TestOpeningARepoMovesItToTheTopAndKeepsItSelected(t *testing.T) {
 func TestARepoMovedToTheTopByAnOpenKeepsTheSelectionOnTheRepoChosenSince(t *testing.T) {
 	e := newEnv(t)
 	recentAndAlphabetical(e)
+	e.config(zedTarget)
 	d := e.start()
 	d.press("G")
 
@@ -216,6 +218,7 @@ func TestARepoMovedToTheTopByAnOpenKeepsTheSelectionOnTheRepoChosenSince(t *test
 func TestOpeningARepoUnderTheNameSortLeavesTheOrderAsItIs(t *testing.T) {
 	e := newEnv(t)
 	recentAndAlphabetical(e)
+	e.config(zedTarget)
 	d := e.start()
 
 	d.press("s", "g", "j", "z") // beta

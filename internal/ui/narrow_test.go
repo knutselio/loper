@@ -77,6 +77,11 @@ func TestNothingIsDrawnWiderOrTallerThanTheTerminalInAnyState(t *testing.T) {
 			d.press("b")
 			return d
 		}},
+		{name: "add dialog with its examples", setup: func(e *env) *driver {
+			d := e.start()
+			d.press("a")
+			return d
+		}, shows: "Command"},
 		{name: "add dialog with a reason", setup: func(e *env) *driver {
 			d := e.start()
 			d.fill("a name with 日本語 in it that is far too long for the box", "t", "a-command-with-日本語-and-no-placeholder that runs on and on")
@@ -136,6 +141,17 @@ func TestNothingIsDrawnWiderOrTallerThanTheTerminalInAnyState(t *testing.T) {
 			e.color = color
 			e.config(`paths = ["~/a-folder-with-a-rather-long-name", "~/another-folder-with-a-long-name"]`)
 			sweep(t, e.start(), color, nil)
+		})
+		t.Run(fmt.Sprintf("no targets, colour %v", color), func(t *testing.T) {
+			e := newEnv(t)
+			e.color = color
+			e.repo("code/a-repo-with-a-long-name")
+			d := e.start()
+			d.press("enter")
+			if !strings.Contains(ansi.Strip(d.screen()), "No targets yet. Press a to add one.") {
+				t.Fatalf("enter shows no message:\n%s", d.screen())
+			}
+			sweep(t, d, color, []string{"esc", "enter"})
 		})
 	}
 }
@@ -313,6 +329,7 @@ func TestANarrowHeaderGivesWayWarningsFirstThenTheSortThenTheSpinner(t *testing.
 func TestANarrowFooterDropsWholeItemsFromTheEndAndEndsWithAnEllipsis(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
+	e.config(zedTarget)
 	d := e.start()
 
 	for _, c := range []struct {
@@ -344,6 +361,7 @@ func TestWithColourTheFootersKeysAreBoldAndItsSeparatorsDimmed(t *testing.T) {
 	e := newEnv(t)
 	e.color = true
 	e.repo("code/alpha")
+	e.config(zedTarget)
 	d := e.start()
 
 	for _, c := range []struct {
@@ -415,6 +433,7 @@ func TestWithColourTheSelectionIsMarkedAndTheRulesAndBordersAreDimmed(t *testing
 	e.color = true
 	e.repo("code/alpha")
 	e.repo("code/beta")
+	e.config(zedTarget)
 	d := e.start()
 	d.send(tea.WindowSizeMsg{Width: 32, Height: 8})
 
@@ -460,6 +479,7 @@ func TestWithColourAMenuOverDimmedFoldersKeepsEachStyleOnItsOwnSide(t *testing.T
 	for _, name := range []string{"repo1", "repo2", "repo3"} {
 		e.repo("code/a-folder-name-long-enough-to-run-under-the-menu/" + name)
 	}
+	e.config(zedTarget)
 	d := e.start()
 	d.send(tea.WindowSizeMsg{Width: 80, Height: 9}) // the menu covers the three rows, in the middle of their folders
 

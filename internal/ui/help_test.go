@@ -158,6 +158,7 @@ command = "false {path}"
 func TestAHelpTallerThanTheScreenScrollsWithJKAndTheArrowsInsideItsBorders(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
+	e.config(zedTarget)
 	d := e.start()
 	d.send(tea.WindowSizeMsg{Width: 80, Height: 10}) // 6 list lines: room for 4 rows of help
 
@@ -245,6 +246,7 @@ func TestWithColourTheHelpsKeysAreBold(t *testing.T) {
 	e := newEnv(t)
 	e.color = true
 	e.repo("code/alpha")
+	e.config(zedTarget)
 	d := e.start()
 	d.send(tea.WindowSizeMsg{Width: 80, Height: 60})
 

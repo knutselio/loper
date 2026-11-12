@@ -394,7 +394,8 @@ func TestTheHelpFlagPrintsTheUsageTheConfigFileAndTheKeys(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Errorf("exit code %d, stderr %q; want 0 and nothing", code, stderr)
 	}
-	want := []string{"Usage: loper [--config <file>]", "Config file: " + filepath.Join(xdgConfig, "loper", "config.toml"), "\n  a  ", "Add a target to the config file"}
+	want := []string{"Usage: loper [--config <file>]", "Config file: " + filepath.Join(xdgConfig, "loper", "config.toml"), "\n  a  ", "Add a target to the config file",
+		"Targets are defined in the config file, or added in the picker with a."}
 	for _, s := range ui.KeyList() {
 		want = append(want, s.Title)
 		for _, b := range s.Bindings {

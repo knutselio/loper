@@ -83,7 +83,7 @@ Tools that list multiple repos exist (gitpane, git-scope, dirtygit), but they ar
 43. As a developer, I want `enter` to show a menu of open targets for the selected repo, so that I can see where it can go without memorising anything.
 44. As a developer, I want each target to have its own key, so that I can open the selected repo in Zed or a terminal with a single keystroke.
 45. As a developer, I want target keys to work both in the list and inside the menu, so that the fast path and the discoverable path are the same keys.
-46. As a developer, I want Zed available as a target with no configuration, so that `loper` replaces `zedi` out of the box.
+46. As a developer, I want the tool to ship with no target and to tell me how to add one when I press `enter` without any, so that it is not tied to one editor.
 47. As a developer, I want to add a target by writing a command with a `{path}` placeholder, so that any program that accepts a folder can become a target.
 48. As a developer, I want a `{name}` placeholder as well, so that a new terminal tab can be labelled with the repo's name.
 49. As a developer, I want folder names with spaces to work without any quoting on my part, so that a target never breaks on an unusual path.
@@ -110,7 +110,7 @@ Tools that list multiple repos exist (gitpane, git-scope, dirtygit), but they ar
 64. As a developer, I want a config mistake reported at startup with the line it is on, so that a typo is never silently ignored.
 65. As a developer, I want a target key that clashes with one of the tool's own keys reported as an error, so that a key never does two things.
 66. As a developer, I want to run the tool against another config file with a flag, so that I can try changes without touching my real config.
-67. As a developer, I want a help flag that prints the usage, the config file location and the keys, so that I can check them without starting the picker.
+67. As a developer, I want a help flag that prints the usage, the config file location, where targets come from and the keys, so that I can check them without starting the picker.
 68. As a developer, I want to add a target from inside the tool by typing its name, key and command, so that a new target does not mean opening the config file.
 69. As a developer, I want a target I add that way checked by the same rules as the config file, with the reason shown when it is refused, so that the tool never writes a config it cannot load.
 70. As a developer, I want to see the exact lines that will be added and the file they go to before anything is written, and the rest of my config file left as it was, comments included, so that my hand-written file stays mine.
@@ -217,11 +217,12 @@ A single full-width scrolling list between a one-line header and a one-line foot
 - **Selection:** the selected row is marked with `>`. With colour on, it is also drawn in reverse video across the full width of the screen, gaps and padding included, and the dimmed and highlighted parts inside it never end it. The highlighted target in the menu is drawn the same way across the menu's width.
 - **Accent:** with colour on, the keys in the footer, the help overlay, the target menu and the add dialog are bold in one palette colour, cyan. Inside the reverse-video bar the accent is not used.
 - **Footer:** the tool's own keys, then the targets with their keys, then `a add` last, separated by ` | `. `a add` comes after the targets so that it is the first item to go when the line is short. With colour on, each key is in the accent and the separators are dimmed. When the line does not fit, whole items are dropped from the end and it ends with `…`. After a successful open it briefly shows a confirmation such as "Opened aycapi in Zed", and after a target is added one such as "Added Lazygit".
-- **Overlays:** the target menu, the error dialog, the add dialog and the help screen appear on top of the list. Nothing else does.
+- **Overlays:** the target menu, or with no targets the message in its place, the error dialog, the add dialog and the help screen appear on top of the list. Nothing else does.
 - **Empty states:**
   - First launch with no cache: the spinner and "scanning…".
   - No repos found: a message naming the scanned paths and the config file location.
   - Search with no matches: "No matches".
+  - No targets: the footer lists none, so `a add` follows `q quit`, and `enter` shows "No targets yet. Press a to add one." in a box in the menu's place instead of an empty menu, and the help overlay's "Targets" heading has "None yet. Press a to add one." under it.
 
 ### Keybindings
 
@@ -242,9 +243,9 @@ These keys are fixed in this version. Only target keys are configurable.
 | `q`, `ctrl-c`        | Quit                                        |
 | `esc`                | Close a menu or dialog, or clear the search |
 
-Inside the target menu, `j`/`k` and the arrow keys move, `enter` runs the highlighted target, a target's key runs that target, and `esc` closes the menu; `q` and `ctrl-c` quit from inside the menu, the error dialog and the help overlay, and `esc` or `?` closes the help overlay.
+Inside the target menu, `j`/`k` and the arrow keys move, `enter` runs the highlighted target, a target's key runs that target, and `esc` closes the menu; `q` and `ctrl-c` quit from inside the menu, the error dialog and the help overlay, and `esc` or `?` closes the help overlay. With no targets, in the message `enter` shows instead of the menu, `a` opens the add dialog, `esc` closes the message, `q` and `ctrl-c` quit, and every other key does nothing.
 
-Inside the add dialog every printable key is text, `q`, the list keys and the target keys included, and only `ctrl-c` quits. `tab` / `shift-tab` and `↓` / `↑` move between the fields, `enter` moves to the next field and from the last one to the confirmation, `backspace` removes a character, a paste goes into the current field without its line breaks and control characters, and `esc` closes the dialog without writing anything. In the confirmation, `enter` writes the target and `esc` goes back to the fields with their contents kept. `a` does nothing in the target menu, the error dialog and the help overlay, and during a search it is text.
+Inside the add dialog every printable key is text, `q`, the list keys and the target keys included, and only `ctrl-c` quits. `tab` / `shift-tab` and `↓` / `↑` move between the fields, `enter` moves to the next field and from the last one to the confirmation, `backspace` removes a character, a paste goes into the current field without its line breaks and control characters, and `esc` closes the dialog without writing anything. In the confirmation, `enter` writes the target and `esc` goes back to the fields with their contents kept. `a` does nothing in a target menu that lists targets, the error dialog and the help overlay, and during a search it is text.
 
 ### Open targets
 
@@ -255,8 +256,8 @@ Inside the add dialog every printable key is text, `q`, the list keys and the ta
 - The command runs in the background with the repo as its working folder and the tool's own environment. The tool waits for it to exit, for at most 2 seconds. The wait is a parameter of the target runner, not a config setting, so tests can shorten it.
 - **Success** is exit code 0 within the wait, or a command that is still running when the wait ends. A command that is still running is left running, detached from the tool, and is never stopped. The footer confirms it, the repo's last-opened time is recorded, and the tool stays open. With `close_on_open = true` the tool quits instead, unless the add dialog is open.
 - **Failure** is a non-zero exit code within the wait, or a command that cannot be started. The error dialog shows the command line that ran and its output. Nothing is recorded and the tool never quits, whatever `close_on_open` says.
-- The only built-in target is Zed, with the key `z`. Defining any target in the config replaces the built-in one.
-- **Adding a target from the tool.** `a` opens a dialog with three fields: the name, the key and the command. When it is filled in, the target is checked by the config's own rules: a name is required, and the spaces around it are left out, the command must contain `{path}` and have balanced quotes, and the key is optional, one character, not one of the tool's own keys and not the key of another target in the file. A refused target shows the reason inside the dialog, which stays open. Otherwise the dialog shows the `[[targets]]` block it will append and the file it goes to, and `enter` writes it. The new target works at once, without a restart: it is in the footer, the target menu and the help, and its key opens the selected repo. The write follows the rules under "Config".
+- No target is built in. Targets come only from the config file, written by hand or with the add dialog; with none, the tool works as a list and a search, and the no-targets message under "Empty states" says how to add one. Zed appears only as an example, in this document and in the add dialog.
+- **Adding a target from the tool.** `a` opens a dialog with three fields: the name, the key and the command. Each empty field shows, dimmed, the example of a Zed target: `Zed`, `z` and `zed {path}`. The example is a hint and never a value: a field left empty is empty, and nothing of the example is written. With colour off the empty fields show nothing, since undimmed the example would read as typed text. When it is filled in, the target is checked by the config's own rules: a name is required, and the spaces around it are left out, the command must contain `{path}` and have balanced quotes, and the key is optional, one character, not one of the tool's own keys and not the key of another target in the file. A refused target shows the reason inside the dialog, which stays open. Otherwise the dialog shows the `[[targets]]` block it will append and the file it goes to, and `enter` writes it. The new target works at once, without a restart: it is in the footer, the target menu and the help, and its key opens the selected repo. The write follows the rules under "Config".
 - A target that takes over the terminal itself, such as a full-screen program run in place, is not supported. Such programs are opened through a target that starts them elsewhere, as in the lazygit example below.
 
 ### Config
@@ -266,7 +267,6 @@ Inside the add dialog every printable key is text, `q`, the list keys and the ta
 - The tool changes the config file in one way only: the add dialog appends one `[[targets]]` block to it.
   - The file is the one in use: the `--config` file when given, otherwise the standard location. A missing file or folder is created, the folder private to the user.
   - The file is read again when the target is written, and the block is appended to its text, so the rest of the file, comments and order included, is untouched. The name, key and command are encoded by the TOML library.
-  - Only the new block is written, never the built-in Zed target, so the first target added replaces the built-in one, as any configured target does.
   - The text with the block appended is loaded with the config's own loader before it is written. If it does not load, for example because the file writes its targets as an inline `targets = [...]` list or was edited into an invalid state meanwhile, nothing is written and the dialog says why. A reason about the new block itself, such as a key already used, is given without a line number, since its line is not yet in the file.
   - The file is written whole, through a temporary file renamed over it, so a failed write leaves it as it was and the dialog shows the error. The file keeps its mode; a new file is private to the user. A config file that is a symlink stays one: the file it points to is rewritten. A link to a file that does not exist is refused, and nothing is written.
 - These are errors that stop the tool at startup with a message naming the file and line:
@@ -287,11 +287,7 @@ columns = ["name", "folder", "branch", "last_opened"]
 sort = "last_opened"               # or "name"
 cache_max_age = "0"                # "0" = full refresh on every launch; or e.g. "4h"
 close_on_open = false
-
-[[targets]]
-name = "Zed"
-key = "z"
-command = "zed {path}"
+# no targets: they come only from the config file or the add dialog
 ```
 
 My personal config, as the worked example:
@@ -322,12 +318,12 @@ command = "rex split -c {path} -- lazygit"
 
 ### Command line
 
-| Command                 | What it does                                            |
-| ----------------------- | ------------------------------------------------------- |
-| `loper`                 | Starts the picker                                       |
-| `loper --version`       | Prints the version                                      |
-| `loper --help`          | Prints usage, the config file location and the key list |
-| `loper --config <file>` | Uses another config file for this run                   |
+| Command                 | What it does                                                                     |
+| ----------------------- | -------------------------------------------------------------------------------- |
+| `loper`                 | Starts the picker                                                                |
+| `loper --version`       | Prints the version                                                               |
+| `loper --help`          | Prints usage, the config file location, where targets come from and the key list |
+| `loper --config <file>` | Uses another config file for this run                                            |
 
 There are no subcommands in this version.
 

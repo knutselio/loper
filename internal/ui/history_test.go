@@ -43,6 +43,7 @@ func TestASuccessfulOpenShowsJustNowAndRecordsThePathAndTimeInTheHistory(t *test
 	e := newEnv(t)
 	e.repo("code/alpha")
 	beta := e.repo("code/beta")
+	e.config(zedTarget)
 	d := e.start()
 
 	d.press("j", "z")
@@ -61,6 +62,7 @@ func TestTheHistoryIsWrittenUnderXDGStateHomeWhenItIsSet(t *testing.T) {
 	alpha := e.repo("code/alpha")
 	state := filepath.Join(e.home, "xdg-state")
 	t.Setenv("XDG_STATE_HOME", state)
+	e.config(zedTarget)
 	d := e.start()
 
 	d.press("z")
@@ -79,6 +81,7 @@ func TestTheHistoryIsWrittenUnderDotLocalStateWhenXDGStateHomeIsUnsetOrRelative(
 		alpha := e.repo("code/alpha")
 		t.Setenv("XDG_STATE_HOME", value)
 		t.Chdir(e.home) // so a relative folder that is not ignored lands in the temporary home
+		e.config(zedTarget)
 		d := e.start()
 
 		d.press("z")
@@ -113,6 +116,7 @@ func TestARelaunchShowsTheLastOpenedTimeAgainstTheClock(t *testing.T) {
 	e.repo("code/alpha")
 	e.repo("code/beta")
 	e.now = time.Date(2026, 11, 11, 10, 0, 0, 0, time.UTC)
+	e.config(zedTarget)
 	e.start().press("j", "z")
 
 	e.now = time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
@@ -129,6 +133,7 @@ func TestAnEntryForARepoNotInTheListSurvivesAnotherOpen(t *testing.T) {
 	gone := filepath.Join(e.home, "code", "gone")
 	earlier := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	e.writeFile(filepath.Join(e.home, ".local", "state", "loper", "history.json"), `{"`+gone+`": "`+earlier.Format(time.RFC3339)+`"}`)
+	e.config(zedTarget)
 	d := e.start()
 
 	d.press("z")
@@ -144,6 +149,7 @@ func TestACorruptHistoryFileStartsEmptyAndTheNextOpenReplacesIt(t *testing.T) {
 		e := newEnv(t)
 		alpha := e.repo("code/alpha")
 		e.writeFile(filepath.Join(e.home, ".local", "state", "loper", "history.json"), body)
+		e.config(zedTarget)
 		d := e.start()
 
 		if screen := d.screen(); !hasExactRow(screen, "alpha ~/code main -") {
@@ -164,6 +170,7 @@ func TestAHistoryThatCannotBeSavedIsReportedInTheFooterAndTheOpenStillCounts(t *
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.writeFile(filepath.Join(e.home, ".local", "state", "loper"), "a file where the folder should be")
+	e.config(zedTarget)
 	d := e.start()
 
 	d.press("z")
@@ -179,7 +186,7 @@ func TestAHistoryThatCannotBeSavedIsReportedInTheFooterAndTheOpenStillCounts(t *
 func TestWithCloseOnOpenTheOpenIsStillRecorded(t *testing.T) {
 	e := newEnv(t)
 	alpha := e.repo("code/alpha")
-	e.config("close_on_open = true\n")
+	e.config("close_on_open = true\n" + zedTarget)
 	d := e.start()
 
 	d.press("z")
@@ -199,6 +206,7 @@ func TestTheHistoryFolderHoldsOnlyTheHistoryFileAfterOpens(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.repo("code/beta")
+	e.config(zedTarget)
 	d := e.start()
 
 	d.press("z", "j", "z")
@@ -236,6 +244,7 @@ func TestAHistoryFileThatCannotBeReplacedIsLeftAsItWasWithNothingBesideIt(t *tes
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { syscall.Chflags(file, 0) }) // so the temporary folder can be removed
+	e.config(zedTarget)
 	d := e.start()
 
 	d.press("z")
@@ -256,6 +265,7 @@ func TestLastOpenedStartsOnAStraightEdgeAfterBranchesOfDifferentLengths(t *testi
 	alpha := e.repo("code/alpha")
 	e.git(alpha, "checkout", "-q", "-b", "feature/long-branch-name")
 	e.repo("code/beta")
+	e.config(zedTarget)
 	d := e.start()
 
 	d.press("z")
@@ -276,6 +286,7 @@ func TestAnUnreadableHistoryFileIsLeftAloneAndTheOpenWarnsThatItWasNotSaved(t *t
 	if err := os.Chmod(file, 0o000); err != nil {
 		t.Fatal(err)
 	}
+	e.config(zedTarget)
 	d := e.start()
 
 	d.press("z")
@@ -294,6 +305,7 @@ func TestAnUnreadableHistoryFileIsLeftAloneAndTheOpenWarnsThatItWasNotSaved(t *t
 func TestTheStateFolderIsCreatedPrivateToTheUser(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
+	e.config(zedTarget)
 	d := e.start()
 
 	d.press("z")
@@ -312,6 +324,7 @@ func TestAHistoryReadThatArrivesAfterAnOpenDoesNotUndoTheOpen(t *testing.T) {
 	alpha := e.repo("code/alpha")
 	e.repo("code/beta")
 	e.openedBefore(map[string]time.Duration{alpha: 3 * time.Hour})
+	e.config(zedTarget)
 	e.start()
 	d := relaunch(e) // the history read's result is held back; it was read before the open
 

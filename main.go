@@ -102,10 +102,11 @@ Options:
   --version        Print the version
 `
 
-// help prints the usage, the config file that would be read and loper's
-// own keys.
+// help prints the usage, the config file that would be read, where targets
+// come from and loper's own keys.
 func help(w io.Writer, configFile string) {
 	fmt.Fprintf(w, "loper picks one of your git repos and opens it.\n\n%s\nConfig file: %s\n", usage, configFile)
+	fmt.Fprintln(w, "Targets are defined in the config file, or added in the picker with a.")
 	sections := ui.KeyList()
 	keyWidth := 0
 	for _, s := range sections {

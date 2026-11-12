@@ -87,7 +87,7 @@ func rootPathTree(e *env) {
 	e.repo("dotfiles")
 	e.repo("elsewhere/tools/lint")
 	e.symlink(filepath.Join(e.home, "elsewhere"), "linked")
-	e.config("row_style = \"root-path\"\npaths = [\"~/code\", \"~/dotfiles\", \"~/linked\"]")
+	e.config("row_style = \"root-path\"\npaths = [\"~/code\", \"~/dotfiles\", \"~/linked\"]" + zedTarget)
 }
 
 // rootPathRows are the rows of rootPathTree, sorted by name.

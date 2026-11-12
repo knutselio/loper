@@ -101,6 +101,7 @@ func TestANameMatchRanksAboveAFolderOrBranchMatch(t *testing.T) {
 func TestWhileSearchingTargetKeysAndListKeysAreTextAndTriggerNothing(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
+	e.config(zedTarget)
 	d := e.start()
 	e.repo("code/beta") // a refresh would find it
 
@@ -205,6 +206,7 @@ func TestEscClosesTheMenuFirstAndASecondEscClearsTheSearch(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.repo("code/beta")
+	e.config(zedTarget)
 	d := e.start()
 	d.press("/")
 	d.typeText("bet")
@@ -226,6 +228,7 @@ func TestEscClosesTheMenuFirstAndASecondEscClearsTheSearch(t *testing.T) {
 func TestAQueryThatMatchesNothingShowsNoMatches(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
+	e.config(zedTarget)
 	d := e.start()
 
 	d.press("/")
@@ -291,7 +294,7 @@ func TestAnOpenWhileSearchingKeepsTheSearchAndEscShowsTheOpenedRepoFirst(t *test
 	e.repo("a/api")
 	e.repo("b/api") // an equal match, so only the sort orders the two
 	e.repo("c/web")
-	e.config(`paths = ["~/a", "~/b", "~/c"]`)
+	e.config(`paths = ["~/a", "~/b", "~/c"]` + zedTarget)
 	d := e.start()
 
 	d.press("/")

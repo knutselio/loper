@@ -257,7 +257,7 @@ func TestAFailedTargetIsReportedAtOnceEvenIfWhatItStartedKeepsItsOutputOpen(t *t
 func TestWithCloseOnOpenTheToolQuitsAfterASuccessfulOpen(t *testing.T) {
 	e := newEnv(t)
 	alpha := e.repo("code/alpha")
-	e.config("close_on_open = true\n")
+	e.config("close_on_open = true\n" + zedTarget)
 	d := e.start()
 
 	d.press("z")

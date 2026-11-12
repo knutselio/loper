@@ -105,8 +105,8 @@ func TestWithColourTheHighlightedTargetIsABarAcrossTheMenu(t *testing.T) {
 		target string // the highlighted target
 	}{
 		{"rows wider than the title", threeTargets, 80, []string{"enter", "j"}, "Menu only"},
-		{"the title wider than the rows", func(*env) {}, 80, []string{"enter"}, "Zed"},
-		{"a narrow screen", func(*env) {}, 14, []string{"enter"}, "Zed"},
+		{"the title wider than the rows", func(e *env) { e.config(zedTarget) }, 80, []string{"enter"}, "Zed"},
+		{"a narrow screen", func(e *env) { e.config(zedTarget) }, 14, []string{"enter"}, "Zed"},
 	} {
 		e := newEnv(t)
 		e.color = true

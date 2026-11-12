@@ -102,7 +102,7 @@ func TestASymlinkListedDirectlyIsFollowedAndShowsThePathAsWritten(t *testing.T) 
 	e.symlink(filepath.Join(e.home, "elsewhere", "dotfiles"), "dots")
 	e.symlink(filepath.Join(e.home, "elsewhere", "work"), "work")
 	e.symlink(filepath.Join(e.home, "elsewhere", "hidden-behind-link"), "elsewhere/work/inner-link")
-	e.config(`paths = ["~/dots", "~/work"]`)
+	e.config(`paths = ["~/dots", "~/work"]` + zedTarget)
 	d := e.start()
 	screen := d.screen()
 
