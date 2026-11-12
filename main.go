@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"runtime/debug"
 	"strings"
@@ -74,7 +75,11 @@ func run(args []string, stdout, stderr io.Writer, start func(home string, s conf
 		}
 		// A config that does not load is shown in the help, not an error.
 		settings, err := config.Load(*configFile, home)
-		help(stdout, config.Path(*configFile, home), settings.Targets, err)
+		file := config.Path(*configFile, home)
+		if _, statErr := os.Stat(file); *configFile == "" && errors.Is(statErr, fs.ErrNotExist) {
+			settings, file = config.FirstRun(home), file+" (does not exist yet)"
+		}
+		help(stdout, file, settings.Targets, err)
 		return 0
 	}
 	if *showVersion {
@@ -86,7 +91,7 @@ func run(args []string, stdout, stderr io.Writer, start func(home string, s conf
 		fmt.Fprintln(stderr, "loper:", err)
 		return 1
 	}
-	settings, err := config.Load(*configFile, home)
+	settings, err := config.Open(*configFile, home)
 	if err != nil {
 		fmt.Fprintln(stderr, "loper:", err)
 		return 1
@@ -154,6 +159,7 @@ func version() string {
 // startUI runs the picker until it quits, then hands the terminal over to the
 // in-place target it ended on, if any.
 func startUI(home string, settings config.Settings) error {
+	cdFile := takeCdFile()
 	m := ui.New(ui.Deps{
 		Home:        home,
 		ConfigFile:  settings.File,
@@ -168,6 +174,7 @@ func startUI(home string, settings config.Settings) error {
 		Cache:       cache.New(home),
 		Now:         time.Now,
 		Tick:        tea.Tick,
+		Notice:      settings.Notice,
 		NoticeFor:   3 * time.Second,
 		EnterPause:  300 * time.Millisecond,
 		CloseOnOpen: settings.CloseOnOpen,
@@ -187,14 +194,32 @@ func startUI(home string, settings config.Settings) error {
 	// The program has ended and the terminal is restored, so an in-place
 	// target can take the tool's place.
 	if h, ok := final.(ui.Model).HandOver(); ok {
-		return handOver(h)
+		return handOver(h, cdFile)
 	}
 	return nil
 }
 
-// handOver replaces the tool's process with h's command, run in its folder
+// takeCdFile returns the shell wrapper's file in LOPER_CD_FILE and removes the
+// variable, so no target or hand-over gets it: a loper started from one would
+// otherwise write to the outer wrapper's file.
+func takeCdFile() string {
+	file := os.Getenv("LOPER_CD_FILE")
+	os.Unsetenv("LOPER_CD_FILE")
+	return file
+}
+
+// handOver is the hand-over for h, but for a cd command run with the shell
+// wrapper, whose file cdFile gets the folder for the wrapper to change to.
+func handOver(h target.HandOver, cdFile string) error {
+	if h.Cd && cdFile != "" {
+		return os.WriteFile(cdFile, []byte(h.Dir), 0o600)
+	}
+	return replace(h)
+}
+
+// replace replaces the tool's process with h's command, run in its folder
 // with the tool's environment and terminal. It returns only when it fails.
-func handOver(h target.HandOver) error {
+func replace(h target.HandOver) error {
 	if err := os.Chdir(h.Dir); err != nil {
 		return err
 	}

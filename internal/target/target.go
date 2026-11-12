@@ -3,6 +3,8 @@ package target
 
 import (
 	"bytes"
+	"cmp"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -40,9 +42,12 @@ type Change struct {
 
 // HandOver is a command that takes the tool's place in its terminal.
 type HandOver struct {
-	Program string   // the program to run, looked up
+	Program string   // the program to run: looked up, or for a cd command the shell
 	Args    []string // the command's words, its placeholders substituted
 	Dir     string   // the repo, to run it in
+	// Cd is set for a cd command: Dir is its folder, and Program the shell
+	// to start there when no shell wrapper changes to it instead.
+	Cd bool
 }
 
 // Failure is a target that did not open.
@@ -107,9 +112,22 @@ func Run(t Target, path string, wait time.Duration) error {
 }
 
 // Prepare returns t's command for the repo at path, to run in the tool's
-// place, or a *Failure when its program cannot be found.
+// place, or a *Failure when its program cannot be found. A command whose
+// program is cd is never run: it hands over to a new shell, $SHELL or
+// /bin/sh, in its one folder, or a *Failure when that is not a folder.
 func Prepare(t Target, path string) (HandOver, error) {
 	words := substitute(t, path)
+	if t.Args[0] == "cd" { // as written, so a repo named cd never makes {name} one
+		info, err := os.Stat(words[1])
+		if err == nil && !info.IsDir() {
+			err = errors.New(words[1] + " is not a folder")
+		}
+		if err != nil {
+			return HandOver{}, &Failure{Command: commandLine(words), Output: err.Error()}
+		}
+		shell := cmp.Or(os.Getenv("SHELL"), "/bin/sh")
+		return HandOver{Program: shell, Args: []string{shell}, Dir: words[1], Cd: true}, nil
+	}
 	program := words[0]
 	if strings.Contains(program, "/") && !filepath.IsAbs(program) { // as Run finds it: in the repo
 		program = filepath.Join(path, program)

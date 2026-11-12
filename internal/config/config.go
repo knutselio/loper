@@ -35,6 +35,9 @@ type Settings struct {
 	// CacheMaxAge is how old the cache may be before a launch scans again;
 	// 0 means every launch scans.
 	CacheMaxAge time.Duration
+	// Notice says why the config file could not be created on a first run,
+	// for the footer, or is "".
+	Notice string
 }
 
 // file is the config file as written; a nil field was left out.
@@ -146,6 +149,9 @@ func (*command) UnmarshalText(b []byte) error {
 	if err == nil && len(words) > 0 && words[0] == "" {
 		err = errors.New("has no program to run")
 	}
+	if err == nil && len(words) > 0 && words[0] == "cd" && len(words) != 2 {
+		err = errors.New("needs one folder after cd")
+	}
 	if err == nil && !slices.ContainsFunc(words, func(w string) bool { return strings.Contains(w, "{path}") }) {
 		err = errors.New("has no {path}")
 	}
@@ -205,6 +211,68 @@ func Load(path, home string) (Settings, error) {
 		return Settings{}, err
 	}
 	return parse(path, home, b)
+}
+
+// firstRun is the config file the picker creates when there is none.
+const firstRun = "[[targets]]\nname = \"cd\"\nkey = \"o\"\ncommand = \"cd {path}\"\nin_place = true\n"
+
+// Open is Load for the picker. When path is "" and the standard location
+// has no file, it first creates one holding firstRun, its folder included,
+// private to the user. When that fails, the settings are firstRun's for this
+// run and Notice says why. An existing file is never written.
+func Open(path, home string) (Settings, error) {
+	if path == "" {
+		if err := create(Path("", home)); err != nil {
+			s := FirstRun(home)
+			s.Notice = "The config file could not be written: " + err.Error()
+			return s, nil
+		}
+	}
+	return Load(path, home)
+}
+
+// FirstRun returns the settings of the config file Open creates.
+func FirstRun(home string) Settings {
+	s, _ := parse(Path("", home), home, []byte(firstRun)) // cannot fail: the text is fixed
+	return s
+}
+
+// create writes firstRun to path unless something is there already. A link
+// to nothing is not written through, and counts as a failure. A file that
+// could not be written whole is removed. The error is
+// the reason only, without the path.
+func create(path string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return reason(err)
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
+			dest, _ := os.Readlink(path) // cannot fail: only a link to nothing exists and does not
+			return fmt.Errorf("it is a link to %s, which does not exist", dest)
+		}
+		return nil
+	}
+	if err != nil {
+		return reason(err)
+	}
+	_, err = f.WriteString(firstRun)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		os.Remove(path) // a part written would stop every later run
+	}
+	return reason(err)
+}
+
+// reason returns err without the operation and path a *fs.PathError adds.
+func reason(err error) error {
+	var p *fs.PathError
+	if errors.As(err, &p) {
+		return p.Err
+	}
+	return err
 }
 
 // parse is Load for b, the text of the config file at path.
@@ -565,6 +633,9 @@ func checkTargets(path string, b []byte, targets []targetFile) error {
 		}
 		if t.Command == "" {
 			return fmt.Errorf("%s:%d: target %q has no command; it needs one with {path}", path, lines[i].start, t.Name)
+		}
+		if words, _ := split(t.Command); words[0] == "cd" && !t.InPlace { // cannot fail: the command was checked while decoding
+			return fmt.Errorf("%s:%d: target %q runs cd, which needs in_place = true", path, lines[i].start, t.Name)
 		}
 		if t.InPlace && t.Close != nil && !*t.Close {
 			return fmt.Errorf("%s:%d: target %q has in_place = true, which always closes loper, and close = false", path, lines[i].start, t.Name)

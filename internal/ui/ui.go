@@ -42,6 +42,8 @@ type Deps struct {
 	// Tick is tea.Tick, which drives the refresh spinner and ends footer
 	// notices. Tests deliver its ticks themselves, so neither needs real time.
 	Tick func(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd
+	// Notice is shown in the footer at launch, as a notice, or is "".
+	Notice string
 	// NoticeFor is how long a footer notice shows before the keys return.
 	NoticeFor time.Duration
 	// EnterPause is how long after the dialog's confirmation appears an
@@ -322,6 +324,9 @@ func New(deps Deps) Model {
 		}
 	}
 	m.helpLines, m.helpWidth = m.helpContent()
+	if deps.Notice != "" {
+		m.notice, m.notices = deps.Notice, 1
+	}
 	return m
 }
 
@@ -335,7 +340,7 @@ func (m Model) Init() tea.Cmd {
 			c.repos = append(c.repos, repo{path: r.Path, root: r.Root, branch: r.Branch})
 		}
 		return c
-	}, func() tea.Msg { return historyMsg(m.deps.History.Load()) }, m.tick())
+	}, func() tea.Msg { return historyMsg(m.deps.History.Load()) }, m.tick(), m.endNotice())
 }
 
 // tick moves the spinner on after a while.
@@ -347,8 +352,16 @@ func (m Model) tick() tea.Cmd {
 func (m Model) showNotice(text string) (Model, tea.Cmd) {
 	m.notice = text
 	m.notices++
+	return m, m.endNotice()
+}
+
+// endNotice ends the moment of the latest footer notice, if there is one.
+func (m Model) endNotice() tea.Cmd {
+	if m.notices == 0 {
+		return nil
+	}
 	n := noticeEndMsg(m.notices)
-	return m, m.deps.Tick(m.deps.NoticeFor, func(time.Time) tea.Msg { return n })
+	return m.deps.Tick(m.deps.NoticeFor, func(time.Time) tea.Msg { return n })
 }
 
 // refresh is the full refresh: it scans the configured paths, reads each

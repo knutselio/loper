@@ -22,7 +22,7 @@ func TestHandOverInAChild(t *testing.T) {
 		t.Skip("run by the hand-over tests, in a child process")
 	}
 	h := target.HandOver{Program: os.Getenv("LOPER_TEST_PROGRAM"), Args: []string{"fake", "a b", "{path}"}, Dir: dir}
-	os.Exit(run(nil, os.Stdout, os.Stderr, func(string, config.Settings) error { return handOver(h) }))
+	os.Exit(run(nil, os.Stdout, os.Stderr, func(string, config.Settings) error { return handOver(h, takeCdFile()) }))
 }
 
 // handOverChild runs TestHandOverInAChild with the fake program body in a
@@ -76,5 +76,25 @@ func TestAHandOverWhoseFolderIsGoneSaysWhyAndExits1(t *testing.T) {
 	}
 	if stdout != "" {
 		t.Errorf("stdout %q, want nothing: the program must not run", stdout)
+	}
+}
+
+func TestAHandOverThatIsNotCdLeavesTheWrappersFileAlone(t *testing.T) {
+	home := tempHome(t)
+	dir := filepath.Join(home, "code", "alpha")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(home, "cd-file")
+	writeConfig(t, file, "")
+	t.Setenv("LOPER_CD_FILE", file)
+
+	code, stdout, _ := handOverChild(t, home, dir, "pwd\n")
+
+	if code != 0 || stdout != dir+"\n" {
+		t.Errorf("exit code %d, stdout %q; want the program to run in %q", code, stdout, dir)
+	}
+	if b, _ := os.ReadFile(file); len(b) != 0 {
+		t.Errorf("the wrapper's file holds %q, want nothing", b)
 	}
 }

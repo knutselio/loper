@@ -18,7 +18,7 @@ It is a launcher and nothing more: it never runs a git operation and makes no ne
    ray-tracer  ~/code/play  main                -
    storefront  ~/code/work  main                -
  ──────────────────────────────────────────────────────────────────────────────
- enter open | / search | s sort | r refresh | ? help | q quit | z Zed | a add
+ enter open | / search | s sort | r refresh | ? help | q quit | o cd | a add
 ```
 
 ## Installation
@@ -41,9 +41,9 @@ Either way the binary goes to `$GOBIN`, or `$(go env GOPATH)/bin`, which must be
 
 ## Getting started
 
-Run `loper`. Without a config file it lists every git repo under `~/code`.
+Run `loper`. It lists every git repo under `~/code`. On the first run it creates its config file with one target, `cd`: select a repo and press `o` to land in its folder. [Change folder](#change-folder) has the shell function that makes it your own shell's folder.
 
-There is no target to open a repo in until you add one. Press `a` and fill in a name, a key and a command, such as `Zed`, `z` and `zed {path}`, with `enter` after each. The fourth field, `After open`, says whether loper closes after opening a repo there. It is a choice, drawn as `‹ default (stay open) ›`: `←` and `→` change it, and `enter` leaves it on `default`, which follows `close_on_open`. The last choice, `take over this window`, makes loper end and run the command in its place, in the repo's folder, for a program such as lazygit or an editor. loper shows what it will add to the config file, and one more `enter` saves it. Then select a repo and press `z`, or press `enter` and pick the target from the menu.
+To open a repo somewhere else, add a target. Press `a` and fill in a name, a key and a command, such as `Zed`, `z` and `zed {path}`, with `enter` after each. The fourth field, `After open`, says whether loper closes after opening a repo there. It is a choice, drawn as `‹ default (stay open) ›`: `←` and `→` change it, and `enter` leaves it on `default`, which follows `close_on_open`. The last choice, `take over this window`, makes loper end and run the command in its place, in the repo's folder, for a program such as lazygit or an editor. loper shows what it will add to the config file, and one more `enter` saves it. Then select a repo and press `z`, or press `enter` and pick the target from the menu.
 
 The target is written to `~/.config/loper/config.toml` (or `$XDG_CONFIG_HOME/loper/config.toml`), which you can also edit by hand. A small useful config:
 
@@ -58,12 +58,42 @@ command = "zed {path}"
 
 `loper --help` prints the config file in use, the keys and your targets. `loper --config <file>` uses another file for one run.
 
+## Change folder
+
+The first run writes this target, which you can remap, edit or remove like any other:
+
+```toml
+[[targets]]
+name = "cd"
+key = "o"
+command = "cd {path}"
+in_place = true
+```
+
+A command whose program is `cd` ends loper and lands you in the folder after it. A program cannot change the folder of the shell that started it, so on its own loper starts a new shell there, `$SHELL` or `/bin/sh`, and `exit` takes you back. With this function in your `~/.zshrc` or `~/.bashrc`, loper hands the folder to your own shell instead, which changes to it:
+
+```sh
+loper() {
+  local file dir code
+  file=$(mktemp) || return
+  LOPER_CD_FILE=$file command loper "$@"
+  code=$?
+  dir=$(command cat -- "$file")
+  command rm -f -- "$file"
+  [ -n "$dir" ] && cd -- "$dir"
+  return $code
+}
+```
+
+Quitting, or any other target, leaves the shell where it was. The function keeps loper's exit code.
+
 ## Features
 
 - Fuzzy search over name, folder and branch, with the matched letters highlighted.
 - Sort by last opened or by name.
 - Open the selected repo in a target with one key, or choose it from a menu.
 - Targets that take over loper's own terminal window, such as lazygit or an editor, run in the repo's folder.
+- A `cd` target, written on the first run, that lands you in the repo's folder.
 - Add, edit and remove targets from inside the picker, without opening the config file.
 - Instant start from a cache, with a refresh in the background.
 - A branch column and a column for when you last opened each repo.
@@ -103,7 +133,7 @@ sort = "last_opened"               # or "name"
 cache_max_age = "0"                # "0" scans on every launch; or an interval such as "4h"
 close_on_open = false              # true quits after a successful open
 
-[[targets]]                        # none by default; add as many as you like
+[[targets]]                        # the first run writes a cd target; add as many as you like
 name = "Zed"
 key = "z"                          # optional, one character, not one of loper's own keys
 command = "zed {path}"
@@ -116,7 +146,7 @@ command = "lazygit -p {path}"
 in_place = true                    # optional; loper ends and the command runs in its window
 ```
 
-A target's command must contain `{path}`, which becomes the repo's absolute path, and may contain `{name}`, which becomes the repo's name. The command is not run through a shell, so a path with spaces needs no quoting. A mistake in the file stops loper at startup with the line it is on.
+A target's command must contain `{path}`, which becomes the repo's absolute path, and may contain `{name}`, which becomes the repo's name. The command is not run through a shell, so a path with spaces needs no quoting. A `cd` command needs `in_place = true` and one folder. A mistake in the file stops loper at startup with the line it is on.
 
 [SPEC.md](SPEC.md) has the details: the scan rules, the cache, the row styles and how targets are run.
 

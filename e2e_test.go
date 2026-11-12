@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -211,4 +212,195 @@ func TestTheBuiltBinaryHandsTheWindowOverToAnInPlaceTarget(t *testing.T) {
 	if b, _ := os.ReadFile(record); string(b) != alpha+"\n"+alpha+"\n" {
 		t.Errorf("the target recorded %q, want it ran in %q with it as its argument", b, alpha)
 	}
+}
+
+func TestTheBuiltBinaryOnAFirstRunLandsInTheRepoWithOrWithoutTheWrapper(t *testing.T) {
+	loper := filepath.Join(t.TempDir(), "loper")
+	if out, err := exec.Command("go", "build", "-o", loper, ".").CombinedOutput(); err != nil {
+		t.Fatalf("go build: %v\n%s", err, out)
+	}
+	// setUp makes a first run's home with one repo, alpha, and a fake shell
+	// in $SHELL that records its folder and its words, and returns them.
+	setUp := func(t *testing.T) (home, alpha, shell, record string) {
+		home = tempHome(t)
+		t.Setenv("TERM", "xterm-256color")
+		t.Setenv("NO_COLOR", "1")
+		t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+		t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+		alpha = filepath.Join(home, "code", "alpha")
+		if out, err := exec.Command("git", "init", "-b", "main", alpha).CombinedOutput(); err != nil {
+			t.Fatalf("git init: %v\n%s", err, out)
+		}
+		record = filepath.Join(home, "shell-record")
+		shell = filepath.Join(home, "bin", "shell")
+		writeConfig(t, shell, "#!/bin/sh\n{ pwd; printf '%s\\n' \"$0\" \"$@\"; } > '"+record+"'\n")
+		if err := os.Chmod(shell, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("SHELL", shell)
+		return home, alpha, shell, record
+	}
+	// recorded reports whether the history holds only alpha.
+	recorded := func(home, alpha string) bool {
+		var history map[string]time.Time
+		b, _ := os.ReadFile(filepath.Join(home, ".local", "state", "loper", "history.json"))
+		if json.Unmarshal(b, &history) != nil {
+			return false
+		}
+		_, ok := history[alpha]
+		return ok && len(history) == 1
+	}
+
+	t.Run("with the wrapper's file", func(t *testing.T) {
+		home, alpha, _, record := setUp(t)
+		file := filepath.Join(home, "cd-file")
+		writeConfig(t, file, "")
+		t.Setenv("LOPER_CD_FILE", file)
+
+		s := start(t, "o cd", loper)
+		s.within("the list and the cd target to be drawn", s.shown)
+		s.press("o")
+		s.within("loper to end", s.exited)
+
+		if s.waitErr != nil {
+			t.Errorf("loper exited with %v, want 0", s.waitErr)
+		}
+		if b, _ := os.ReadFile(file); string(b) != alpha {
+			t.Errorf("the wrapper's file holds %q, want %q", b, alpha)
+		}
+		if b, err := os.ReadFile(record); err == nil {
+			t.Errorf("the shell ran, recording %q; want nothing handed over", b)
+		}
+		if !recorded(home, alpha) {
+			t.Errorf("the open of %s was not recorded", alpha)
+		}
+		configFile := filepath.Join(home, ".config", "loper", "config.toml")
+		if b, _ := os.ReadFile(configFile); string(b) != firstRun {
+			t.Errorf("config file is %q, want %q", b, firstRun)
+		}
+		if info, err := os.Stat(configFile); err != nil || info.Mode().Perm() != 0o600 {
+			t.Errorf("config file: %v, %v; want mode 0600", info, err)
+		}
+	})
+
+	t.Run("without the wrapper", func(t *testing.T) {
+		home, alpha, shell, record := setUp(t)
+
+		s := start(t, "o cd", loper)
+		s.within("the list and the cd target to be drawn", s.shown)
+		s.press("o")
+		s.within("the shell to end in loper's place", s.exited)
+
+		if s.waitErr != nil {
+			t.Errorf("the process exited with %v, want the shell's 0", s.waitErr)
+		}
+		if b, _ := os.ReadFile(record); string(b) != alpha+"\n"+shell+"\n" {
+			t.Errorf("the shell recorded %q, want it ran in %q with no arguments", b, alpha)
+		}
+		if !recorded(home, alpha) {
+			t.Errorf("the open of %s was not recorded", alpha)
+		}
+	})
+
+	t.Run("with the wrapper's file and a cd to a folder in the repo", func(t *testing.T) {
+		home, alpha, _, _ := setUp(t)
+		sub := filepath.Join(alpha, "sub")
+		if err := os.Mkdir(sub, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		writeConfig(t, filepath.Join(home, ".config", "loper", "config.toml"),
+			"[[targets]]\nname = \"cd\"\nkey = \"o\"\ncommand = \"cd {path}/sub\"\nin_place = true\n")
+		file := filepath.Join(home, "cd-file")
+		writeConfig(t, file, "")
+		t.Setenv("LOPER_CD_FILE", file)
+
+		s := start(t, "o cd", loper)
+		s.within("the list and the cd target to be drawn", s.shown)
+		s.press("o")
+		s.within("loper to end", s.exited)
+
+		if b, _ := os.ReadFile(file); s.waitErr != nil || string(b) != sub {
+			t.Errorf("exit %v, the wrapper's file holds %q; want 0 and %q", s.waitErr, b, sub)
+		}
+	})
+
+	t.Run("with the wrapper's file kept from the targets", func(t *testing.T) {
+		home, _, _, _ := setUp(t)
+		normal, inPlace := filepath.Join(home, "normal-env"), filepath.Join(home, "in-place-env")
+		for name, record := range map[string]string{"normal": normal, "in-place": inPlace} {
+			writeConfig(t, filepath.Join(home, "bin", name), "#!/bin/sh\nenv > '"+record+".tmp'\nmv '"+record+".tmp' '"+record+"'\n")
+			if err := os.Chmod(filepath.Join(home, "bin", name), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+		writeConfig(t, filepath.Join(home, ".config", "loper", "config.toml"), fmt.Sprintf(
+			"[[targets]]\nname = \"Normal\"\nkey = \"n\"\ncommand = %q\n\n[[targets]]\nname = \"Here\"\nkey = \"h\"\ncommand = %q\nin_place = true\n",
+			filepath.Join(home, "bin", "normal")+" {path}", filepath.Join(home, "bin", "in-place")+" {path}"))
+		file := filepath.Join(home, "cd-file")
+		writeConfig(t, file, "")
+		t.Setenv("LOPER_CD_FILE", file)
+
+		s := start(t, "alpha", loper)
+		s.within("the list and the targets to be drawn", s.shown)
+		s.press("n")
+		s.eventually("the normal target to run", func() bool {
+			_, err := os.Stat(normal)
+			return err == nil
+		})
+		s.press("h")
+		s.within("the in-place target to end in loper's place", s.exited)
+
+		for _, record := range []string{normal, inPlace} {
+			b, err := os.ReadFile(record)
+			if err != nil || bytes.Contains(b, []byte("LOPER_CD_FILE")) {
+				t.Errorf("%s: %v; the target's environment has LOPER_CD_FILE or is missing:\n%s", filepath.Base(record), err, b)
+			}
+		}
+		if b, _ := os.ReadFile(file); len(b) != 0 {
+			t.Errorf("the wrapper's file holds %q, want nothing", b)
+		}
+	})
+
+	t.Run("with a config folder that cannot be written", func(t *testing.T) {
+		home, _, _, _ := setUp(t)
+		folder := filepath.Join(home, ".config", "loper")
+		if err := os.MkdirAll(folder, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(folder, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { os.Chmod(folder, 0o700) })
+
+		s := start(t, "The config file could not be written: permission denied", loper)
+		s.within("the notice to be drawn", s.shown)
+		s.quit()
+
+		if _, err := os.Stat(filepath.Join(folder, "config.toml")); !os.IsNotExist(err) {
+			t.Errorf("a config file was written (%v)", err)
+		}
+	})
+
+	t.Run("with a file that cannot be written", func(t *testing.T) {
+		home, _, _, record := setUp(t)
+		file := filepath.Join(home, "gone", "cd-file")
+		t.Setenv("LOPER_CD_FILE", file)
+
+		s := start(t, "o cd", loper)
+		s.within("the list and the cd target to be drawn", s.shown)
+		s.press("o")
+		s.within("loper to end", s.exited)
+		s.within("the terminal to close", s.drained)
+
+		var exit *exec.ExitError
+		if !errors.As(s.waitErr, &exit) || exit.ExitCode() != 1 {
+			t.Errorf("loper exited with %v, want 1", s.waitErr)
+		}
+		if want := "loper: open " + file + ": no such file or directory"; !bytes.Contains(s.out, []byte(want)) {
+			t.Errorf("the terminal does not show %q", want)
+		}
+		if b, err := os.ReadFile(record); err == nil {
+			t.Errorf("the shell ran, recording %q; want nothing handed over", b)
+		}
+	})
 }

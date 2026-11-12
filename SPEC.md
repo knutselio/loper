@@ -83,7 +83,7 @@ Tools that list multiple repos exist (gitpane, git-scope, dirtygit), but they ar
 43. As a developer, I want `enter` to show a menu of open targets for the selected repo, so that I can see where it can go without memorising anything.
 44. As a developer, I want each target to have its own key, so that I can open the selected repo in Zed or a terminal with a single keystroke.
 45. As a developer, I want target keys to work both in the list and inside the menu, so that the fast path and the discoverable path are the same keys.
-46. As a developer, I want the tool to ship with no target and to tell me how to add one when I press `enter` without any, so that it is not tied to one editor.
+46. As a developer, I want the tool to build in no target, to start me off with only a `cd` target in the config file it creates, and to tell me how to add one when I press `enter` without any, so that it is not tied to one editor.
 47. As a developer, I want to add a target by writing a command with a `{path}` placeholder, so that any program that accepts a folder can become a target.
 48. As a developer, I want a `{name}` placeholder as well, so that a new terminal tab can be labelled with the repo's name.
 49. As a developer, I want folder names with spaces to work without any quoting on my part, so that a target never breaks on an unusual path.
@@ -119,13 +119,15 @@ Tools that list multiple repos exist (gitpane, git-scope, dirtygit), but they ar
 73. As a developer, I want to see the lines an edit or a removal will change before anything is written, and every other line of my config file left as it was, so that a change to one target never costs me the rest of the file.
 74. As a developer, I want each target to be able to say whether the tool quits after it opens, in the config file or in the add dialog, so that one target can close the picker while the others keep it open.
 75. As a developer, I want a target that takes over the terminal window the tool runs in, such as lazygit, an editor or a shell in the repo, so that a full-screen program opens right where I picked the repo.
+76. As a developer, I want a `cd` target that lands me in the repo's folder in the same terminal, in my own shell when I use the README's shell function, so that picking a repo can also just take me there.
+77. As a developer, I want the config file created with that target on my first run, so that the tool is useful at once and I can see how a target is written.
 
 ### Building and trusting it
 
-76. As a developer, I want to install the tool by building it from my clone, so that the first version needs no release process.
-77. As a developer, I want a version flag, so that a later update command has something to compare against.
-78. As a maintainer, I want tests that read like the features in this document, so that I can change the internals without rewriting the tests.
-79. As a maintainer, I want the tests never to touch my real config, cache or history, so that running them is always safe.
+78. As a developer, I want to install the tool by building it from my clone, so that the first version needs no release process.
+79. As a developer, I want a version flag, so that a later update command has something to compare against.
+80. As a maintainer, I want tests that read like the features in this document, so that I can change the internals without rewriting the tests.
+81. As a maintainer, I want the tests never to touch my real config, cache or history, so that running them is always safe.
 
 ## Implementation Decisions
 
@@ -139,16 +141,16 @@ Tools that list multiple repos exist (gitpane, git-scope, dirtygit), but they ar
 
 Each module hides its details behind a small interface. The UI is the only module that knows about the terminal.
 
-- **Config.** Loads and validates the config file and applies defaults. It returns either a complete settings value or an error that names the file and line. All validation happens here, so no other module checks config values. It also adds, changes and removes a target in the file for the dialog that does so, checked by the same rules.
+- **Config.** Loads and validates the config file and applies defaults. It returns either a complete settings value or an error that names the file and line. All validation happens here, so no other module checks config values. It also adds, changes and removes a target in the file for the dialog that does so, checked by the same rules, and creates the file on a first run.
 - **Scanner.** Given the configured paths, returns the list of repo folders found. It owns the scan rules.
 - **Repo info.** Given a repo folder, returns its current branch, or the short commit hash for a detached HEAD, and whether the repo still exists. It reads the repo's HEAD reference directly, so the tool does not need the `git` program at run time.
 - **Cache store.** Reads and writes the cached repo list with the data for every column, along with when it was scanned and from which configured paths.
 - **History store.** Reads and writes the time each repo was last opened, keyed by the repo's absolute path.
-- **Target runner.** Given a target and a repo, builds the command, runs it and returns success, or failure with the command line and its output. For a target in place it only builds the command and looks up its program.
+- **Target runner.** Given a target and a repo, builds the command, runs it and returns success, or failure with the command line and its output. For a target in place it only builds the command and looks up its program, or for a `cd` command checks its folder and names the shell to start there.
 - **Matcher.** Given a query and the rows, returns the matching rows in rank order with the matched positions. It uses an existing fuzzy-matching library.
 - **Relative time.** Formats a past time as "2h ago", "yesterday" and so on, given the current time.
 - **UI.** The Bubble Tea program: state, update and view. It receives its dependencies (settings, stores, scanner, target runner, clock) from the entry point, which is what makes it testable.
-- **Entry point.** Parses the command line, loads the config, wires the modules together and starts the UI. When the UI ends on a target in place, it runs that target in the tool's place.
+- **Entry point.** Parses the command line, loads the config, creating it on a first run, wires the modules together and starts the UI. When the UI ends on a target in place, it runs that target in the tool's place, or for a `cd` target with the shell wrapper writes its folder to the wrapper's file.
 
 ### Discovery
 
@@ -226,7 +228,7 @@ A single full-width scrolling list between a one-line header and a one-line foot
   - First launch with no cache: the spinner and "scanning…".
   - No repos found: a message naming the scanned paths and the config file location.
   - Search with no matches: "No matches".
-  - No targets: the footer lists none, so `a add` follows `q quit`, and `enter` shows "No targets yet. Press a to add one." in a box in the menu's place instead of an empty menu, and the help overlay's "Targets" heading has "None yet. Press a to add one." under it.
+  - No targets, in a config file without any: the footer lists none, so `a add` follows `q quit`, and `enter` shows "No targets yet. Press a to add one." in a box in the menu's place instead of an empty menu, and the help overlay's "Targets" heading has "None yet. Press a to add one." under it.
 
 ### Keybindings
 
@@ -264,15 +266,27 @@ Inside the add dialog's text fields every printable key is text, `q`, the list k
 - **Success**, for a target without `in_place = true`, is exit code 0 within the wait, or a command that is still running when the wait ends. A command that is still running is left running, detached from the tool, and is never stopped. The footer confirms it, the repo's last-opened time is recorded, and the tool stays open. The tool quits instead when the target has `close = true`, or when it has no `close` and `close_on_open = true`, unless the add dialog is open. A target with `close = false` keeps it open, whatever `close_on_open` says.
 - **Failure**, for such a target, is a non-zero exit code within the wait, or a command that cannot be started. The error dialog shows the command line that ran and its output. Nothing is recorded and the tool never quits, whatever `close_on_open` or the target's `close` says.
 - **In place.** A target with `in_place = true` takes over the terminal window the tool runs in, as `lazygit -p {path}`, `nvim {path}` or `sh -c 'exec zsh' -- {path}` would. Its program is looked up as for any other target: a name without a `/` on the `PATH`, and a relative path such as `./bin/lg` in the repo. If it cannot be found, the error dialog shows the command line and the reason, nothing is recorded and the tool stays. Otherwise the repo's last-opened time is recorded, the tool ends and restores the terminal, and only then changes to the repo's folder and replaces its own process with the command, which gets the tool's environment, with `PWD` set to the repo, and the terminal. There is no wait, no output file and no footer notice. An in-place target always ends the tool, whatever `close_on_open` says and also while the add dialog is open, so `close = false` with it is a config error. If changing to the folder or starting the command fails at that point, the tool prints `loper: ` and the reason and exits with 1; the open stays recorded, since the tool cannot know what happens after the hand-over. While another target's open is still in its wait, an in-place target's key does nothing, as any target's does. A normal target still running past its wait when an in-place target takes over stays a child of that process, so once it exits it lingers as a finished process entry until the in-place program ends; this is harmless and not prevented.
-- No target is built in. Targets come only from the config file, written by hand or with the add dialog; with none, the tool works as a list and a search, and the no-targets message under "Empty states" says how to add one. Zed appears only as an example, in this document and in the add dialog.
+- **`cd`.** An in-place target whose command's program is exactly `cd` is never run as the `cd` program (macOS has `/usr/bin/cd`, which changes only its own folder and exits). It means: end the tool and land in that folder, the command's one argument after substitution, so `cd {path}` goes to the repo. A command such as `cdx {path}` or `/usr/bin/cd {path}` is an ordinary one. If the folder no longer exists, or is not a folder, the error dialog shows the command line and the reason, and nothing is recorded. Otherwise the open is recorded, as for every in-place target, and the tool ends and restores the terminal. When the environment variable `LOPER_CD_FILE` is set and not empty, the tool then writes the folder to that file, the path and nothing else, with no line break, and exits with 0; the shell function in the README reads the file and changes the shell's folder. If the file cannot be written, the tool prints `loper: ` and the reason and exits with 1. The tool removes `LOPER_CD_FILE` from its environment at startup, so no target or hand-over gets it, and a `loper` started from one never writes to the outer wrapper's file. Without `LOPER_CD_FILE`, the tool hands over to a new shell in the folder, the program in `$SHELL` or `/bin/sh` when it is not set, as any in-place target hands over.
+- No target is built in. Targets come only from the config file, written by hand, with the add dialog, or on a first run, which writes the `cd` target under "Config"; with none, the tool works as a list and a search, and the no-targets message under "Empty states" says how to add one. Zed appears only as an example, in this document and in the add dialog.
 - **Adding a target from the tool.** `a` opens a dialog and at once checks, in the background, that the config file can take a target, as the write would. If it cannot, because it lists its targets inline, is a link to a file that does not exist or no longer loads, a message with the reason replaces the fields, along with anything typed in them meanwhile, and `esc` closes it. The dialog has four fields: the name, the key, the command and `After open`. `After open` is a choice, not text: `default`, `stay open`, `close loper` or `take over this window`, with `default` shown as `default (stay open)` or `default (close loper)` by what `close_on_open` says now. Its value is drawn between `‹` and `›`, as in `‹ default (stay open) ›`, so it reads as a choice; a value too long for the field is cut from its start, the marks included. `default` writes no `close` line, `stay open` and `close loper` write `close = false` and `close = true`, and `take over this window` writes `in_place = true` and no `close` line. A new target starts on `default`, and an edited one on what its block says, `take over this window` for a block with `in_place = true`. Each empty text field shows, dimmed, the example of a Zed target: `Zed`, `z` and `zed {path}`. The example is a hint and never a value: a field left empty is empty, and nothing of the example is written. With colour off the empty fields show nothing, since undimmed the example would read as typed text. When it is filled in, the target is checked by the config's own rules: a name is required, and the spaces around it are left out, the command must contain `{path}` and have balanced quotes, and the key is optional, one character, not one of the tool's own keys and not the key of another target in the file. A refused target shows the reason inside the dialog, which stays open. Otherwise the dialog shows the `[[targets]]` block it will append and the file it goes to, and `enter` writes it. The new target works at once, without a restart: it is in the footer, the target menu and the help, and its key opens the selected repo. The write follows the rules under "Config".
 - **Editing and removing a target from the tool.** `e` in the target menu opens the add dialog with the highlighted target filled in, `After open` included, and `d` asks to remove it. Both check at once, in the background, that the file can be changed, as the write would: as well as the add dialog's reasons, the target may no longer be in the file, or two of its blocks may load to the same target. An edit is checked by the same rules as a target added, except that the target's own key is not a duplicate. The confirmation shows the target's lines as they are in the file and the lines that replace them, and says that comments inside the block are not kept; a removal shows the lines that go. Lines longer than the block the tool writes, five lines, are shown as their first two lines, a line such as `… 11 more lines` and their last line, so the confirmation fits whenever one for a plain block would. An edit that changes nothing, with the name, key, command and `After open` as they were, closes the dialog at `enter` on the last field without a confirmation, a write or a notice, and the file stays as it was. The change works at once, as an added target does. The write follows the rules under "Config".
 
 ### Config
 
 - The file is TOML at `~/.config/loper/config.toml`, honouring `XDG_CONFIG_HOME`. `--config <file>` overrides the location for one run.
-- Every setting is optional. With no file, the tool runs on the defaults.
-- The tool changes the config file in three ways only: the add dialog appends one `[[targets]]` block to it, an edit replaces the lines of one `[[targets]]` block, and a removal removes them.
+- Every setting is optional.
+- **First run.** When the picker starts and the file at the standard location does not exist, the tool creates it, its folder included and private to the user, with this content, and then loads it as usual:
+
+  ```toml
+  [[targets]]
+  name = "cd"
+  key = "o"
+  command = "cd {path}"
+  in_place = true
+  ```
+
+  Only the picker does this: `--help` and `--version` never create a file, and a `--config` file that does not exist stays an error. An existing file is never changed at startup, whatever it holds, so a file without targets, such as one whose `cd` target was removed, keeps the no-targets state. A link to a file that does not exist is not written through, and a file that could not be written whole is removed. If the file cannot be created, for example in a read-only folder or at such a link, the tool starts with the `cd` target for this run and the footer shows "The config file could not be written: " and the reason, as a notice.
+- Apart from the first run, the tool changes the config file in three ways only, each after a confirmation: the add dialog appends one `[[targets]]` block to it, an edit replaces the lines of one `[[targets]]` block, and a removal removes them.
   - The file is the one in use: the `--config` file when given, otherwise the standard location. A missing file or folder is created, the folder private to the user.
   - The file is read again when the target is written, and the block is appended to its text, so the rest of the file, comments and order included, is untouched. The name, key, command, close and in_place are written in that order and encoded by the TOML library; `close` is left out for `default` and `take over this window`, and `in_place` for every choice but `take over this window`.
   - The text with the block appended is loaded with the config's own loader before it is written. If it does not load, for example because the file writes its targets as an inline `targets = [...]` list or was edited into an invalid state meanwhile, nothing is written and the dialog says why. The file is checked this way when `a`, `e` or `d` is pressed, again when the fields are filled in and once more when the target is written, since it can change in between. A reason about the new block itself, such as a key already used, is given without a line number, since its line is not yet in the file.
@@ -288,7 +302,8 @@ Inside the add dialog's text fields every printable key is text, `q`, the list k
   - a target key longer than one character;
   - two targets with the same key;
   - a target key that is one of the tool's own keys;
-  - a target with `in_place = true` and `close = false`.
+  - a target with `in_place = true` and `close = false`;
+  - a target whose command's program is `cd` without `in_place = true`, or with no folder after `cd` or more than one.
 
 The defaults, written out:
 
@@ -299,7 +314,7 @@ columns = ["name", "folder", "branch", "last_opened"]
 sort = "last_opened"               # or "name"
 cache_max_age = "0"                # "0" = full refresh on every launch; or e.g. "4h"
 close_on_open = false
-# no targets: they come only from the config file or the add dialog
+# no targets: they come only from the config file, the add dialog or the first run
 ```
 
 My personal config, as the worked example:
@@ -339,7 +354,7 @@ command = "rex split -c {path} -- lazygit"
 
 There are no subcommands in this version.
 
-`--help` ends with a "Targets" section that lists each target in the config file in use, honouring `--config` and `XDG_CONFIG_HOME`: its key, blank when it has none, and its name, in the order they are written. With no file or no targets it says `none; add one in the picker with a, or in the config file`. A config file that does not load, including a `--config` file that does not exist, does not stop `--help`: the loader's message takes the place of the list, everything else is printed and the exit code is 0.
+`--help` ends with a "Targets" section that lists each target in the config file in use, honouring `--config` and `XDG_CONFIG_HOME`: its key, blank when it has none, and its name, in the order they are written. With no file at the standard location it lists the first run's `cd` target, and the config file line says `(does not exist yet)` after the file; with no targets it says `none; add one in the picker with a, or in the config file`. A config file that does not load, including a `--config` file that does not exist, does not stop `--help`: the loader's message takes the place of the list, everything else is printed and the exit code is 0.
 
 ### Install
 
@@ -366,16 +381,17 @@ The temporary trees cover the awkward cases: a repo nested inside another, a fol
 
 ### What is tested at this seam
 
-Discovery rules, cache and refresh behaviour, row rendering in each style, column selection, narrow-terminal behaviour, both sorts, search, the target menu, direct target keys, success and failure of a target, `close_on_open` and a target's own `close`, a target in place and the command it hands over, a target that keeps running past the wait (shortened for the test), adding, editing and removing a target and what that writes to the config file, and empty states.
+Discovery rules, cache and refresh behaviour, row rendering in each style, column selection, narrow-terminal behaviour, both sorts, search, the target menu, direct target keys, success and failure of a target, `close_on_open` and a target's own `close`, a target in place and the command it hands over, the `cd` target and the shell it hands over, the first run's config file and its notice, a target that keeps running past the wait (shortened for the test), adding, editing and removing a target and what that writes to the config file, and empty states.
 
 ### Other tests
 
 - **End to end.** One or two tests run the compiled binary inside a pseudo-terminal, with `--config` and with the home, cache and state locations pointed at temporary folders. They send keys to pick a repo and check that the fake target ran and the history was written. They prove the entry point wires the modules together, and they assert on side effects, not on screen output.
-- **Startup.** Config errors stop the tool before the UI exists, so they are tested through the entry point: run it with a bad config file and check the exit code and the message. The `--version` and `--help` flags are tested the same way.
-- **Hand-over.** Replacing the process cannot happen inside the test process, so a test re-runs the test binary as a child that calls the entry point's hand-over with a fake script, and checks the script's folder, arguments, environment and exit code, and the message and exit code when the folder is gone. One of the end-to-end tests picks a target in place and checks that the fake script ran in the tool's place. No test shows that a real terminal is left in a sane state.
+- **Startup.** Config errors stop the tool before the UI exists, so they are tested through the entry point: run it with a bad config file and check the exit code and the message. The `--version` and `--help` flags, and the config file a first run creates or leaves alone, are tested the same way.
+- **Hand-over.** Replacing the process cannot happen inside the test process, so a test re-runs the test binary as a child that calls the entry point's hand-over with a fake script, and checks the script's folder, arguments, environment and exit code, and the message and exit code when the folder is gone. One of the end-to-end tests picks a target in place and checks that the fake script ran in the tool's place, and another picks the first run's `cd` target with `LOPER_CD_FILE` set, unset and naming a file that cannot be written, with `SHELL` pointing at a fake script, and starts once with a config folder that cannot be written. No test shows that a real terminal is left in a sane state.
+- **Shell function.** A test takes the function from the README's text and runs it in `zsh` and in `bash`, without their startup files, against a fake `loper` that writes a folder to `LOPER_CD_FILE`, and checks the shell's folder, the empty file and the exit code.
 - **Direct unit tests.** Only the matcher's ranking and the relative-time formatting are tested directly, because their many edge cases are tedious to reach through keystrokes.
 
-Zed and Rex are never run by the tests. The test suite needs the `git` program to build its fixtures.
+Zed, Rex and a real interactive shell are never run by the tests. The test suite needs the `git` program to build its fixtures.
 
 ## Out of Scope
 
@@ -425,6 +441,7 @@ These were not discussed in the interview and are open to change:
 - **Narrow terminals.** The order in which columns are dropped is fixed and ignores the order in `columns`.
 - **Wait.** The 2 seconds is not a config setting.
 - **Edit and remove.** Comments directly above a removed block stay, so they may come to sit above the next block. The blank lines a removal takes along are not shown in its confirmation, which shows the block's own lines. The menu's hint is in its bottom border, so it costs the menu no row.
+- **`cd`.** An empty `LOPER_CD_FILE` counts as unset. `$SHELL` is not looked up before the hand-over, so a wrong one, which the wrapper never needs, shows only when the hand-over fails.
 - **In place.** `take over this window` writes no `close` line, so an edit of a block with `in_place = true` and `close = true` drops its `close` line, which changes nothing about it. An `in_place = false` line is dropped by an edit as well, as it says what leaving it out says.
 
 ### Open questions, deferred

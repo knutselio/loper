@@ -65,6 +65,9 @@ type env struct {
 	// configFile is the config file named with --config, or "" for the
 	// standard location.
 	configFile string
+	// picker loads the config as the entry point does for the picker, which
+	// creates the file at the standard location when there is none.
+	picker bool
 }
 
 func newEnv(t *testing.T) *env {
@@ -82,6 +85,10 @@ func newEnv(t *testing.T) *env {
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(e.home, ".cache"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(e.home, ".local", "state"))
 	t.Setenv("NO_COLOR", "1")
+	// A cd target hands over to $SHELL without the wrapper's file; the
+	// driver never runs what it hands over.
+	t.Setenv("SHELL", filepath.Join(root, "bin", "shell"))
+	t.Setenv("LOPER_CD_FILE", "")
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("GIT_AUTHOR_NAME", "Test")
@@ -265,7 +272,11 @@ func (e *env) start() *driver {
 // release hand them over.
 func (e *env) launch() *driver {
 	e.t.Helper()
-	settings, err := config.Load(e.configFile, e.home)
+	load := config.Load
+	if e.picker {
+		load = config.Open
+	}
+	settings, err := load(e.configFile, e.home)
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -289,6 +300,7 @@ func (e *env) launch() *driver {
 				return nil
 			}
 		},
+		Notice:      settings.Notice,
 		NoticeFor:   e.notice,
 		EnterPause:  e.pause,
 		CloseOnOpen: settings.CloseOnOpen,

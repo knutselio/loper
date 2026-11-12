@@ -43,6 +43,10 @@ func tempHome(t *testing.T) string {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
 	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
+	// A cd target hands over to $SHELL without the wrapper's file: never to
+	// a real shell, and never to the developer's own file.
+	t.Setenv("SHELL", filepath.Join(home, "no-shell"))
+	t.Setenv("LOPER_CD_FILE", "")
 	return home
 }
 
@@ -458,8 +462,8 @@ func TestTheHelpFlagPrintsTheUsageTheConfigFileAndTheKeys(t *testing.T) {
 			t.Errorf("stdout does not contain %q:\n%s", w, stdout)
 		}
 	}
-	if got, want := targetsSection(t, stdout), []string{"  " + noTargets}; !slices.Equal(got, want) {
-		t.Errorf("Targets section %q, want %q", got, want)
+	if got := targetsSection(t, stdout); !isFirstRunTarget(got) {
+		t.Errorf("Targets section %q, want the first run's o cd", got)
 	}
 }
 
@@ -528,11 +532,11 @@ func TestTheHelpFlagWinsOverTheOtherFlagsWhateverTheConfigFile(t *testing.T) {
 		file    string
 		targets string
 	}{
-		{[]string{"-h"}, standard, noTargets},
-		{[]string{"--version", "--help"}, standard, noTargets},
-		{[]string{"--help", "--version"}, standard, noTargets},
-		{[]string{"-v", "--help"}, standard, noTargets},
-		{[]string{"-h", "-v"}, standard, noTargets},
+		{[]string{"-h"}, standard + notYet, firstRunTarget},
+		{[]string{"--version", "--help"}, standard + notYet, firstRunTarget},
+		{[]string{"--help", "--version"}, standard + notYet, firstRunTarget},
+		{[]string{"-v", "--help"}, standard + notYet, firstRunTarget},
+		{[]string{"-h", "-v"}, standard + notYet, firstRunTarget},
 		{[]string{"--config", bad, "--help"}, bad, bad + `:1: unknown setting "colour"`},
 		{[]string{"--help", "--config", missing}, missing, "config file " + missing + " does not exist"},
 	} {
@@ -544,10 +548,24 @@ func TestTheHelpFlagWinsOverTheOtherFlagsWhateverTheConfigFile(t *testing.T) {
 		if want := "Config file: " + c.file + "\n"; !strings.Contains(stdout, want) {
 			t.Errorf("%q: stdout does not contain %q:\n%s", c.args, want, stdout)
 		}
-		if got, want := targetsSection(t, stdout), []string{"  " + c.targets}; !slices.Equal(got, want) {
-			t.Errorf("%q: Targets section %q, want %q", c.args, got, want)
+		if got := targetsSection(t, stdout); c.targets == firstRunTarget && !isFirstRunTarget(got) ||
+			c.targets != firstRunTarget && !slices.Equal(got, []string{"  " + c.targets}) {
+			t.Errorf("%q: Targets section %q, want %q", c.args, got, c.targets)
 		}
 	}
+}
+
+// notYet follows the config file in --help when it does not exist.
+const notYet = " (does not exist yet)"
+
+// firstRunTarget stands for the Targets section of --help with only the
+// first run's target, o cd.
+const firstRunTarget = "o cd"
+
+// isFirstRunTarget reports whether lines, the Targets section of --help,
+// list only the first run's target: key o, name cd.
+func isFirstRunTarget(lines []string) bool {
+	return len(lines) == 1 && strings.HasPrefix(lines[0], "  o ") && strings.TrimSpace(lines[0][3:]) == "cd"
 }
 
 func TestTheHelpFlagPrintsEverythingAndTheLoadersMessageWhenTheStandardConfigFileIsInvalid(t *testing.T) {
@@ -612,7 +630,7 @@ func TestTheVersionAndHelpFlagsNeedNoHomeFolderUnlessHelpNamesAFileInIt(t *testi
 	}{
 		{args: []string{"--version"}, want: "loper (devel)\n"},
 		{args: []string{"--help", "--config", file}, want: "Config file: " + file + "\n"},
-		{args: []string{"--help"}, xdg: filepath.Join(home, "xdg"), want: "Config file: " + filepath.Join(home, "xdg", "loper", "config.toml") + "\n"},
+		{args: []string{"--help"}, xdg: filepath.Join(home, "xdg"), want: "Config file: " + filepath.Join(home, "xdg", "loper", "config.toml") + notYet + "\n"},
 		{args: []string{"--help"}, wantErr: true},
 	} {
 		t.Setenv("XDG_CONFIG_HOME", c.xdg)
@@ -627,6 +645,215 @@ func TestTheVersionAndHelpFlagsNeedNoHomeFolderUnlessHelpNamesAFileInIt(t *testi
 		}
 		if code != 0 || stderr != "" || !strings.Contains(stdout, c.want) {
 			t.Errorf("%q: exit code %d, stderr %q, stdout %q; want 0, nothing and %q", c.args, code, stderr, stdout, c.want)
+		}
+	}
+}
+
+// firstRun is the config file a first run creates.
+const firstRun = "[[targets]]\nname = \"cd\"\nkey = \"o\"\ncommand = \"cd {path}\"\nin_place = true\n"
+
+// picker runs the entry point as the picker with args and returns the exit
+// code, what it wrote to stderr and the settings the UI was started with.
+func picker(t *testing.T, args ...string) (int, string, config.Settings) {
+	t.Helper()
+	var errs strings.Builder
+	var got config.Settings
+	code := run(args, &strings.Builder{}, &errs, func(_ string, s config.Settings) error {
+		got = s
+		return nil
+	})
+	return code, errs.String(), got
+}
+
+func TestAFirstRunCreatesTheConfigFileWithTheCdTarget(t *testing.T) {
+	home := tempHome(t)
+	file := filepath.Join(home, ".config", "loper", "config.toml")
+
+	code, stderr, s := picker(t)
+
+	if code != 0 || stderr != "" {
+		t.Errorf("exit code %d, stderr %q; want 0 and nothing", code, stderr)
+	}
+	b, err := os.ReadFile(file)
+	if err != nil || string(b) != firstRun {
+		t.Fatalf("config file is %q (%v), want %q", b, err, firstRun)
+	}
+	if info, _ := os.Stat(file); info.Mode().Perm() != 0o600 {
+		t.Errorf("config file has mode %v, want 0600", info.Mode().Perm())
+	}
+	if len(s.Targets) != 1 || s.Targets[0].Name != "cd" || s.Targets[0].Key != "o" || !s.Targets[0].InPlace || s.Notice != "" {
+		t.Errorf("UI started with targets %+v and notice %q, want the cd target and none", s.Targets, s.Notice)
+	}
+}
+
+func TestAnExistingConfigFileIsNeverChangedAtStartup(t *testing.T) {
+	for _, body := range []string{"", "# mine\n", "paths = [\"~/code\"]\n", targetConfig("name = \"Tab\"\ncommand = \"tab {path}\"\n"), "paths = [\n", firstRun} {
+		home := tempHome(t)
+		file := filepath.Join(home, ".config", "loper", "config.toml")
+		writeConfig(t, file, body)
+
+		picker(t)
+		picker(t)
+
+		if b, _ := os.ReadFile(file); string(b) != body {
+			t.Errorf("%q: config file is now %q", body, b)
+		}
+		if info, _ := os.Stat(file); info.Mode().Perm() != 0o644 {
+			t.Errorf("%q: config file has mode %v, want 0644 as written", body, info.Mode().Perm())
+		}
+	}
+}
+
+func TestASecondRunLeavesTheCreatedFileAsItIs(t *testing.T) {
+	home := tempHome(t)
+	file := filepath.Join(home, ".config", "loper", "config.toml")
+	picker(t)
+	before, err := os.Stat(file)
+	if err != nil {
+		t.Fatalf("the first run created no config file: %v", err)
+	}
+
+	picker(t)
+
+	after, _ := os.Stat(file)
+	if b, _ := os.ReadFile(file); string(b) != firstRun || !after.ModTime().Equal(before.ModTime()) {
+		t.Errorf("config file is %q, modified %v then %v; want it untouched", b, before.ModTime(), after.ModTime())
+	}
+}
+
+func TestTheHelpAndVersionFlagsCreateNoConfigFile(t *testing.T) {
+	home := tempHome(t)
+	folder := filepath.Join(home, ".config")
+	for _, args := range [][]string{{"--help"}, {"-h"}, {"--version"}, {"-v"}} {
+		withoutUI(t, args...)
+
+		if _, err := os.Stat(folder); !os.IsNotExist(err) {
+			t.Errorf("%q: %s exists (%v); want nothing created", args, folder, err)
+		}
+	}
+}
+
+func TestTheHelpFlagWithNoConfigFileListsTheFirstRunsTargetAndSaysTheFileIsNotThereYet(t *testing.T) {
+	home := tempHome(t)
+	file := filepath.Join(home, ".config", "loper", "config.toml")
+
+	code, stdout, stderr := withoutUI(t, "--help")
+
+	if code != 0 || stderr != "" {
+		t.Errorf("exit code %d, stderr %q; want 0 and nothing", code, stderr)
+	}
+	if want := "Config file: " + file + notYet + "\n"; !strings.Contains(stdout, want) {
+		t.Errorf("stdout does not contain %q:\n%s", want, stdout)
+	}
+	if lines := targetsSection(t, stdout); !isFirstRunTarget(lines) {
+		t.Errorf("Targets section %q, want key o and cd", lines)
+	}
+}
+
+func TestAConfigFlagNamingAMissingFileCreatesNothing(t *testing.T) {
+	home := tempHome(t)
+	file := filepath.Join(home, "nope.toml")
+
+	if code, _ := startup(t, "--config", file); code == 0 {
+		t.Errorf("exit code 0, want non-zero")
+	}
+
+	for _, f := range []string{file, filepath.Join(home, ".config")} {
+		if _, err := os.Stat(f); !os.IsNotExist(err) {
+			t.Errorf("%s exists (%v); want nothing created", f, err)
+		}
+	}
+}
+
+func TestAConfigFileThatCannotBeCreatedStartsWithTheCdTargetAndSaysWhy(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		setup func(t *testing.T, folder, file string)
+		why   string
+	}{
+		{"read-only folder", func(t *testing.T, folder, _ string) {
+			if err := os.MkdirAll(folder, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(folder, 0o500); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { os.Chmod(folder, 0o700) })
+		}, "permission denied"},
+		{"link to nothing", func(t *testing.T, folder, file string) {
+			if err := os.MkdirAll(folder, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join(folder, "gone.toml"), file); err != nil {
+				t.Fatal(err)
+			}
+		}, "it is a link to "},
+	} {
+		home := tempHome(t)
+		folder := filepath.Join(home, ".config", "loper")
+		file := filepath.Join(folder, "config.toml")
+		c.setup(t, folder, file)
+
+		code, stderr, s := picker(t)
+
+		if code != 0 || stderr != "" {
+			t.Errorf("%s: exit code %d, stderr %q; want 0 and nothing", c.name, code, stderr)
+		}
+		if len(s.Targets) != 1 || s.Targets[0].Name != "cd" || s.Targets[0].Key != "o" || !s.Targets[0].InPlace {
+			t.Errorf("%s: UI started with targets %+v, want the cd target", c.name, s.Targets)
+		}
+		if want := "The config file could not be written: " + c.why; !strings.HasPrefix(s.Notice, want) {
+			t.Errorf("%s: notice %q, want it to start with %q", c.name, s.Notice, want)
+		}
+		if _, err := os.Stat(file); !os.IsNotExist(err) {
+			t.Errorf("%s: %s now exists (%v); want nothing written", c.name, file, err)
+		}
+		if _, err := os.Stat(filepath.Join(folder, "gone.toml")); !os.IsNotExist(err) {
+			t.Errorf("%s: the link was written through (%v)", c.name, err)
+		}
+	}
+}
+
+func TestACdCommandWithoutInPlaceStopsTheToolNamingTheFileAndLine(t *testing.T) {
+	startupFails(t, targetConfig("name = \"Go\"\nkey = \"c\"\ncommand = \"cd {path}\"\n"),
+		6, `target "Go" runs cd, which needs in_place = true`)
+}
+
+func TestACdCommandWithoutOneFolderStopsTheToolNamingTheFileAndLine(t *testing.T) {
+	for _, command := range []string{"cd", "cd {path} extra", "cd {path} {path}"} {
+		startupFails(t, targetConfig("name = \"Go\"\ncommand = \""+command+"\"\nin_place = true\n"),
+			8, `target command "`+command+`" needs one folder after cd`)
+	}
+}
+
+func TestACommandWhoseProgramIsNotCdNeedsNoInPlace(t *testing.T) {
+	home := tempHome(t)
+	writeConfig(t, filepath.Join(home, ".config", "loper", "config.toml"),
+		"[[targets]]\nname = \"X\"\ncommand = \"cdx {path}\"\n\n[[targets]]\nname = \"Y\"\ncommand = \"/usr/bin/cd {path} extra\"\n")
+
+	code, stderr, s := picker(t)
+
+	if code != 0 || len(s.Targets) != 2 {
+		t.Errorf("exit code %d, stderr %q, targets %+v; want 0 and both targets", code, stderr, s.Targets)
+	}
+}
+
+func TestTheHelpFlagWithAConfigFileWithoutTargetsSaysThereAreNone(t *testing.T) {
+	for _, body := range []string{"", "# mine\n"} {
+		home := tempHome(t)
+		file := filepath.Join(home, ".config", "loper", "config.toml")
+		writeConfig(t, file, body)
+
+		code, stdout, stderr := withoutUI(t, "--help")
+
+		if code != 0 || stderr != "" {
+			t.Errorf("%q: exit code %d, stderr %q; want 0 and nothing", body, code, stderr)
+		}
+		if want := "Config file: " + file + "\n"; !strings.Contains(stdout, want) {
+			t.Errorf("%q: stdout does not contain %q:\n%s", body, want, stdout)
+		}
+		if got, want := targetsSection(t, stdout), []string{"  " + noTargets}; !slices.Equal(got, want) {
+			t.Errorf("%q: Targets section %q, want %q", body, got, want)
 		}
 	}
 }
