@@ -717,7 +717,7 @@ func TestAnEditThatChangesNothingOnATargetWithCloseWritesNothing(t *testing.T) {
 
 	d.press("enter", "e")
 	d.toLast()
-	d.press("right", "right", "right", "enter") // round to where it was
+	d.press("right", "right", "right", "right", "enter") // round to where it was
 
 	if got, want := boxRows(d), []string{"> z Zed"}; !slices.Equal(got, want) {
 		t.Errorf("box reads %q, want the menu back, %q", got, want)

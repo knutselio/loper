@@ -22,6 +22,7 @@ type Target struct {
 	// dialog shows and by which the target is found in the file again.
 	Command string
 	Close   *bool // whether the tool quits after a successful open here, or nil to follow close_on_open
+	InPlace bool  // the command takes the tool's place in its terminal
 }
 
 // Change is a change to the targets of the config file: a target added, or
@@ -34,6 +35,14 @@ type Change struct {
 	Remove             bool   // remove Old rather than change it
 	Name, Key, Command string // the target to add, or Old's new values
 	Close              *bool  // as Target's
+	InPlace            bool   // as Target's
+}
+
+// HandOver is a command that takes the tool's place in its terminal.
+type HandOver struct {
+	Program string   // the program to run, looked up
+	Args    []string // the command's words, its placeholders substituted
+	Dir     string   // the repo, to run it in
 }
 
 // Failure is a target that did not open.
@@ -55,11 +64,7 @@ func (f *Failure) Error() string {
 // running is left to run on its own and never stopped. Otherwise Run returns
 // a *Failure.
 func Run(t Target, path string, wait time.Duration) error {
-	r := strings.NewReplacer("{path}", path, "{name}", filepath.Base(path))
-	words := make([]string, len(t.Args))
-	for i, a := range t.Args {
-		words[i] = r.Replace(a)
-	}
+	words := substitute(t, path)
 	fail := func(why string, output []byte) error {
 		if len(output) > 0 && output[len(output)-1] != '\n' {
 			output = append(output, '\n')
@@ -99,6 +104,32 @@ func Run(t Target, path string, wait time.Duration) error {
 	case <-time.After(wait):
 		return nil
 	}
+}
+
+// Prepare returns t's command for the repo at path, to run in the tool's
+// place, or a *Failure when its program cannot be found.
+func Prepare(t Target, path string) (HandOver, error) {
+	words := substitute(t, path)
+	program := words[0]
+	if strings.Contains(program, "/") && !filepath.IsAbs(program) { // as Run finds it: in the repo
+		program = filepath.Join(path, program)
+	}
+	program, err := exec.LookPath(program)
+	if err != nil {
+		return HandOver{}, &Failure{Command: commandLine(words), Output: err.Error()}
+	}
+	return HandOver{Program: program, Args: words, Dir: path}, nil
+}
+
+// substitute returns t's words with {path} standing for path and {name} for
+// the repo's name.
+func substitute(t Target, path string) []string {
+	r := strings.NewReplacer("{path}", path, "{name}", filepath.Base(path))
+	words := make([]string, len(t.Args))
+	for i, a := range t.Args {
+		words[i] = r.Replace(a)
+	}
+	return words
 }
 
 // keep is how much of a failed command's output is kept: the end, which

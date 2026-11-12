@@ -302,6 +302,16 @@ func TestATargetCloseThatIsNotTrueOrFalseStopsTheToolNamingTheFileAndLine(t *tes
 		9, `invalid value for "targets.close": want true or false`)
 }
 
+func TestATargetInPlaceThatIsNotTrueOrFalseStopsTheToolNamingTheFileAndLine(t *testing.T) {
+	startupFails(t, targetConfig("name = \"Lazygit\"\ncommand = \"lazygit -p {path}\"\nin_place = \"yes\"\n"),
+		9, `invalid value for "targets.in_place": want true or false`)
+}
+
+func TestATargetInPlaceThatStaysOpenStopsTheToolNamingTheFileAndLine(t *testing.T) {
+	startupFails(t, targetConfig("name = \"Lazygit\"\ncommand = \"lazygit -p {path}\"\nclose = false\nin_place = true\n"),
+		6, `target "Lazygit" has in_place = true, which always closes loper, and close = false`)
+}
+
 func TestASortThatIsNotLastOpenedOrNameStopsTheToolNamingTheFileAndLine(t *testing.T) {
 	for _, value := range []string{`"size"`, `"Name"`, `1`} {
 		startupFails(t, "paths = [\"~/code\"]\n\nsort = "+value+"\n",

@@ -107,6 +107,12 @@ func TestNothingIsDrawnWiderOrTallerThanTheTerminalInAnyState(t *testing.T) {
 			d.press("tab", "right", "right")
 			return d
 		}, shows: "After open ‹ close loper ›"},
+		{name: "add dialog on take over this window", setup: func(e *env) *driver {
+			d := e.start()
+			d.fill("a name with 日本語 in it that is far too long for the box", "t", "a-command-with-日本語 {path}")
+			d.press("tab", "left")
+			return d
+		}, shows: "After open ‹ take over this window ›"},
 		{name: "edit confirmation with close lines", setup: func(e *env) *driver {
 			e.config("paths = [\"~/code\", \"~/dotfiles\", \"~/a-folder-that-does-not-exist\"]\n\n[[targets]]\nname = \"Zed\"\nkey = \"z\"\ncommand = \"zed {path}\"\nclose = true\n")
 			d := e.start()

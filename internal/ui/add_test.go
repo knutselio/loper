@@ -965,11 +965,12 @@ func TestLeftRightAndSpaceChangeTheChoiceAndOtherKeysDoNothingThere(t *testing.T
 	}{
 		{"right", "stay open"},
 		{"right", "close loper"},
-		{"space", "default (stay open)"},
+		{"space", "take over this window"},
+		{"right", "default (stay open)"},
+		{"left", "take over this window"},
+		{"x", "take over this window"},
+		{"backspace", "take over this window"},
 		{"left", "close loper"},
-		{"x", "close loper"},
-		{"backspace", "close loper"},
-		{"left", "stay open"},
 	} {
 		d.press(step.key)
 		if got, want := boxRows(d), "> After open ‹ "+step.want+" ›"; !slices.Contains(got, want) {

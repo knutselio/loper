@@ -53,6 +53,7 @@ type targetFile struct {
 	Key     string `toml:"key,omitempty"` // omitempty for WriteTarget, which leaves out a key not given
 	Command string `toml:"command"`
 	Close   *bool  `toml:"close,omitempty"` // nil when left out
+	InPlace bool   `toml:"in_place,omitempty"`
 }
 
 // checked is file with each value checking itself while it is decoded, so
@@ -74,6 +75,7 @@ type checkedTarget struct {
 	Key     key        `toml:"key"`
 	Command command    `toml:"command"`
 	Close   bool       `toml:"close"`
+	InPlace bool       `toml:"in_place"`
 }
 
 // folder checks a paths entry: an absolute path, or one that starts with ~.
@@ -234,7 +236,7 @@ func parse(path, home string, b []byte) (Settings, error) {
 	}
 	for _, t := range f.Targets {
 		args, _ := split(t.Command) // cannot fail: the command was checked while decoding
-		s.Targets = append(s.Targets, target.Target{Name: t.Name, Key: t.Key, Args: args, Command: t.Command, Close: t.Close})
+		s.Targets = append(s.Targets, target.Target{Name: t.Name, Key: t.Key, Args: args, Command: t.Command, Close: t.Close, InPlace: t.InPlace})
 	}
 	for _, p := range f.Paths {
 		s.Paths = append(s.Paths, expand(p, home))
@@ -290,14 +292,14 @@ type rewritten struct {
 // rewrite makes c in the text of the config file at path. A missing file
 // counts as empty. A name is taken without the spaces around it. A target
 // added goes at the end, after a blank line. A target changed or removed is
-// found by its name, key, command and close, and only the lines of its table
-// change, from its [[targets]] line to the line of its last value, so
-// comments directly above it stay. A removed table takes the blank lines
+// found by its name, key, command, close and in_place, and only the lines
+// of its table change, from its [[targets]] line to the line of its last
+// value, so comments directly above it stay. A removed table takes the blank lines
 // after it along, or, at the end of the file, those before it, so no run of
 // blank lines is left.
 func rewrite(path, home string, c target.Change) (rewritten, error) {
 	var block []byte
-	t := targetFile{Name: strings.TrimSpace(c.Name), Key: c.Key, Command: c.Command, Close: c.Close}
+	t := targetFile{Name: strings.TrimSpace(c.Name), Key: c.Key, Command: c.Command, Close: c.Close, InPlace: c.InPlace}
 	if !c.Remove {
 		if err := (&targetName{}).UnmarshalText([]byte(t.Name)); err != nil {
 			return rewritten{}, err
@@ -310,7 +312,7 @@ func rewrite(path, home string, c target.Change) (rewritten, error) {
 		if err := (&command{}).UnmarshalText([]byte(t.Command)); err != nil {
 			return rewritten{}, err
 		}
-		// Marshal cannot fail on a struct of strings and a *bool.
+		// Marshal cannot fail on a struct of strings and booleans.
 		block, _ = toml.Marshal(struct {
 			Targets []targetFile `toml:"targets"`
 		}{[]targetFile{t}})
@@ -401,7 +403,7 @@ func parseChanged(path, home string, text []byte) (Settings, error) {
 func find(targets []targetFile, old target.Target) (int, error) {
 	at := -1
 	for i, t := range targets {
-		if !same(t, targetFile{Name: old.Name, Key: old.Key, Command: old.Command, Close: old.Close}) {
+		if !same(t, targetFile{Name: old.Name, Key: old.Key, Command: old.Command, Close: old.Close, InPlace: old.InPlace}) {
 			continue
 		}
 		if at >= 0 {
@@ -473,7 +475,8 @@ func withBlankLines(b []byte, start, end int) (int, int) {
 	return start, end
 }
 
-// same reports whether a and b are the same target, close included.
+// same reports whether a and b are the same target, close and in_place
+// included.
 func same(a, b targetFile) bool {
 	return reflect.DeepEqual(a, b)
 }
@@ -548,7 +551,8 @@ func inlineTargets(b []byte) bool {
 }
 
 // checkTargets reports what the per-value checks cannot see: a target with
-// no name or no command, and a key used by two targets. b is the file at path.
+// no name or no command, one in place that stays open, and a key used by two
+// targets. b is the file at path.
 func checkTargets(path string, b []byte, targets []targetFile) error {
 	lines, err := targetLines(path, b)
 	if err != nil {
@@ -561,6 +565,9 @@ func checkTargets(path string, b []byte, targets []targetFile) error {
 		}
 		if t.Command == "" {
 			return fmt.Errorf("%s:%d: target %q has no command; it needs one with {path}", path, lines[i].start, t.Name)
+		}
+		if t.InPlace && t.Close != nil && !*t.Close {
+			return fmt.Errorf("%s:%d: target %q has in_place = true, which always closes loper, and close = false", path, lines[i].start, t.Name)
 		}
 		if first, ok := used[t.Key]; ok {
 			return fmt.Errorf("%s:%d: target key %q is already used by the target on line %d", path, lines[i].key, t.Key, first)
@@ -766,11 +773,12 @@ func describe(path string, err error) error {
 
 // wants says, for each setting, what a valid value looks like.
 var wants = map[string]string{
-	"close_on_open": "true or false",
-	"targets.close": "true or false",
-	"sort":          `"last_opened" or "name"`,
-	"cache_max_age": `"0" or a positive interval such as "4h" or "30m" (units h, m, s)`,
-	"columns":       `a list of "name", "folder", "branch" and "last_opened", including "name"`,
-	"row_style":     `"name-folder", "root-path" or "name"`,
-	"paths":         `a list of folders, each absolute or starting with ~/, such as ["~/code"]`,
+	"close_on_open":    "true or false",
+	"targets.close":    "true or false",
+	"targets.in_place": "true or false",
+	"sort":             `"last_opened" or "name"`,
+	"cache_max_age":    `"0" or a positive interval such as "4h" or "30m" (units h, m, s)`,
+	"columns":          `a list of "name", "folder", "branch" and "last_opened", including "name"`,
+	"row_style":        `"name-folder", "root-path" or "name"`,
+	"paths":            `a list of folders, each absolute or starting with ~/, such as ["~/code"]`,
 }

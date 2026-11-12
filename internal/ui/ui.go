@@ -129,6 +129,18 @@ type Model struct {
 	// before is the repo selected when the search started, selected again
 	// when it ends. If it disappears meanwhile it becomes the nearest repo.
 	before string
+	// handOver is the command to run in the tool's place once it has ended,
+	// or nil.
+	handOver *target.HandOver
+}
+
+// HandOver returns the command to run in the tool's place once the program
+// has ended, if an in-place target was chosen.
+func (m Model) HandOver() (target.HandOver, bool) {
+	if m.handOver == nil {
+		return target.HandOver{}, false
+	}
+	return *m.handOver, true
 }
 
 // repo is one row of the list.
@@ -164,6 +176,9 @@ type openedMsg struct {
 	close        bool // the tool quits on it, as the target or close_on_open says
 }
 
+// handOverMsg asks for the tool to end and h to run in its place.
+type handOverMsg struct{ h target.HandOver }
+
 // failedMsg reports that a repo did not open in a target.
 type failedMsg struct {
 	repo, target string
@@ -194,17 +209,21 @@ type addDialog struct {
 
 // change is the change to the config file that the dialog makes.
 func (a addDialog) change() target.Change {
-	var quit *bool // default: no close line
-	if a.after > 0 {
+	var quit *bool // default and take over: no close line
+	inPlace := choices[a.after] == "take over this window"
+	if a.after > 0 && !inPlace {
 		c := choices[a.after] == "close loper"
 		quit = &c
 	}
-	return target.Change{Old: a.old, Lines: a.before, Remove: a.remove, Name: a.fields[0], Key: a.fields[1], Command: a.fields[2], Close: quit}
+	return target.Change{Old: a.old, Lines: a.before, Remove: a.remove, Name: a.fields[0], Key: a.fields[1], Command: a.fields[2], Close: quit, InPlace: inPlace}
 }
 
-// choiceOf returns the index in choices of what quit, a target's close, says.
-func choiceOf(quit *bool) int {
+// choiceOf returns the index in choices of what quit and inPlace, a
+// target's close and in_place, say.
+func choiceOf(quit *bool, inPlace bool) int {
 	switch {
+	case inPlace:
+		return slices.Index(choices, "take over this window")
 	case quit == nil:
 		return 0
 	case *quit:
@@ -264,8 +283,8 @@ type noticeEndMsg int
 var examples = [3]string{"Zed", "z", "zed {path}"}
 
 // choices are the add dialog's choices of what happens after an open: what
-// close_on_open says, stay open, or close loper.
-var choices = []string{"default", "stay open", "close loper"}
+// close_on_open says, stay open, close loper, or run in its place.
+var choices = []string{"default", "stay open", "close loper", "take over this window"}
 
 // headings are the column headings, by column.
 var headings = map[string]string{"name": "NAME", "folder": "FOLDER", "branch": "BRANCH", "last_opened": "OPENED"}
@@ -426,6 +445,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.close && m.failure == nil && !m.add.open { // never quit while an error or the add dialog is showing
 			return m, tea.Quit
 		}
+	case handOverMsg:
+		m.handOver = &msg.h
+		return m, tea.Quit
 	case failedMsg:
 		m.opening = false
 		// The dialog replaces a menu or the help opened while the target ran.
@@ -672,7 +694,7 @@ func (m Model) menuKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.open(m.deps.Targets[m.choice])
 	case "e":
 		t := m.deps.Targets[m.choice] // a copy of its own, which tells this dialog apart
-		m.add = addDialog{open: true, old: &t, fields: [3]string{t.Name, t.Key, t.Command}, after: choiceOf(t.Close)}
+		m.add = addDialog{open: true, old: &t, fields: [3]string{t.Name, t.Key, t.Command}, after: choiceOf(t.Close, t.InPlace)}
 		return m, m.checkFile()
 	case "d":
 		t := m.deps.Targets[m.choice]
@@ -731,7 +753,7 @@ func (m Model) addKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 				a.field++
 				break
 			}
-			if o := a.old; o != nil && strings.TrimSpace(a.fields[0]) == o.Name && a.fields[1] == o.Key && a.fields[2] == o.Command && a.after == choiceOf(o.Close) {
+			if o := a.old; o != nil && strings.TrimSpace(a.fields[0]) == o.Name && a.fields[1] == o.Key && a.fields[2] == o.Command && a.after == choiceOf(o.Close, o.InPlace) {
 				m.add = addDialog{} // an edit that changes nothing writes nothing
 				break
 			}
@@ -1208,14 +1230,28 @@ func (m Model) highlight(s string, pos []int) string {
 }
 
 // open opens the selected repo in t in the background and closes the menu,
-// unless another open is still running: then it does nothing, so that one
-// open's result can never hide another's.
+// or for a target in place looks up its program, records the open and ends
+// the program asking for the hand-over, unless another open is still
+// running: then it does nothing, so that one open's result can never hide
+// another's.
 func (m Model) open(t target.Target) (Model, tea.Cmd) {
 	if len(m.repos) == 0 || m.opening {
 		return m, nil
 	}
 	m.menu, m.opening = false, true
 	path := m.repos[m.selected].path
+	if t.InPlace {
+		return m, func() tea.Msg {
+			h, err := target.Prepare(t, path)
+			if err != nil {
+				return failedMsg{repo: filepath.Base(path), target: t.Name, Failure: *err.(*target.Failure)}
+			}
+			// A history that cannot be saved does not stop the hand-over,
+			// whose notice no one would see.
+			_ = m.deps.History.Record(path, m.deps.Now().Round(0))
+			return handOverMsg{h}
+		}
+	}
 	quit := m.deps.CloseOnOpen
 	if t.Close != nil {
 		quit = *t.Close
@@ -1340,7 +1376,7 @@ func (m Model) addRows() ([]string, int) {
 	default:
 		after := choices[a.after]
 		if a.after == 0 {
-			after += " (" + choices[choiceOf(&m.deps.CloseOnOpen)] + ")"
+			after += " (" + choices[choiceOf(&m.deps.CloseOnOpen, false)] + ")"
 		}
 		values := append(a.fields[:], "‹ "+after+" ›") // drawn as a choice, changed with ← and →
 		for i, label := range []string{"Name", "Key", "Command", "After open"} {

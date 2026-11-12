@@ -175,3 +175,40 @@ func TestTheBuiltBinaryOpensTheRepoPickedWithKeysAndRecordsIt(t *testing.T) {
 		t.Errorf("with NO_COLOR set the terminal got the style %q", sgr)
 	}
 }
+
+func TestTheBuiltBinaryHandsTheWindowOverToAnInPlaceTarget(t *testing.T) {
+	loper := filepath.Join(t.TempDir(), "loper")
+	if out, err := exec.Command("go", "build", "-o", loper, ".").CombinedOutput(); err != nil {
+		t.Fatalf("go build: %v\n%s", err, out)
+	}
+	home := tempHome(t)
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("NO_COLOR", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	alpha := filepath.Join(home, "code", "alpha")
+	if out, err := exec.Command("git", "init", "-b", "main", alpha).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	record := filepath.Join(home, "record")
+	fake := filepath.Join(home, "in-place")
+	writeConfig(t, fake, "#!/bin/sh\n{ pwd; printf '%s\\n' \"$@\"; } > '"+record+"'\n")
+	if err := os.Chmod(fake, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	config := filepath.Join(home, "try.toml")
+	writeConfig(t, config, fmt.Sprintf("paths = [%q]\n\n[[targets]]\nname = \"Here\"\nkey = \"h\"\ncommand = %q\nin_place = true\n",
+		filepath.Join(home, "code"), fake+" {path}"))
+
+	s := start(t, "alpha", loper, "--config", config)
+	s.within("the list to be drawn", s.shown)
+	s.press("h")
+	s.within("the target to end in loper's place", s.exited)
+
+	if s.waitErr != nil {
+		t.Errorf("the process exited with %v, want the target's 0", s.waitErr)
+	}
+	if b, _ := os.ReadFile(record); string(b) != alpha+"\n"+alpha+"\n" {
+		t.Errorf("the target recorded %q, want it ran in %q with it as its argument", b, alpha)
+	}
+}

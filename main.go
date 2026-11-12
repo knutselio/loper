@@ -9,6 +9,7 @@ import (
 	"os"
 	"runtime/debug"
 	"strings"
+	"syscall"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -150,7 +151,8 @@ func version() string {
 	return info.Main.Version
 }
 
-// startUI runs the picker until it quits.
+// startUI runs the picker until it quits, then hands the terminal over to the
+// in-place target it ended on, if any.
 func startUI(home string, settings config.Settings) error {
 	m := ui.New(ui.Deps{
 		Home:        home,
@@ -178,6 +180,24 @@ func startUI(home string, settings config.Settings) error {
 		CheckFile:   config.CheckFile,
 		WriteTarget: config.WriteTarget,
 	})
-	_, err := tea.NewProgram(m).Run()
-	return err
+	final, err := tea.NewProgram(m).Run()
+	if err != nil {
+		return err
+	}
+	// The program has ended and the terminal is restored, so an in-place
+	// target can take the tool's place.
+	if h, ok := final.(ui.Model).HandOver(); ok {
+		return handOver(h)
+	}
+	return nil
+}
+
+// handOver replaces the tool's process with h's command, run in its folder
+// with the tool's environment and terminal. It returns only when it fails.
+func handOver(h target.HandOver) error {
+	if err := os.Chdir(h.Dir); err != nil {
+		return err
+	}
+	os.Setenv("PWD", h.Dir) // as os/exec sets it for a normal target, so a shell's pwd is the folder as given
+	return syscall.Exec(h.Program, h.Args, os.Environ())
 }
