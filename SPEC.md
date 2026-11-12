@@ -330,7 +330,7 @@ command = "rex split -c {path} -- lazygit"
 | Command                 | What it does                                                                     |
 | ----------------------- | -------------------------------------------------------------------------------- |
 | `loper`                 | Starts the picker                                                                |
-| `loper --version`       | Prints the version                                                               |
+| `loper -v`, `--version` | Prints the version                                                               |
 | `loper --help`          | Prints usage, the config file location, the key list and the configured targets  |
 | `loper --config <file>` | Uses another config file for this run                                            |
 

@@ -37,6 +37,7 @@ func run(args []string, stdout, stderr io.Writer, start func(home string, s conf
 	flags.SetOutput(io.Discard)
 	configFile := flags.String("config", "", "")
 	showVersion := flags.Bool("version", false, "")
+	flags.BoolVar(showVersion, "v", false, "")
 	showHelp := flags.Bool("help", false, "")
 	flags.BoolVar(showHelp, "h", false, "")
 	err := flags.Parse(args)
@@ -102,7 +103,7 @@ const usage = `Usage: loper [--config <file>]
 Options:
   --config <file>  Use this config file instead of the standard one
   -h, --help       Print this help
-  --version        Print the version
+  -v, --version    Print the version
 `
 
 // help prints the usage, the config file that would be read, loper's own keys

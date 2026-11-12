@@ -406,16 +406,17 @@ func TestColumnsAndRowStyleAreHandedToTheUIWithTheirDefaults(t *testing.T) {
 }
 
 func TestTheVersionFlagPrintsTheVersion(t *testing.T) {
-	tempHome(t)
+	home := tempHome(t)
+	for _, args := range [][]string{{"--version"}, {"-v"}, {"--config", filepath.Join(home, "missing.toml"), "-v"}} {
+		code, stdout, stderr := withoutUI(t, args...)
 
-	code, stdout, stderr := withoutUI(t, "--version")
-
-	if code != 0 || stderr != "" {
-		t.Errorf("exit code %d, stderr %q; want 0 and nothing", code, stderr)
-	}
-	// The Go toolchain stamps a test binary with the version (devel).
-	if want := "loper (devel)\n"; stdout != want {
-		t.Errorf("stdout %q, want %q", stdout, want)
+		if code != 0 || stderr != "" {
+			t.Errorf("%q: exit code %d, stderr %q; want 0 and nothing", args, code, stderr)
+		}
+		// The Go toolchain stamps a test binary with the version (devel).
+		if want := "loper (devel)\n"; stdout != want {
+			t.Errorf("%q: stdout %q, want %q", args, stdout, want)
+		}
 	}
 }
 
@@ -429,7 +430,7 @@ func TestTheHelpFlagPrintsTheUsageTheConfigFileAndTheKeys(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Errorf("exit code %d, stderr %q; want 0 and nothing", code, stderr)
 	}
-	want := []string{"Usage: loper [--config <file>]", "Config file: " + filepath.Join(xdgConfig, "loper", "config.toml"), "\n  a  ", "Add a target to the config file",
+	want := []string{"Usage: loper [--config <file>]", "\n  -h, --help       Print this help\n  -v, --version    Print the version\n", "Config file: " + filepath.Join(xdgConfig, "loper", "config.toml"), "\n  a  ", "Add a target to the config file",
 		"\n  e  ", "Edit the highlighted target", "\n  d  ", "Remove the highlighted target"}
 	for _, s := range ui.KeyList() {
 		want = append(want, s.Title)
@@ -515,6 +516,8 @@ func TestTheHelpFlagWinsOverTheOtherFlagsWhateverTheConfigFile(t *testing.T) {
 		{[]string{"-h"}, standard, noTargets},
 		{[]string{"--version", "--help"}, standard, noTargets},
 		{[]string{"--help", "--version"}, standard, noTargets},
+		{[]string{"-v", "--help"}, standard, noTargets},
+		{[]string{"-h", "-v"}, standard, noTargets},
 		{[]string{"--config", bad, "--help"}, bad, bad + `:1: unknown setting "colour"`},
 		{[]string{"--help", "--config", missing}, missing, "config file " + missing + " does not exist"},
 	} {
@@ -564,6 +567,7 @@ func TestAUsageErrorPrintsWhatIsWrongAndTheUsage(t *testing.T) {
 	}{
 		{[]string{"--colour"}, "loper: unknown flag --colour\n"},
 		{[]string{"-colour"}, "loper: unknown flag --colour\n"},
+		{[]string{"-V"}, "loper: unknown flag --V\n"},
 		{[]string{"open"}, "loper: unexpected argument \"open\"\n"},
 		{[]string{"--config", "a.toml", "open"}, "loper: unexpected argument \"open\"\n"},
 		{[]string{"--config"}, "loper: --config needs a file\n"},
