@@ -122,7 +122,7 @@ func TestTheFirstTargetAddedMakesEnterOpenTheMenuWithIt(t *testing.T) {
 
 	d.press("enter")
 	d.fill("Tab", "t", "tab {path}") // a, from the message
-	d.press("enter", "enter")
+	d.confirm()
 
 	d.press("enter")
 	if got, want := boxRows(d), []string{"> t Tab"}; !slices.Equal(got, want) {

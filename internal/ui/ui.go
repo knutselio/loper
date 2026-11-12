@@ -44,6 +44,9 @@ type Deps struct {
 	Tick func(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd
 	// NoticeFor is how long a footer notice shows before the keys return.
 	NoticeFor time.Duration
+	// EnterPause is how long after the add dialog's confirmation appears an
+	// enter is ignored, so a quick second enter cannot write unseen.
+	EnterPause time.Duration
 	// CloseOnOpen quits the program after a successful open.
 	CloseOnOpen bool
 	// SortByName starts the list sorted by name rather than by last opened.
@@ -67,6 +70,9 @@ type Deps struct {
 	// and returns the targets the file then loads to, the new one last.
 	CheckTarget func(file, home, name, key, command string) (string, error)
 	AddTarget   func(file, home, name, key, command string) ([]target.Target, error)
+	// CheckFile returns why the config file cannot take a target, if it
+	// cannot, before the add dialog's fields open.
+	CheckFile func(file, home string) error
 }
 
 // Model is the program state.
@@ -88,6 +94,7 @@ type Model struct {
 	menuTop  int          // the first target shown, so the highlighted one stays in view
 	failure  *errorDialog // the error dialog for a failed open, or nil
 	add      addDialog    // the dialog that adds a target
+	confirms int          // how many confirmations have shown, so the end of an earlier one's moment leaves a later one
 	help     bool         // the help overlay is open
 	helpTop  int          // the first row of the help shown, so the help scrolls when it does not fit
 	opening  bool         // an open is running, so targets do nothing until it finishes
@@ -164,12 +171,21 @@ type failedMsg struct {
 // then the confirmation of the block it appends.
 type addDialog struct {
 	open    bool
+	refusal string    // why the config file cannot take a target, shown instead of the fields
 	fields  [3]string // the name, the key and the command, as typed
 	field   int       // the field being typed in
 	block   string    // the block to append, while the confirmation shows it
+	ready   bool      // the confirmation's first moment, in which enter is ignored, has passed
 	writing bool      // the block is being written, so keys wait for the result
 	problem string    // why the target was refused or not written
 }
+
+// fileCheckedMsg carries why the config file cannot take a target, or nil
+// when it can.
+type fileCheckedMsg struct{ err error }
+
+// readyMsg ends the first moment of the confirmation it counts.
+type readyMsg int
 
 // checkedMsg carries the block to append for the target in fields, or why
 // the target is refused.
@@ -359,13 +375,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.opening = false
 		// The dialog replaces a menu or the help opened while the target ran.
 		m.menu, m.help, m.failure = false, false, newErrorDialog(msg)
+	case fileCheckedMsg:
+		// The refusal replaces the fields and what was typed in them; a dialog
+		// closed or past its fields since is left alone.
+		if a := m.add; msg.err != nil && a.open && a.refusal == "" && a.block == "" && !a.writing {
+			m.add = addDialog{open: true, refusal: msg.err.Error()}
+		}
 	case checkedMsg:
 		// A check of fields typed over since, or of a dialog closed, is stale.
 		if m.add.open && !m.add.writing && msg.fields == m.add.fields {
 			m.add.block, m.add.problem = msg.block, ""
 			if msg.err != nil {
 				m.add.problem = msg.err.Error()
+				break
 			}
+			m, cmd = m.pauseEnter()
+		}
+	case readyMsg:
+		if int(msg) == m.confirms {
+			m.add.ready = true
 		}
 	case addedMsg:
 		if msg.err != nil { // back to the fields, to put the problem right
@@ -395,7 +423,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m = m.search(m.query + clean(msg.Content))
 		}
 	case tea.WindowSizeMsg:
+		hidden := !m.addFits()
 		m.width, m.height = msg.Width, msg.Height
+		if a := m.add; a.open && a.block != "" && !a.writing && hidden && m.addFits() { // the confirmation shows only now
+			m, cmd = m.pauseEnter()
+		}
 		m.menu = m.menu && m.menuRows() > 0
 		m = m.scrollMenu()
 		m.help = m.help && m.helpRows() > 0
@@ -457,7 +489,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "?":
 			m.help, m.helpTop = m.helpRows() > 0, 0
 		case "a":
-			m.add = addDialog{open: true}
+			m.add, cmd = addDialog{open: true}, m.checkFile()
 		case "s":
 			m.byName = !m.byName
 			m = m.relist(m.all)
@@ -542,6 +574,7 @@ func (m Model) menuKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			return m, tea.Quit
 		case "a":
 			m.menu, m.add = false, addDialog{open: true}
+			return m, m.checkFile()
 		case "esc":
 			m.menu = false
 		}
@@ -572,11 +605,20 @@ func (m Model) addKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	a := &m.add
 	switch {
 	case a.writing:
+	case a.refusal != "":
+		switch msg.String() {
+		case "q":
+			return m, tea.Quit
+		case "esc":
+			m.add = addDialog{}
+		}
 	case a.block != "": // the confirmation
 		switch msg.String() {
 		case "enter":
-			a.writing = true
-			return m, m.write()
+			if a.ready && m.addFits() { // never what was not there to read
+				a.writing = true
+				return m, m.write()
+			}
 		case "esc":
 			a.block = ""
 		}
@@ -603,6 +645,21 @@ func (m Model) addKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// pauseEnter starts the moment, after the confirmation shows, in which enter
+// is ignored.
+func (m Model) pauseEnter() (Model, tea.Cmd) {
+	m.add.ready = false
+	m.confirms++
+	n := readyMsg(m.confirms)
+	return m, m.deps.Tick(m.deps.EnterPause, func(time.Time) tea.Msg { return n })
+}
+
+// checkFile checks in the background whether the config file can take a
+// target, as the add dialog opens.
+func (m Model) checkFile() tea.Cmd {
+	return func() tea.Msg { return fileCheckedMsg{m.deps.CheckFile(m.deps.ConfigFile, m.deps.Home)} }
 }
 
 // check checks the target in the add dialog's fields against the config
@@ -1092,17 +1149,38 @@ func (m Model) overlayFailure(lines []string) []string {
 	return m.overlay(lines, m.box(f.title, f.rows[:min(len(f.rows), space)], f.width))
 }
 
-// overlayAdd draws the add dialog centred over the list part of lines: its
-// fields, with the end of a value too long for its field, or the block it
-// will append and the file it goes to. Text too long for the dialog wraps,
-// and the rows are cut to the space there is.
+// overlayAdd draws the add dialog centred over the list part of lines or,
+// when the screen is too small for it, a notice in its place: on the middle
+// line of the list, or on the header when there is no list.
 func (m Model) overlayAdd(lines []string) []string {
-	space := m.listHeight() - 2 // the rows between the borders
-	if space < 1 {
-		return lines // no room: the dialog shows again once there is
+	if !m.addFits() {
+		row := 0
+		if m.listHeight() > 0 {
+			row = 2 + (m.listHeight()-1)/2
+		}
+		lines[row] = ansi.Truncate(" Window too small for the dialog", m.width, "…")
+		return lines
 	}
-	title := " Add a target "
-	width := m.boxWidth(title, 60)
+	rows, width := m.addRows()
+	return m.overlay(lines, m.box(addTitle, rows, width))
+}
+
+// addTitle is the add dialog's title.
+const addTitle = " Add a target "
+
+// addFits reports whether the add dialog fits on the screen whole, with
+// room in its fields for a value.
+func (m Model) addFits() bool {
+	rows, width := m.addRows()
+	return len(rows) <= m.listHeight()-2 && width >= 14 // 14: the margins, the marker, the label and a cell of value
+}
+
+// addRows returns the add dialog's rows and its width inside the border: why
+// the config file cannot take a target, its fields, with the end of a value
+// too long for its field, or the block it will append and the file it goes
+// to. Text too long for the dialog wraps.
+func (m Model) addRows() ([]string, int) {
+	width := m.boxWidth(addTitle, 60)
 	wrap := func(s string) []string {
 		var rows []string
 		for _, l := range strings.Split(ansi.Wrap(clean(s), max(width-2, 1), ""), "\n") {
@@ -1112,13 +1190,16 @@ func (m Model) overlayAdd(lines []string) []string {
 	}
 	a := m.add
 	var rows []string
-	if a.block != "" {
+	switch {
+	case a.refusal != "":
+		rows = append(wrap(m.shorten(a.refusal)), "", " "+m.key("esc")+" close ") // a loader message starts with the file
+	case a.block != "":
 		rows = append(wrap("Append to "+m.shorten(m.deps.ConfigFile)), "")
 		for _, l := range strings.Split(strings.TrimSuffix(a.block, "\n"), "\n") {
 			rows = append(rows, wrap(l)...)
 		}
 		rows = append(rows, "", " "+m.key("enter")+" write  "+m.key("esc")+" back ")
-	} else {
+	default:
 		for i, label := range []string{"Name", "Key", "Command"} {
 			marker := "  "
 			if i == a.field {
@@ -1138,7 +1219,7 @@ func (m Model) overlayAdd(lines []string) []string {
 		}
 		rows = append(rows, "", " "+m.key("enter")+" next  "+m.key("tab")+" move  "+m.key("esc")+" cancel ")
 	}
-	return m.overlay(lines, m.box(title, rows[:min(len(rows), space)], width))
+	return rows, width
 }
 
 // errorDialog is the error dialog's content, worked out once when the

@@ -94,6 +94,12 @@ func TestNothingIsDrawnWiderOrTallerThanTheTerminalInAnyState(t *testing.T) {
 			d.press("enter")
 			return d
 		}, shows: "[[targets]]"},
+		{name: "add refused", setup: func(e *env) *driver {
+			d := e.start()
+			e.config("targets = []\n") // rewritten after the launch, which needs the targets
+			d.press("a")
+			return d
+		}, shows: "lists its targets inline"},
 		{name: "help", setup: func(e *env) *driver {
 			d := e.start()
 			d.press("?")

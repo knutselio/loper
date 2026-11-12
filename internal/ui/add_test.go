@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // configPath is the config file at the standard location.
@@ -39,6 +40,15 @@ func (d *driver) fill(name, key, command string) {
 	d.typeText(key)
 	d.press("tab")
 	d.typeText(command)
+}
+
+// confirm presses enter on the last field, lets the moment in which the
+// confirmation ignores enter pass, and presses enter to write.
+func (d *driver) confirm() {
+	d.t.Helper()
+	d.press("enter")
+	d.pass()
+	d.press("enter")
 }
 
 // dialogText is the text inside the box on screen, its rows joined by
@@ -199,7 +209,7 @@ func TestConfirmingAppendsOneBlockAndKeepsEveryByteBeforeIt(t *testing.T) {
 		d := e.start()
 
 		d.fill("Tab", "t", "tab {path}")
-		d.press("enter", "enter")
+		d.confirm()
 
 		if got, _ := fileText(t, configPath()); got != c.after {
 			t.Errorf("config %q became %q, want %q", c.before, got, c.after)
@@ -219,7 +229,7 @@ func TestConfirmingWithNoConfigFileCreatesItsFolderAndTheFile(t *testing.T) {
 	d := e.start()
 
 	d.fill("Tab", "t", "tab {path}")
-	d.press("enter", "enter")
+	d.confirm()
 
 	if got, _ := fileText(t, configPath()); got != tabBlock {
 		t.Errorf("config is %q, want just the block %q", got, tabBlock)
@@ -242,6 +252,7 @@ func TestWithConfigTheDialogWritesThatFileAndNotTheStandardOne(t *testing.T) {
 
 	d.fill("Tab", "t", "tab {path}")
 	d.press("enter")
+	d.pass()
 	// The path is long enough to wrap, so spaces are left out of the comparison.
 	if want := "Append to " + e.configFile; !strings.Contains(strings.ReplaceAll(dialogText(d), " ", ""), strings.ReplaceAll(want, " ", "")) {
 		t.Errorf("confirmation does not name the file: want %q in %q", want, dialogText(d))
@@ -270,7 +281,7 @@ func TestASymlinkedConfigStaysALinkAndTheFileItPointsAtGetsTheBlock(t *testing.T
 	d := e.start()
 
 	d.fill("Tab", "t", "tab {path}")
-	d.press("enter", "enter")
+	d.confirm()
 
 	info, err := os.Lstat(configPath())
 	if err != nil {
@@ -284,21 +295,256 @@ func TestASymlinkedConfigStaysALinkAndTheFileItPointsAtGetsTheBlock(t *testing.T
 	}
 }
 
-func TestAConfigWithAnInlineTargetsArrayIsNotModifiedAndTheDialogSaysWhy(t *testing.T) {
+func TestAConfigWithAnInlineTargetsListIsRefusedWhenAIsPressedAndLeftAlone(t *testing.T) {
+	for _, inline := range []string{
+		"targets = []\n",
+		"targets = [{ name = \"Zed\", key = \"z\", command = \"zed {path}\" }]\n",
+	} {
+		e := newEnv(t)
+		e.repo("code/alpha")
+		e.config(inline)
+		d := e.start()
+
+		d.press("a")
+
+		const want = "the file lists its targets inline, as targets = [...]; add a target there by hand"
+		if got := dialogText(d); !strings.Contains(got, want) || strings.Contains(got, "Name") {
+			t.Errorf("%q: a shows %q, want the reason %q and no fields", inline, got, want)
+		}
+		d.press("j", "tab", "enter") // do nothing in the message
+		if got := dialogText(d); !strings.Contains(got, want) {
+			t.Errorf("%q: after other keys the message reads %q, want it still showing", inline, got)
+		}
+		d.press("esc")
+		if got := boxRows(d); got != nil {
+			t.Errorf("%q: after esc the screen still has a box: %q", inline, got)
+		}
+		if got, _ := fileText(t, configPath()); got != inline {
+			t.Errorf("%q: config is %q, want it unchanged", inline, got)
+		}
+	}
+}
+
+func TestAConfigThatNoLongerLoadsIsRefusedWhenAIsPressed(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	e.config(zedConfig)
+	d := e.start()
+	const edited = "paths = [\"~/code\"\n" // edited into a broken state after the launch
+	e.config(edited)
+
+	d.press("a")
+
+	if got := dialogText(d); !strings.Contains(got, "~/.config/loper/config.toml:") || strings.Contains(got, "Name") {
+		t.Errorf("a shows %q, want the loader's message and no fields", got)
+	}
+	if got, _ := fileText(t, configPath()); got != edited {
+		t.Errorf("config is %q, want it as edited", got)
+	}
+}
+
+func TestQQuitsFromTheMessageThatTheConfigCannotTakeATarget(t *testing.T) {
+	for _, keys := range [][]string{{"q"}, {"ctrl+c"}} {
+		e := newEnv(t)
+		e.repo("code/alpha")
+		e.config("targets = []\n")
+		d := e.start()
+		d.press("a")
+
+		d.press(keys...)
+
+		if !d.quit {
+			t.Errorf("%q in the message did not quit", keys)
+		}
+	}
+}
+
+func TestAInTheNoTargetsMessageIsRefusedTooWhenTheConfigCannotTakeATarget(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	e.config("targets = []\n")
+	d := e.start()
+
+	d.press("enter", "a")
+
+	if got := dialogText(d); !strings.Contains(got, "lists its targets inline") || strings.Contains(got, "No targets yet") {
+		t.Errorf("a in the no-targets message shows %q, want the reason in its place", got)
+	}
+}
+
+func TestTextTypedBeforeTheCheckOfTheConfigArrivesLandsInTheNameField(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	e.config(zedConfig)
+	d := e.start()
+
+	d.hold = true
+	d.press("a")
+	d.typeText("Zed")
+	d.release()
+
+	if got, want := boxRows(d), "> Name Zed"; !slices.Contains(got, want) {
+		t.Errorf("dialog reads %q, want the row %q", got, want)
+	}
+}
+
+func TestTextTypedBeforeARefusalArrivesNeitherOpensATargetNorQuits(t *testing.T) {
 	const inline = "targets = [{ name = \"Zed\", key = \"z\", command = \"zed {path}\" }]\n"
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.config(inline)
 	d := e.start()
 
+	d.hold = true
+	d.press("a")
+	d.typeText("zq")
+	d.release()
+
+	if got := dialogText(d); !strings.Contains(got, "lists its targets inline") {
+		t.Errorf("dialog reads %q, want the refusal", got)
+	}
+	if got := e.targetArgs("zed"); got != nil {
+		t.Errorf("z typed before the refusal ran zed with %q", got)
+	}
+	if d.quit {
+		t.Errorf("q typed before the refusal quit the tool")
+	}
+}
+
+func TestTheFileIsReadAgainAtConfirmationAndRefusedWhenItNoLongerLoads(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	e.config(zedConfig)
+	d := e.start()
 	d.fill("Tab", "t", "tab {path}")
+	const edited = "paths = [\"~/code\"\n" // edited into a broken state while the fields were open
+	e.config(edited)
+
 	d.press("enter")
 
-	if want := "the file lists its targets inline, as targets = [...]; add this one there by hand"; !strings.Contains(dialogText(d), want) {
-		t.Errorf("dialog reads %q, want the loader's reason %q", dialogText(d), want)
+	if got := dialogText(d); !strings.Contains(got, "Command tab {path}") || !strings.Contains(got, "config.toml:") {
+		t.Errorf("dialog reads %q, want the fields and the loader's message", got)
 	}
-	if got, _ := fileText(t, configPath()); got != inline {
+	if got, _ := fileText(t, configPath()); got != edited {
+		t.Errorf("config is %q, want it as edited, %q", got, edited)
+	}
+}
+
+func TestAnEnterRightAfterTheConfirmationAppearsIsIgnored(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	e.config(zedConfig)
+	d := e.start()
+	d.fill("Tab", "t", "tab {path}")
+
+	d.press("enter", "enter")
+
+	if got := dialogText(d); !strings.Contains(got, "[[targets]]") {
+		t.Errorf("after a quick enter, enter: dialog reads %q, want the confirmation", got)
+	}
+	if got, _ := fileText(t, configPath()); got != zedConfig {
+		t.Errorf("after a quick enter, enter: config is %q, want it unchanged", got)
+	}
+
+	d.pass()
+	d.press("enter")
+
+	if got, _ := fileText(t, configPath()); got != zedConfig+"\n"+tabBlock {
+		t.Errorf("after the moment: config is %q, want the block appended", got)
+	}
+}
+
+func TestTheMomentOfAnEarlierConfirmationDoesNotCountForALaterOne(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	e.config(zedConfig)
+	d := e.start()
+	d.fill("Tab", "t", "tab {path}")
+
+	d.press("enter", "esc", "enter")
+	d.pass() // the first confirmation's moment ends
+	d.press("enter")
+
+	if got, _ := fileText(t, configPath()); got != zedConfig {
 		t.Errorf("config is %q, want it unchanged", got)
+	}
+	d.pass()
+	d.press("esc", "enter", "enter") // a confirmation after one whose moment passed
+	if got, _ := fileText(t, configPath()); got != zedConfig {
+		t.Errorf("after a quick enter on a new confirmation: config is %q, want it unchanged", got)
+	}
+	d.pass()
+	d.press("enter")
+	if got, _ := fileText(t, configPath()); got != zedConfig+"\n"+tabBlock {
+		t.Errorf("after the second moment: config is %q, want the block appended", got)
+	}
+}
+
+func TestTheMomentStartsAgainWhenAHiddenConfirmationShows(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	e.config(zedConfig)
+	d := e.start()
+	d.fill("Tab", "t", "tab {path}")
+	d.send(tea.WindowSizeMsg{Width: 80, Height: 8})
+	d.press("enter") // the confirmation, hidden by the notice
+	d.pass()
+
+	d.send(tea.WindowSizeMsg{Width: 80, Height: 24})
+	d.press("enter")
+
+	if got, _ := fileText(t, configPath()); got != zedConfig {
+		t.Errorf("an enter as the confirmation showed wrote the config: %q", got)
+	}
+	d.pass()
+	d.press("enter")
+	if got, _ := fileText(t, configPath()); got != zedConfig+"\n"+tabBlock {
+		t.Errorf("after the moment: config is %q, want the block appended", got)
+	}
+}
+
+func TestOnAScreenTooSmallForTheDialogANoticeShowsAndTheTextIsKept(t *testing.T) {
+	const notice = "Window too small for the dialog"
+	e := newEnv(t)
+	e.repo("code/alpha")
+	e.config(zedConfig)
+	d := e.start()
+	d.fill("Tab", "t", "tab {path}")
+
+	for _, step := range []struct {
+		name string
+		want string // a row of the dialog at 80x24
+	}{
+		{"fields", "> Command tab {path}"},
+		{"confirmation", "command = 'tab {path}'"},
+	} {
+		for _, size := range [][2]int{{80, 1}, {80, 4}, {80, 5}, {80, 10}, {13, 24}} {
+			d.send(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+			screen := d.screen()
+			if want := ansi.Truncate(notice, size[0]-1, "…"); !strings.Contains(screen, want) || strings.Contains(screen, "Add a target") {
+				t.Errorf("%s at %dx%d: want the notice %q and no dialog:\n%s", step.name, size[0], size[1], want, screen)
+			}
+		}
+		if step.name == "confirmation" {
+			d.pass()
+			d.press("enter") // never writes what cannot be seen
+			if got, _ := fileText(t, configPath()); got != zedConfig {
+				t.Errorf("an enter with the confirmation hidden wrote the config: %q", got)
+			}
+		}
+
+		d.send(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+		if got := boxRows(d); !slices.Contains(got, step.want) || strings.Contains(d.screen(), notice) {
+			t.Errorf("%s after growing: dialog reads %q, want the row %q", step.name, got, step.want)
+		}
+		if step.name == "confirmation" {
+			d.pass() // the moment starts again once the confirmation shows
+		}
+		d.press("enter")
+	}
+	if got, _ := fileText(t, configPath()); got != zedConfig+"\n"+tabBlock {
+		t.Errorf("config is %q, want the block appended", got)
 	}
 }
 
@@ -309,6 +555,7 @@ func TestTheFileIsReadAgainAtWriteTimeAndNotWrittenWhenItNoLongerLoads(t *testin
 	d := e.start()
 	d.fill("Tab", "t", "tab {path}")
 	d.press("enter")
+	d.pass()
 	const edited = "paths = [\"~/code\"\n" // edited into a broken state meanwhile
 	e.config(edited)
 
@@ -330,6 +577,7 @@ func TestAFailedWriteShowsTheErrorAndLeavesTheFileWhole(t *testing.T) {
 	d := e.start()
 	d.fill("Tab", "t", "tab {path}")
 	d.press("enter")
+	d.pass()
 	if err := os.Chmod(dir, 0o500); err != nil {
 		t.Fatal(err)
 	}
@@ -355,6 +603,7 @@ func TestEnterAgainWhileTheWriteRunsAppendsTheBlockOnce(t *testing.T) {
 	d := e.start()
 	d.fill("Tab", "", "tab {path}") // no key, so a second block would load
 	d.press("enter")
+	d.pass()
 
 	d.hold = true
 	d.press("enter", "enter")
@@ -404,7 +653,7 @@ func TestQuotesBackslashesAndNonASCIIRoundTripThroughTheWrittenFile(t *testing.T
 	d := e.start()
 
 	d.fill(name, "é", `tab {path} "say \"hi\"" 'back\slash' café`)
-	d.press("enter", "enter")
+	d.confirm()
 
 	d = e.start() // a relaunch with the written file
 	d.press("enter")
@@ -426,7 +675,7 @@ func TestAnAddedTargetWorksAtOnceAndAfterARelaunch(t *testing.T) {
 	d.send(tea.WindowSizeMsg{Width: 100, Height: 60}) // room for the whole footer and help
 
 	d.fill("Tab", "t", "tab {path}")
-	d.press("enter", "enter")
+	d.confirm()
 
 	d.press("enter")
 	if got, want := boxRows(d), []string{"> z Zed", "t Tab"}; !slices.Equal(got, want) {
@@ -488,7 +737,7 @@ func TestANameIsWrittenWithoutTheSpacesAroundIt(t *testing.T) {
 	d := e.start()
 
 	d.fill("  Tab  ", "t", "tab {path}")
-	d.press("enter", "enter")
+	d.confirm()
 
 	if got, _ := fileText(t, configPath()); got != tabBlock {
 		t.Errorf("config is %q, want %q", got, tabBlock)
@@ -527,7 +776,7 @@ func TestAConfigFileKeepsItsModeAndANewOneIsPrivateToTheUser(t *testing.T) {
 	d := e.start()
 
 	d.fill("Tab", "t", "tab {path}")
-	d.press("enter", "enter")
+	d.confirm()
 
 	info, err := os.Stat(configPath())
 	if err != nil {
@@ -541,7 +790,7 @@ func TestAConfigFileKeepsItsModeAndANewOneIsPrivateToTheUser(t *testing.T) {
 	e.repo("code/alpha")
 	d = e.start()
 	d.fill("Tab", "t", "tab {path}")
-	d.press("enter", "enter")
+	d.confirm()
 	if info, err = os.Stat(configPath()); err != nil {
 		t.Fatal(err)
 	}
@@ -550,7 +799,7 @@ func TestAConfigFileKeepsItsModeAndANewOneIsPrivateToTheUser(t *testing.T) {
 	}
 }
 
-func TestAConfigThatLinksToAFileThatDoesNotExistIsRefusedAndLeftAlone(t *testing.T) {
+func TestAConfigThatLinksToAFileThatDoesNotExistIsRefusedWhenAIsPressedAndLeftAlone(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	gone := filepath.Join(e.root, "dotfiles", "loper.toml")
@@ -562,11 +811,10 @@ func TestAConfigThatLinksToAFileThatDoesNotExistIsRefusedAndLeftAlone(t *testing
 	}
 	d := e.start()
 
-	d.fill("Tab", "t", "tab {path}")
-	d.press("enter")
+	d.press("a")
 
-	if want := "is a link to " + gone + ", which does not exist"; !strings.Contains(strings.ReplaceAll(dialogText(d), " ", ""), strings.ReplaceAll(want, " ", "")) {
-		t.Errorf("dialog reads %q, want %q", dialogText(d), want)
+	if want := "is a link to " + gone + ", which does not exist"; !strings.Contains(strings.ReplaceAll(dialogText(d), " ", ""), strings.ReplaceAll(want, " ", "")) || strings.Contains(dialogText(d), "Name") {
+		t.Errorf("a shows %q, want %q and no fields", dialogText(d), want)
 	}
 	if dest, err := os.Readlink(configPath()); err != nil || dest != gone {
 		t.Errorf("config link is %q (%v), want it untouched, pointing at %q", dest, err, gone)
@@ -584,6 +832,7 @@ func TestWithCloseOnOpenAnOpenThatSucceedsWhileTheDialogIsOpenDoesNotQuit(t *tes
 
 	d.hold = true
 	d.press("z") // the open runs, and its result is held back
+	d.hold = false
 	d.press("a")
 	d.typeText("Tab")
 	d.release()
@@ -648,7 +897,11 @@ func TestAFieldLeftEmptyIsNeverTakenAsItsExample(t *testing.T) {
 		d := e.start()
 
 		d.fill(c.name, c.key, c.command)
-		d.press("enter", "enter")
+		d.press("enter")
+		if c.reason == "" {
+			d.pass()
+		}
+		d.press("enter")
 
 		got, _ := fileText(t, configPath())
 		if c.reason == "" {

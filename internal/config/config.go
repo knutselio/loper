@@ -234,6 +234,14 @@ func CheckTarget(path, home, name, k, cmd string) (string, error) {
 	return block, nil
 }
 
+// CheckFile returns why a target cannot be added to the config file at path,
+// whatever the target: the file does not load, lists its targets inline, or
+// is a link to a file that does not exist.
+func CheckFile(path, home string) error {
+	_, _, err := readForTarget(path, home)
+	return err
+}
+
 // AddTarget appends the block CheckTarget returns to the config file at
 // path, creating the file and its folder when missing, and returns the
 // targets the file now loads to, the new one last. The file is read again
@@ -268,21 +276,9 @@ func withTarget(path, home, name, k, cmd string) (string, []byte, string, Settin
 	if err := (&command{}).UnmarshalText([]byte(cmd)); err != nil {
 		return fail(err)
 	}
-	real, err := realFile(path)
+	real, text, err := readForTarget(path, home)
 	if err != nil {
 		return fail(err)
-	}
-	text, err := os.ReadFile(real)
-	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return fail(err)
-	}
-	// The file must load as it is, so an error after the block is appended
-	// is the block's.
-	if _, err := parse(path, home, text); err != nil {
-		return fail(err)
-	}
-	if inlineTargets(text) {
-		return fail(errors.New("the file lists its targets inline, as targets = [...]; add this one there by hand"))
 	}
 	// Marshal cannot fail on a struct of strings.
 	block, _ := toml.Marshal(struct {
@@ -305,6 +301,29 @@ func withTarget(path, home, name, k, cmd string) (string, []byte, string, Settin
 		return fail(err)
 	}
 	return real, text, string(block), s, nil
+}
+
+// readForTarget returns the file to write for the config file at path and
+// its text, or why a target cannot be added to it. A missing file counts as
+// empty.
+func readForTarget(path, home string) (string, []byte, error) {
+	real, err := realFile(path)
+	if err != nil {
+		return "", nil, err
+	}
+	text, err := os.ReadFile(real)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return "", nil, err
+	}
+	// The file must load as it is, so an error after the block is appended
+	// is the block's.
+	if _, err := parse(path, home, text); err != nil {
+		return "", nil, err
+	}
+	if inlineTargets(text) {
+		return "", nil, errors.New("the file lists its targets inline, as targets = [...]; add a target there by hand")
+	}
+	return real, text, nil
 }
 
 // realFile returns the file to write for the config file at path: the file

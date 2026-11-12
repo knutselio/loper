@@ -55,7 +55,10 @@ type env struct {
 	// notice is how long a footer notice shows; the driver never waits for
 	// it, but records it with the notice's tick.
 	notice time.Duration
-	now    time.Time // the time on the program's clock
+	// pause is how long after the add dialog's confirmation appears an enter
+	// is ignored; the driver never waits for it either.
+	pause time.Duration
+	now   time.Time // the time on the program's clock
 	// color turns colour on, as an unset NO_COLOR does; tests leave it off
 	// unless they are about colour.
 	color bool
@@ -71,7 +74,7 @@ func newEnv(t *testing.T) *env {
 	// start never turns a failure into a success; tests of targets that keep
 	// running shorten it.
 	e := &env{t: t, root: root, home: filepath.Join(root, "home"), wait: 10 * time.Second, notice: 3 * time.Second,
-		now: time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)}
+		pause: 300 * time.Millisecond, now: time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)}
 	t.Setenv("PATH", filepath.Join(root, "bin")+string(filepath.ListSeparator)+os.Getenv("PATH"))
 	t.Setenv("LOPER_TEST_RECORDS", root) // where fake targets write their records
 	t.Setenv("HOME", e.home)
@@ -236,6 +239,7 @@ type driver struct {
 	// needs real time and the driver never loops on the spinner.
 	ticks []pendingTick
 	now   time.Time
+	pause time.Duration // as env's
 }
 
 // pendingTick is a tick on its way: after how long it was asked for, and
@@ -265,7 +269,7 @@ func (e *env) launch() *driver {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	d := &driver{t: e.t, hold: true, now: e.now}
+	d := &driver{t: e.t, hold: true, now: e.now, pause: e.pause}
 	d.model = ui.New(ui.Deps{
 		Home:       e.home,
 		ConfigFile: settings.File,
@@ -286,6 +290,7 @@ func (e *env) launch() *driver {
 			}
 		},
 		NoticeFor:   e.notice,
+		EnterPause:  e.pause,
 		CloseOnOpen: settings.CloseOnOpen,
 		SortByName:  settings.SortByName,
 		CacheMaxAge: settings.CacheMaxAge,
@@ -293,6 +298,7 @@ func (e *env) launch() *driver {
 		Columns:     settings.Columns,
 		RowStyle:    settings.RowStyle,
 		CheckTarget: config.CheckTarget,
+		CheckFile:   config.CheckFile,
 		AddTarget:   config.AddTarget,
 	})
 	d.run(d.model.Init())
@@ -366,6 +372,19 @@ func (d *driver) tick() bool {
 	d.ticks = d.ticks[1:]
 	d.send(next.fn(d.now))
 	return true
+}
+
+// pass delivers the oldest pending tick that ends the moment in which the
+// add dialog's confirmation ignores enter, as if that moment had passed.
+func (d *driver) pass() {
+	d.t.Helper()
+	i := slices.IndexFunc(d.ticks, func(p pendingTick) bool { return p.after == d.pause })
+	if i < 0 {
+		d.t.Fatalf("no tick of %v is pending", d.pause)
+	}
+	next := d.ticks[i]
+	d.ticks = slices.Delete(d.ticks, i, i+1)
+	d.send(next.fn(d.now))
 }
 
 var namedKeys = map[string]tea.KeyPressMsg{

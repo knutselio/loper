@@ -151,6 +151,7 @@ func startUI(home string, settings config.Settings) error {
 		Now:         time.Now,
 		Tick:        tea.Tick,
 		NoticeFor:   3 * time.Second,
+		EnterPause:  300 * time.Millisecond,
 		CloseOnOpen: settings.CloseOnOpen,
 		SortByName:  settings.SortByName,
 		CacheMaxAge: settings.CacheMaxAge,
@@ -158,6 +159,7 @@ func startUI(home string, settings config.Settings) error {
 		Columns:     settings.Columns,
 		RowStyle:    settings.RowStyle,
 		CheckTarget: config.CheckTarget,
+		CheckFile:   config.CheckFile,
 		AddTarget:   config.AddTarget,
 	})
 	_, err := tea.NewProgram(m).Run()

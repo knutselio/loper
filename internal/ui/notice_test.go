@@ -54,7 +54,7 @@ func TestTheConfirmationOfAnAddedTargetClearsByItselfAfterAMoment(t *testing.T) 
 	d.send(tea.WindowSizeMsg{Width: 100, Height: 24}) // room for every item
 
 	d.fill("Tab", "t", "tab {path}")
-	d.press("enter", "enter")
+	d.confirm()
 	if got, want := footer(d), "Added Tab"; got != want {
 		t.Fatalf("after adding: footer reads %q, want %q", got, want)
 	}
