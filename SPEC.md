@@ -124,7 +124,7 @@ Tools that list multiple repos exist (gitpane, git-scope, dirtygit), but they ar
 
 ### Building and trusting it
 
-78. As a developer, I want to install the tool by building it from my clone, so that the first version needs no release process.
+78. As a developer, I want to install the tool with `go install`, from the module path or my clone, so that the first version needs no release pipeline.
 79. As a developer, I want a version flag, so that a later update command has something to compare against.
 80. As a maintainer, I want tests that read like the features in this document, so that I can change the internals without rewriting the tests.
 81. As a maintainer, I want the tests never to touch my real config, cache or history, so that running them is always safe.
@@ -349,7 +349,7 @@ command = "rex split -c {path} -- lazygit"
 | ----------------------- | -------------------------------------------------------------------------------- |
 | `loper`                 | Starts the picker                                                                |
 | `loper -v`, `--version` | Prints the version                                                               |
-| `loper --help`          | Prints usage, the config file location, the key list and the configured targets  |
+| `loper -h`, `--help`    | Prints usage, the config file location, the key list and the configured targets  |
 | `loper --config <file>` | Uses another config file for this run                                            |
 
 There are no subcommands in this version.
@@ -358,7 +358,7 @@ There are no subcommands in this version.
 
 ### Install
 
-The tool is installed by building it from the clone with `go install`. The resulting binary must be on the `PATH`.
+The tool is installed with `go install`, from the module path (`go install github.com/knutselio/loper@latest`) or from a clone (`go install .`). The resulting binary must be on the `PATH`.
 
 ## Testing Decisions
 

@@ -2,7 +2,7 @@
 
 [![test](https://github.com/knutselio/loper/actions/workflows/test.yml/badge.svg)](https://github.com/knutselio/loper/actions/workflows/test.yml)
 
-A keyboard-driven terminal picker that lists the git repos on your machine and opens the one you select with a command you define, such as your editor or a new terminal tab.
+A keyboard-driven terminal picker that lists the git repos in the folders you choose and opens the one you select with a command you define, such as your editor or a new terminal tab.
 
 It is a launcher and nothing more: it never runs a git operation and makes no network requests.
 
@@ -39,9 +39,22 @@ go install .
 
 Either way the binary goes to `$GOBIN`, or `$(go env GOPATH)/bin`, which must be on your `PATH`.
 
+## Update and uninstall
+
+To update, run `go install github.com/knutselio/loper@latest` again, or `git pull && go install .` in the clone.
+
+To uninstall, remove the [shell function](#change-folder) if you added it, then the binary and loper's config, cache and history:
+
+```sh
+rm "$(/usr/bin/which loper)"
+rm -rf ~/.config/loper ~/.cache/loper ~/.local/state/loper
+```
+
+`XDG_CONFIG_HOME`, `XDG_CACHE_HOME` and `XDG_STATE_HOME`, when set, move these folders to `loper` inside them.
+
 ## Getting started
 
-Run `loper`. It lists every git repo under `~/code`. On the first run it creates its config file with one target, `cd`: select a repo and press `o` to land in its folder. [Change folder](#change-folder) has the shell function that makes it your own shell's folder.
+Run `loper`. It lists the git repos under the folders in its `paths` setting, `~/code` unless you change it. It does not look for repos inside a repo, skips hidden folders and symlinks unless `paths` names them, and does not list linked worktrees or submodules. On the first run it creates its config file with one target, `cd`: select a repo and press `o` to land in its folder. [Change folder](#change-folder) has the shell function that makes it your own shell's folder.
 
 To open a repo somewhere else, add a target. Press `a` and fill in a name, a key and a command, such as `Zed`, `z` and `zed {path}`, with `enter` after each. The fourth field, `After open`, says whether loper closes after opening a repo there. It is a choice, drawn as `‹ default (stay open) ›`: `←` and `→` change it, and `enter` leaves it on `default`, which follows `close_on_open`. The last choice, `take over this window`, makes loper end and run the command in its place, in the repo's folder, for a program such as lazygit or an editor. loper shows what it will add to the config file, and one more `enter` saves it. Then select a repo and press `z`, or press `enter` and pick the target from the menu.
 
@@ -56,7 +69,7 @@ key = "z"
 command = "zed {path}"
 ```
 
-`loper --help` prints the config file in use, the keys and your targets. `loper --config <file>` uses another file for one run.
+`loper --help` prints the config file in use, the keys and your targets. `loper --config <file>` uses another file for one run. `loper --version` prints the version.
 
 ## Change folder
 
