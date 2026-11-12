@@ -43,7 +43,7 @@ Either way the binary goes to `$GOBIN`, or `$(go env GOPATH)/bin`, which must be
 
 Run `loper`. Without a config file it lists every git repo under `~/code`.
 
-There is no target to open a repo in until you add one. Press `a` and fill in a name, a key and a command, such as `Zed`, `z` and `zed {path}`, with `enter` after each. loper shows what it will add to the config file, and one more `enter` saves it. Then select a repo and press `z`, or press `enter` and pick the target from the menu.
+There is no target to open a repo in until you add one. Press `a` and fill in a name, a key and a command, such as `Zed`, `z` and `zed {path}`, with `enter` after each. The fourth field, `After open`, says whether loper closes after opening a repo there. It is a choice, drawn as `‹ default (stay open) ›`: `←` and `→` change it, and `enter` leaves it on `default`, which follows `close_on_open`. loper shows what it will add to the config file, and one more `enter` saves it. Then select a repo and press `z`, or press `enter` and pick the target from the menu.
 
 The target is written to `~/.config/loper/config.toml` (or `$XDG_CONFIG_HOME/loper/config.toml`), which you can also edit by hand. A small useful config:
 
@@ -106,6 +106,7 @@ close_on_open = false              # true quits after a successful open
 name = "Zed"
 key = "z"                          # optional, one character, not one of loper's own keys
 command = "zed {path}"
+close = true                       # optional; left out, close_on_open decides
 ```
 
 A target's command must contain `{path}`, which becomes the repo's absolute path, and may contain `{name}`, which becomes the repo's name. The command is not run through a shell, so a path with spaces needs no quoting. A mistake in the file stops loper at startup with the line it is on.

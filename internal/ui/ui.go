@@ -161,6 +161,7 @@ type openedMsg struct {
 	path, target string
 	at           time.Time
 	saveErr      error
+	close        bool // the tool quits on it, as the target or close_on_open says
 }
 
 // failedMsg reports that a repo did not open in a target.
@@ -181,7 +182,8 @@ type addDialog struct {
 	remove     bool
 	refusal    string    // why the config file cannot take the change, shown instead of the fields
 	fields     [3]string // the name, the key and the command, as typed
-	field      int       // the field being typed in
+	after      int       // the After open choice after them, an index into choices
+	field      int       // the field being typed in, or len(fields) for the choice
 	confirming bool      // the confirmation shows
 	before     string    // old's lines in the file, while the confirmation shows them
 	block      string    // the lines to write, while the confirmation shows them
@@ -192,7 +194,23 @@ type addDialog struct {
 
 // change is the change to the config file that the dialog makes.
 func (a addDialog) change() target.Change {
-	return target.Change{Old: a.old, Lines: a.before, Remove: a.remove, Name: a.fields[0], Key: a.fields[1], Command: a.fields[2]}
+	var quit *bool // default: no close line
+	if a.after > 0 {
+		c := choices[a.after] == "close loper"
+		quit = &c
+	}
+	return target.Change{Old: a.old, Lines: a.before, Remove: a.remove, Name: a.fields[0], Key: a.fields[1], Command: a.fields[2], Close: quit}
+}
+
+// choiceOf returns the index in choices of what quit, a target's close, says.
+func choiceOf(quit *bool) int {
+	switch {
+	case quit == nil:
+		return 0
+	case *quit:
+		return slices.Index(choices, "close loper")
+	}
+	return slices.Index(choices, "stay open")
 }
 
 // title is the dialog's title.
@@ -216,11 +234,12 @@ type fileCheckedMsg struct {
 // readyMsg ends the first moment of the confirmation it counts.
 type readyMsg int
 
-// checkedMsg carries, for the dialog for old with fields, the lines its
-// change replaces and those it writes, or why the change is refused.
+// checkedMsg carries, for the dialog for old with fields and after, the
+// lines its change replaces and those it writes, or why the change is refused.
 type checkedMsg struct {
 	old           *target.Target
 	fields        [3]string
+	after         int
 	before, block string
 	err           error
 }
@@ -243,6 +262,10 @@ type noticeEndMsg int
 // examples are what the add dialog shows, dimmed, in its empty fields: the
 // name, the key and the command of a target.
 var examples = [3]string{"Zed", "z", "zed {path}"}
+
+// choices are the add dialog's choices of what happens after an open: what
+// close_on_open says, stay open, or close loper.
+var choices = []string{"default", "stay open", "close loper"}
 
 // headings are the column headings, by column.
 var headings = map[string]string{"name": "NAME", "folder": "FOLDER", "branch": "BRANCH", "last_opened": "OPENED"}
@@ -400,7 +423,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			notice += ", but the history could not be saved"
 		}
 		m, cmd = m.showNotice(notice)
-		if m.deps.CloseOnOpen && m.failure == nil && !m.add.open { // never quit while an error or the add dialog is showing
+		if msg.close && m.failure == nil && !m.add.open { // never quit while an error or the add dialog is showing
 			return m, tea.Quit
 		}
 	case failedMsg:
@@ -415,7 +438,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case checkedMsg:
 		// A check of fields typed over since, or of a dialog closed, is stale.
-		if a := m.add; a.open && a.old == msg.old && a.refusal == "" && !a.writing && msg.fields == a.fields {
+		if a := m.add; a.open && a.old == msg.old && a.refusal == "" && !a.writing && msg.fields == a.fields && msg.after == a.after {
 			m.add.problem = ""
 			switch {
 			case msg.err != nil && a.remove: // with no fields to put it right in
@@ -438,7 +461,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.add = addDialog{open: true, old: a.old, remove: true, refusal: msg.err.Error()}
 			return m, nil
 		case msg.err != nil: // back to the fields, to put the problem right
-			m.add = addDialog{open: true, old: a.old, fields: a.fields, field: a.field, problem: msg.err.Error()}
+			m.add = addDialog{open: true, old: a.old, fields: a.fields, after: a.after, field: a.field, problem: msg.err.Error()}
 			return m, nil
 		}
 		var notice string
@@ -474,7 +497,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch { // as typed text, which only a search and the add dialog's fields take
 		case m.failure != nil:
 		case m.add.open && !m.add.remove && m.add.refusal == "" && !m.add.confirming && !m.add.writing:
-			m.add.fields[m.add.field] += clean(msg.Content)
+			if m.add.field < len(m.add.fields) { // the choice takes no text
+				m.add.fields[m.add.field] += clean(msg.Content)
+			}
 		case m.searching && !m.menu:
 			m = m.search(m.query + clean(msg.Content))
 		}
@@ -647,7 +672,7 @@ func (m Model) menuKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		return m.open(m.deps.Targets[m.choice])
 	case "e":
 		t := m.deps.Targets[m.choice] // a copy of its own, which tells this dialog apart
-		m.add = addDialog{open: true, old: &t, fields: [3]string{t.Name, t.Key, t.Command}}
+		m.add = addDialog{open: true, old: &t, fields: [3]string{t.Name, t.Key, t.Command}, after: choiceOf(t.Close)}
 		return m, m.checkFile()
 	case "d":
 		t := m.deps.Targets[m.choice]
@@ -695,17 +720,18 @@ func (m Model) addKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 			m.add = addDialog{}
 		}
 	default:
+		last := len(a.fields) // the choice, after the text fields
 		switch msg.String() {
 		case "tab", "down":
-			a.field = min(a.field+1, len(a.fields)-1)
+			a.field = min(a.field+1, last)
 		case "shift+tab", "up":
 			a.field = max(a.field-1, 0)
 		case "enter":
-			if a.field < len(a.fields)-1 {
+			if a.field < last {
 				a.field++
 				break
 			}
-			if o := a.old; o != nil && strings.TrimSpace(a.fields[0]) == o.Name && a.fields[1] == o.Key && a.fields[2] == o.Command {
+			if o := a.old; o != nil && strings.TrimSpace(a.fields[0]) == o.Name && a.fields[1] == o.Key && a.fields[2] == o.Command && a.after == choiceOf(o.Close) {
 				m.add = addDialog{} // an edit that changes nothing writes nothing
 				break
 			}
@@ -713,11 +739,22 @@ func (m Model) addKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		case "esc":
 			m.add = addDialog{}
 		case "backspace":
-			if f := []rune(a.fields[a.field]); len(f) > 0 {
-				a.fields[a.field] = string(f[:len(f)-1])
+			if a.field < last {
+				if f := []rune(a.fields[a.field]); len(f) > 0 {
+					a.fields[a.field] = string(f[:len(f)-1])
+				}
 			}
 		default:
-			a.fields[a.field] += msg.Text
+			if a.field < last {
+				a.fields[a.field] += msg.Text
+				break
+			}
+			switch msg.String() { // the choice takes no text
+			case "right", "space":
+				a.after = (a.after + 1) % len(choices)
+			case "left":
+				a.after = (a.after + len(choices) - 1) % len(choices)
+			}
 		}
 	}
 	return m, nil
@@ -752,7 +789,7 @@ func (m Model) check() tea.Cmd {
 	a := m.add
 	return func() tea.Msg {
 		before, block, err := m.deps.CheckTarget(m.deps.ConfigFile, m.deps.Home, a.change())
-		return checkedMsg{old: a.old, fields: a.fields, before: before, block: block, err: err}
+		return checkedMsg{old: a.old, fields: a.fields, after: a.after, before: before, block: block, err: err}
 	}
 }
 
@@ -1179,6 +1216,10 @@ func (m Model) open(t target.Target) (Model, tea.Cmd) {
 	}
 	m.menu, m.opening = false, true
 	path := m.repos[m.selected].path
+	quit := m.deps.CloseOnOpen
+	if t.Close != nil {
+		quit = *t.Close
+	}
 	return m, func() tea.Msg {
 		if err := m.deps.Open(t, path); err != nil {
 			f := &target.Failure{Output: err.Error()} // in case the error is not a Failure
@@ -1189,7 +1230,7 @@ func (m Model) open(t target.Target) (Model, tea.Cmd) {
 		// tool quits on the report. Round(0) keeps only the wall clock, as the
 		// file does: a monotonic reading can stop while the computer sleeps.
 		at := m.deps.Now().Round(0)
-		return openedMsg{path: path, target: t.Name, at: at, saveErr: m.deps.History.Record(path, at)}
+		return openedMsg{path: path, target: t.Name, at: at, saveErr: m.deps.History.Record(path, at), close: quit}
 	}
 }
 
@@ -1255,7 +1296,7 @@ func (m Model) overlayAdd(lines []string) []string {
 // room in its fields for a value.
 func (m Model) addFits() bool {
 	rows, width := m.addRows()
-	return len(rows) <= m.listHeight()-2 && width >= 14 // 14: the margins, the marker, the label and a cell of value
+	return len(rows) <= m.listHeight()-2 && width >= 17 // 17: the margins, the marker, the label and a cell of value
 }
 
 // addRows returns the dialog's rows and its width inside the border: why
@@ -1297,20 +1338,25 @@ func (m Model) addRows() ([]string, int) {
 	case a.remove: // its lines are still being read
 		rows = []string{" " + m.key("esc") + " keep "}
 	default:
-		for i, label := range []string{"Name", "Key", "Command"} {
+		after := choices[a.after]
+		if a.after == 0 {
+			after += " (" + choices[choiceOf(&m.deps.CloseOnOpen)] + ")"
+		}
+		values := append(a.fields[:], "‹ "+after+" ›") // drawn as a choice, changed with ← and →
+		for i, label := range []string{"Name", "Key", "Command", "After open"} {
 			marker := "  "
 			if i == a.field {
 				marker = m.bold(">") + " "
 			}
 			// A command as loaded may hold a line break or a tab.
-			value := clean(a.fields[i])
-			if over := ansi.StringWidth(value) - (width - 13); over > 0 { // 13: the margins, the marker and the label
+			value := clean(values[i])
+			if over := ansi.StringWidth(value) - (width - 16); over > 0 { // 16: the margins, the marker and the label
 				value = "…" + cutStart(value, over+1)
 			}
 			if value == "" && m.deps.Color { // without colour the example would read as typed
 				value = m.dim(examples[i])
 			}
-			rows = append(rows, " "+marker+pad(label, 7)+"  "+value+" ")
+			rows = append(rows, " "+marker+pad(label, 10)+"  "+value+" ")
 		}
 		if a.problem != "" {
 			rows = append(append(rows, ""), wrap(m.shorten(a.problem))...) // a loader message starts with the file
@@ -1325,7 +1371,7 @@ func (m Model) addRows() ([]string, int) {
 // writes, so a confirmation fits whenever one for such a block would.
 func short(block string) string {
 	ls := strings.Split(strings.TrimSuffix(block, "\n"), "\n")
-	if len(ls) <= 4 {
+	if len(ls) <= 5 { // the block the tool writes, with a close line
 		return block
 	}
 	return strings.Join([]string{ls[0], ls[1], fmt.Sprintf("… %d more lines", len(ls)-3), ls[len(ls)-1]}, "\n")

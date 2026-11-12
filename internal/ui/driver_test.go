@@ -390,6 +390,8 @@ func (d *driver) pass() {
 var namedKeys = map[string]tea.KeyPressMsg{
 	"down":      {Code: tea.KeyDown},
 	"up":        {Code: tea.KeyUp},
+	"left":      {Code: tea.KeyLeft},
+	"right":     {Code: tea.KeyRight},
 	"enter":     {Code: tea.KeyEnter},
 	"tab":       {Code: tea.KeyTab},
 	"shift+tab": {Code: tea.KeyTab, Mod: tea.ModShift},

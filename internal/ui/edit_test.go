@@ -35,7 +35,7 @@ func (d *driver) retype(text string) {
 // toLast moves from the dialog's first field to its last, as enter does.
 func (d *driver) toLast() {
 	d.t.Helper()
-	d.press("enter", "enter")
+	d.press("enter", "enter", "enter")
 }
 
 // menuBottom is the bottom border of the box on screen, with its spacing
@@ -123,9 +123,9 @@ func TestAnEditKeepingItsKeyIsNotADuplicateButAnotherTargetsKeyIs(t *testing.T) 
 		t.Fatalf("an edit keeping its key shows %q, want the confirmation", got)
 	}
 
-	d.press("esc", "up")
+	d.press("esc", "up", "up")
 	d.retype("z")
-	d.press("enter", "enter")
+	d.press("enter", "enter", "enter")
 	if got, want := dialogText(d), `target key "z" is already used by the target on line 2`; !strings.Contains(got, want) || !strings.Contains(got, "Key z") {
 		t.Errorf("dialog reads %q, want the fields and the reason %q", got, want)
 	}
@@ -135,7 +135,7 @@ func TestAnEditKeepingItsKeyIsNotADuplicateButAnotherTargetsKeyIs(t *testing.T) 
 
 	d.press("esc", "k", "e", "tab") // Zed, whose key t is the key of the target after it
 	d.retype("t")
-	d.press("enter", "enter")
+	d.press("enter", "enter", "enter")
 	if got, want := dialogText(d), `target key "t" is already used by the target on line 8`; !strings.Contains(got, want) {
 		t.Errorf("dialog reads %q, want the reason %q, naming the other target's line", got, want)
 	}
@@ -164,7 +164,7 @@ func TestTheEditConfirmationShowsTheOldAndTheNewBlockAndEscGoesBackToTheFields(t
 	}
 
 	d.press("esc")
-	if got, want := boxRows(d), []string{"Name Zed two", "Key z", "> Command zed {path}"}; len(got) < 3 || !slices.Equal(got[:3], want) {
+	if got, want := boxRows(d), []string{"Name Zed two", "Key z", "Command zed {path}", "> After open ‹ default (stay open) ›"}; len(got) < 4 || !slices.Equal(got[:4], want) {
 		t.Errorf("after esc: dialog reads %q, want the fields with their contents %q", got, want)
 	}
 	if got, _ := fileText(t, configPath()); got != editConfig {
@@ -659,5 +659,114 @@ func TestAnEditThatChangesNothingClosesWithoutWriting(t *testing.T) {
 	}
 	if got, _ := fileText(t, configPath()); got != editConfig {
 		t.Errorf("config is %q, want it byte for byte as it was", got)
+	}
+}
+
+func TestAnEditKeepsTheCloseLineAndShowsItInTheOldAndTheNewBlock(t *testing.T) {
+	e := newEnv(t)
+	d, _ := editStart(e, "[[targets]]\nname = \"Zed\"\nkey = \"z\"\ncommand = \"zed {path}\"\nclose = true\n")
+
+	d.press("enter", "e")
+	if got, want := boxRows(d), "After open ‹ close loper ›"; !slices.Contains(got, want) {
+		t.Fatalf("dialog reads %q, want the row %q", got, want)
+	}
+	d.retype("Zed two")
+	d.toLast()
+	d.press("enter")
+
+	want := []string{
+		"Replace these lines in ~/.config/loper/config.toml:",
+		"[[targets]]", `name = "Zed"`, `key = "z"`, `command = "zed {path}"`, "close = true",
+		"",
+		"with these (comments inside the block are not kept):",
+		"[[targets]]", "name = 'Zed two'", "key = 'z'", "command = 'zed {path}'", "close = true",
+		"",
+		"enter write esc back",
+	}
+	if got := boxRows(d); !slices.Equal(got, want) {
+		t.Errorf("confirmation reads %q, want %q", got, want)
+	}
+	d.pass()
+	d.press("enter")
+	if got, _ := fileText(t, configPath()); got != "[[targets]]\nname = 'Zed two'\nkey = 'z'\ncommand = 'zed {path}'\nclose = true\n" {
+		t.Errorf("config is %q, want the close line kept", got)
+	}
+}
+
+func TestAnEditOfOnlyTheChoiceIsWritten(t *testing.T) {
+	e := newEnv(t)
+	d, _ := editStart(e, "[[targets]]\nname = \"Zed\"\nkey = \"z\"\ncommand = \"zed {path}\"\nclose = true\n")
+
+	d.press("enter", "e")
+	d.toLast()
+	d.press("left")
+	d.confirmChoice()
+
+	if got, _ := fileText(t, configPath()); got != "[[targets]]\nname = 'Zed'\nkey = 'z'\ncommand = 'zed {path}'\nclose = false\n" {
+		t.Errorf("config is %q, want close = false", got)
+	}
+	if got, want := footer(d), "Changed Zed"; got != want {
+		t.Errorf("footer reads %q, want %q", got, want)
+	}
+}
+
+func TestAnEditThatChangesNothingOnATargetWithCloseWritesNothing(t *testing.T) {
+	const body = "[[targets]]\nname = \"Zed\"\nkey = \"z\"\ncommand = \"zed {path}\"\nclose = false\n"
+	e := newEnv(t)
+	d, _ := editStart(e, body)
+
+	d.press("enter", "e")
+	d.toLast()
+	d.press("right", "right", "right", "enter") // round to where it was
+
+	if got, want := boxRows(d), []string{"> z Zed"}; !slices.Equal(got, want) {
+		t.Errorf("box reads %q, want the menu back, %q", got, want)
+	}
+	if got, _ := fileText(t, configPath()); got != body {
+		t.Errorf("config is %q, want it byte for byte as it was", got)
+	}
+}
+
+func TestTwoBlocksThatDifferOnlyInCloseAreEachEditedAndRemoved(t *testing.T) {
+	const first = "[[targets]]\nname = \"Same\"\ncommand = \"same {path}\"\n"
+	for _, value := range []string{"true", "false"} { // false is not the same as no close line
+		second := "[[targets]]\nname = \"Same\"\ncommand = \"same {path}\"\nclose = " + value + "\n"
+		body := "# one\n" + first + "\n# two\n" + second + "# end\n"
+		for _, c := range []struct {
+			at     int
+			remove bool
+			want   string
+		}{
+			{0, false, "# one\n[[targets]]\nname = 'X'\ncommand = 'same {path}'\n\n# two\n" + second + "# end\n"},
+			{1, false, "# one\n" + first + "\n# two\n[[targets]]\nname = 'X'\ncommand = 'same {path}'\nclose = " + value + "\n# end\n"},
+			{0, true, "# one\n# two\n" + second + "# end\n"},
+			{1, true, "# one\n" + first + "\n# two\n# end\n"},
+		} {
+			e := newEnv(t)
+			e.repo("code/alpha")
+			e.config(body)
+			d := e.start()
+			d.press("enter")
+			d.press(slices.Repeat([]string{"j"}, c.at)...)
+
+			if c.remove {
+				d.press("d")
+			} else {
+				d.press("e")
+				d.retype("X")
+				d.toLast()
+				d.press("enter")
+			}
+			if !strings.Contains(dialogText(d), "these lines") {
+				t.Errorf("close = %s, target %d, remove %v: no confirmation:\n%s", value, c.at, c.remove, d.screen())
+				continue
+			}
+			d.pass()
+			d.press("enter")
+
+			if got, _ := fileText(t, configPath()); got != c.want {
+				t.Errorf("close = %s, target %d, remove %v: config is\n%q\nwant\n%q\n%s", value, c.at, c.remove, got, c.want, d.screen())
+			}
+		}
 	}
 }

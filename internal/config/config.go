@@ -52,6 +52,7 @@ type targetFile struct {
 	Name    string `toml:"name"`
 	Key     string `toml:"key,omitempty"` // omitempty for WriteTarget, which leaves out a key not given
 	Command string `toml:"command"`
+	Close   *bool  `toml:"close,omitempty"` // nil when left out
 }
 
 // checked is file with each value checking itself while it is decoded, so
@@ -72,6 +73,7 @@ type checkedTarget struct {
 	Name    targetName `toml:"name"`
 	Key     key        `toml:"key"`
 	Command command    `toml:"command"`
+	Close   bool       `toml:"close"`
 }
 
 // folder checks a paths entry: an absolute path, or one that starts with ~.
@@ -232,7 +234,7 @@ func parse(path, home string, b []byte) (Settings, error) {
 	}
 	for _, t := range f.Targets {
 		args, _ := split(t.Command) // cannot fail: the command was checked while decoding
-		s.Targets = append(s.Targets, target.Target{Name: t.Name, Key: t.Key, Args: args, Command: t.Command})
+		s.Targets = append(s.Targets, target.Target{Name: t.Name, Key: t.Key, Args: args, Command: t.Command, Close: t.Close})
 	}
 	for _, p := range f.Paths {
 		s.Paths = append(s.Paths, expand(p, home))
@@ -288,14 +290,14 @@ type rewritten struct {
 // rewrite makes c in the text of the config file at path. A missing file
 // counts as empty. A name is taken without the spaces around it. A target
 // added goes at the end, after a blank line. A target changed or removed is
-// found by its name, key and command, and only the lines of its table
+// found by its name, key, command and close, and only the lines of its table
 // change, from its [[targets]] line to the line of its last value, so
 // comments directly above it stay. A removed table takes the blank lines
 // after it along, or, at the end of the file, those before it, so no run of
 // blank lines is left.
 func rewrite(path, home string, c target.Change) (rewritten, error) {
 	var block []byte
-	t := targetFile{Name: strings.TrimSpace(c.Name), Key: c.Key, Command: c.Command}
+	t := targetFile{Name: strings.TrimSpace(c.Name), Key: c.Key, Command: c.Command, Close: c.Close}
 	if !c.Remove {
 		if err := (&targetName{}).UnmarshalText([]byte(t.Name)); err != nil {
 			return rewritten{}, err
@@ -308,7 +310,7 @@ func rewrite(path, home string, c target.Change) (rewritten, error) {
 		if err := (&command{}).UnmarshalText([]byte(t.Command)); err != nil {
 			return rewritten{}, err
 		}
-		// Marshal cannot fail on a struct of strings.
+		// Marshal cannot fail on a struct of strings and a *bool.
 		block, _ = toml.Marshal(struct {
 			Targets []targetFile `toml:"targets"`
 		}{[]targetFile{t}})
@@ -375,7 +377,7 @@ func rewrite(path, home string, c target.Change) (rewritten, error) {
 	// settings and targets but for the one changed.
 	var is file
 	_ = toml.Unmarshal(r.text, &is) // cannot fail: it just loaded
-	if !slices.Equal(is.Targets, want) || !reflect.DeepEqual(withoutTargets(is), withoutTargets(was)) {
+	if !slices.EqualFunc(is.Targets, want, same) || !reflect.DeepEqual(withoutTargets(is), withoutTargets(was)) {
 		return rewritten{}, fmt.Errorf("the change would alter more of the file than target %q; change it there by hand", c.Old.Name)
 	}
 	return r, nil
@@ -399,7 +401,7 @@ func parseChanged(path, home string, text []byte) (Settings, error) {
 func find(targets []targetFile, old target.Target) (int, error) {
 	at := -1
 	for i, t := range targets {
-		if t.Name != old.Name || t.Key != old.Key || t.Command != old.Command {
+		if !same(t, targetFile{Name: old.Name, Key: old.Key, Command: old.Command, Close: old.Close}) {
 			continue
 		}
 		if at >= 0 {
@@ -469,6 +471,11 @@ func withBlankLines(b []byte, start, end int) (int, int) {
 		start = prev
 	}
 	return start, end
+}
+
+// same reports whether a and b are the same target, close included.
+func same(a, b targetFile) bool {
+	return reflect.DeepEqual(a, b)
 }
 
 // withoutTargets returns f without its targets, to compare the rest.
@@ -760,6 +767,7 @@ func describe(path string, err error) error {
 // wants says, for each setting, what a valid value looks like.
 var wants = map[string]string{
 	"close_on_open": "true or false",
+	"targets.close": "true or false",
 	"sort":          `"last_opened" or "name"`,
 	"cache_max_age": `"0" or a positive interval such as "4h" or "30m" (units h, m, s)`,
 	"columns":       `a list of "name", "folder", "branch" and "last_opened", including "name"`,

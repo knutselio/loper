@@ -297,6 +297,11 @@ func TestACloseOnOpenThatIsNotTrueOrFalseStopsTheToolNamingTheFileAndLine(t *tes
 		3, `invalid value for "close_on_open": want true or false`)
 }
 
+func TestATargetCloseThatIsNotTrueOrFalseStopsTheToolNamingTheFileAndLine(t *testing.T) {
+	startupFails(t, targetConfig("name = \"Tab\"\ncommand = \"tab {path}\"\nclose = \"yes\"\n"),
+		9, `invalid value for "targets.close": want true or false`)
+}
+
 func TestASortThatIsNotLastOpenedOrNameStopsTheToolNamingTheFileAndLine(t *testing.T) {
 	for _, value := range []string{`"size"`, `"Name"`, `1`} {
 		startupFails(t, "paths = [\"~/code\"]\n\nsort = "+value+"\n",

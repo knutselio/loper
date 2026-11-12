@@ -21,6 +21,7 @@ type Target struct {
 	// Command is the command as written in the config file, which the edit
 	// dialog shows and by which the target is found in the file again.
 	Command string
+	Close   *bool // whether the tool quits after a successful open here, or nil to follow close_on_open
 }
 
 // Change is a change to the targets of the config file: a target added, or
@@ -32,6 +33,7 @@ type Change struct {
 	Lines              string
 	Remove             bool   // remove Old rather than change it
 	Name, Key, Command string // the target to add, or Old's new values
+	Close              *bool  // as Target's
 }
 
 // Failure is a target that did not open.

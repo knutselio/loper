@@ -85,22 +85,36 @@ func TestNothingIsDrawnWiderOrTallerThanTheTerminalInAnyState(t *testing.T) {
 		{name: "add dialog with a reason", setup: func(e *env) *driver {
 			d := e.start()
 			d.fill("a name with 日本語 in it that is far too long for the box", "t", "a-command-with-日本語-and-no-placeholder that runs on and on")
-			d.press("enter")
+			d.press("enter", "enter")
 			return d
 		}, shows: "has no {path}"},
 		{name: "add confirmation", setup: func(e *env) *driver {
 			d := e.start()
 			d.fill("a name with 日本語 in it that is far too long for the box", "t", "a-command-with-日本語 {path} that runs on and on and on and on")
-			d.press("enter")
+			d.press("enter", "enter")
 			return d
 		}, shows: "[[targets]]"},
 		{name: "edit confirmation", setup: func(e *env) *driver {
 			d := e.start()
 			d.press("enter", "e")
 			d.retype("a name with 日本語 in it that is far too long for the box")
-			d.press("enter", "enter", "enter")
+			d.press("enter", "enter", "enter", "enter")
 			return d
 		}, shows: "with these"},
+		{name: "add dialog on After open", setup: func(e *env) *driver {
+			d := e.start()
+			d.fill("a name with 日本語 in it that is far too long for the box", "t", "a-command-with-日本語 {path}")
+			d.press("tab", "right", "right")
+			return d
+		}, shows: "After open ‹ close loper ›"},
+		{name: "edit confirmation with close lines", setup: func(e *env) *driver {
+			e.config("paths = [\"~/code\", \"~/dotfiles\", \"~/a-folder-that-does-not-exist\"]\n\n[[targets]]\nname = \"Zed\"\nkey = \"z\"\ncommand = \"zed {path}\"\nclose = true\n")
+			d := e.start()
+			d.press("enter", "e")
+			d.retype("a name with 日本語 in it that is far too long for the box")
+			d.press("enter", "enter", "enter", "enter")
+			return d
+		}, shows: "close = true"},
 		{name: "remove confirmation", setup: func(e *env) *driver {
 			d := e.start()
 			d.press("enter", "j", "d")
@@ -438,7 +452,10 @@ func TestWithColourTheKeysOfTheFooterTheHelpAndTheMenuAreBoldInTheAccentColour(t
 	d.typeText("Tab")
 	d.press("tab", "tab")
 	d.typeText("tab {path}")
-	d.press("enter")
+	d.press("enter", "enter")
+	if !strings.Contains(d.screen(), "[[targets]]") {
+		t.Fatalf("no add confirmation:\n%q", d.screen())
+	}
 	for _, key := range []string{"enter", "esc"} {
 		if want := " " + on + key + off + " "; !strings.Contains(d.screen(), want) {
 			t.Errorf("add confirmation: want the key %q in the accent, %q:\n%q", key, want, d.screen())

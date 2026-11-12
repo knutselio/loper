@@ -42,9 +42,18 @@ func (d *driver) fill(name, key, command string) {
 	d.typeText(command)
 }
 
-// confirm presses enter on the last field, lets the moment in which the
-// confirmation ignores enter pass, and presses enter to write.
+// confirm presses enter on the command and on After open, lets the moment
+// in which the confirmation ignores enter pass, and presses enter to write.
 func (d *driver) confirm() {
+	d.t.Helper()
+	d.press("enter", "enter")
+	d.pass()
+	d.press("enter")
+}
+
+// confirmChoice is confirm from After open: it presses enter there, lets the
+// moment pass, and presses enter to write.
+func (d *driver) confirmChoice() {
 	d.t.Helper()
 	d.press("enter")
 	d.pass()
@@ -94,7 +103,7 @@ func TestAOpensTheAddDialogAndEveryPrintableKeyLandsInItsFields(t *testing.T) {
 		t.Errorf("s or ? typed in the dialog acted:\n%s", d.screen())
 	}
 
-	d.press("shift+tab", "backspace", "up", "backspace", "backspace", "down", "y", "down", "down", "backspace")
+	d.press("shift+tab", "backspace", "up", "backspace", "backspace", "down", "y", "down", "backspace")
 	if got, want := boxRows(d), []string{"Name qsja?/rz", "Key y", "> Command tab {path"}; len(got) < 3 || !slices.Equal(got[:3], want) {
 		t.Errorf("after moving and backspace: fields read %q, want %q", got, want)
 	}
@@ -113,8 +122,11 @@ func TestAValueTooLongForItsFieldShowsItsEnd(t *testing.T) {
 
 	d.fill("Tab", "t", "tab --title x {path}")
 
-	if got, want := boxRows(d), "> Command …title x {path}"; !slices.Contains(got, want) {
+	if got, want := boxRows(d), "> Command …le x {path}"; !slices.Contains(got, want) {
 		t.Errorf("dialog reads %q, want the row %q", got, want)
+	}
+	if got, want := boxRows(d), "After open …tay open) ›"; !slices.Contains(got, want) {
+		t.Errorf("dialog reads %q, want the row %q, the choice cut from its start", got, want)
 	}
 }
 
@@ -159,7 +171,7 @@ func TestAnInvalidTargetIsRefusedWithTheReasonAndNothingIsWritten(t *testing.T) 
 		d := e.start()
 
 		d.fill(c.name, c.key, c.command)
-		d.press("enter")
+		d.press("enter", "enter")
 
 		if got := dialogText(d); !strings.Contains(got, c.reason) || strings.Contains(got, "config.toml:") || !strings.Contains(got, "Command "+c.command) {
 			t.Errorf("%q: dialog reads %q, want the fields and the reason %q", c, got, c.reason)
@@ -177,7 +189,7 @@ func TestTheConfirmationShowsTheBlockAndTheFileAndEscGoesBackToTheFields(t *test
 	d := e.start()
 	d.fill("Tab", "t", "tab {path}")
 
-	d.press("enter")
+	d.press("enter", "enter")
 
 	rows := boxRows(d)
 	for _, want := range []string{"Append to ~/.config/loper/config.toml", "[[targets]]", "name = 'Tab'", "key = 't'", "command = 'tab {path}'"} {
@@ -188,7 +200,7 @@ func TestTheConfirmationShowsTheBlockAndTheFileAndEscGoesBackToTheFields(t *test
 
 	d.press("esc")
 
-	if got, want := boxRows(d), []string{"Name Tab", "Key t", "> Command tab {path}"}; len(got) < 3 || !slices.Equal(got[:3], want) {
+	if got, want := boxRows(d), []string{"Name Tab", "Key t", "Command tab {path}", "> After open ‹ default (stay open) ›"}; len(got) < 4 || !slices.Equal(got[:4], want) {
 		t.Errorf("after esc: dialog reads %q, want the fields with their contents %q", got, want)
 	}
 	if got, _ := fileText(t, configPath()); got != zedConfig {
@@ -251,7 +263,7 @@ func TestWithConfigTheDialogWritesThatFileAndNotTheStandardOne(t *testing.T) {
 	d := e.start()
 
 	d.fill("Tab", "t", "tab {path}")
-	d.press("enter")
+	d.press("enter", "enter")
 	d.pass()
 	// The path is long enough to wrap, so spaces are left out of the comparison.
 	if want := "Append to " + e.configFile; !strings.Contains(strings.ReplaceAll(dialogText(d), " ", ""), strings.ReplaceAll(want, " ", "")) {
@@ -420,7 +432,7 @@ func TestTheFileIsReadAgainAtConfirmationAndRefusedWhenItNoLongerLoads(t *testin
 	const edited = "paths = [\"~/code\"\n" // edited into a broken state while the fields were open
 	e.config(edited)
 
-	d.press("enter")
+	d.press("enter", "enter")
 
 	if got := dialogText(d); !strings.Contains(got, "Command tab {path}") || !strings.Contains(got, "config.toml:") {
 		t.Errorf("dialog reads %q, want the fields and the loader's message", got)
@@ -437,7 +449,7 @@ func TestAnEnterRightAfterTheConfirmationAppearsIsIgnored(t *testing.T) {
 	d := e.start()
 	d.fill("Tab", "t", "tab {path}")
 
-	d.press("enter", "enter")
+	d.press("enter", "enter", "enter")
 
 	if got := dialogText(d); !strings.Contains(got, "[[targets]]") {
 		t.Errorf("after a quick enter, enter: dialog reads %q, want the confirmation", got)
@@ -461,7 +473,7 @@ func TestTheMomentOfAnEarlierConfirmationDoesNotCountForALaterOne(t *testing.T) 
 	d := e.start()
 	d.fill("Tab", "t", "tab {path}")
 
-	d.press("enter", "esc", "enter")
+	d.press("enter", "enter", "esc", "enter")
 	d.pass() // the first confirmation's moment ends
 	d.press("enter")
 
@@ -480,6 +492,23 @@ func TestTheMomentOfAnEarlierConfirmationDoesNotCountForALaterOne(t *testing.T) 
 	}
 }
 
+func TestTheFieldsNeedRoomForTheLongestLabelAndACellOfValue(t *testing.T) {
+	const notice = "Window too small for the dialog"
+	e := newEnv(t)
+	e.repo("code/alpha")
+	d := e.start()
+	d.fill("Tab", "t", "tab {path}")
+
+	d.send(tea.WindowSizeMsg{Width: 18, Height: 24}) // 16 cells inside the border: no cell for a value after After open
+	if screen := d.screen(); !strings.Contains(screen, ansi.Truncate(notice, 17, "…")) || strings.Contains(screen, "After") {
+		t.Errorf("at 18 cells: want the notice and no dialog:\n%s", screen)
+	}
+	d.send(tea.WindowSizeMsg{Width: 19, Height: 24})
+	if screen := d.screen(); strings.Contains(screen, "Window too") || !strings.Contains(screen, "After open") {
+		t.Errorf("at 19 cells: want the dialog:\n%s", screen)
+	}
+}
+
 func TestTheMomentStartsAgainWhenAHiddenConfirmationShows(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
@@ -487,7 +516,7 @@ func TestTheMomentStartsAgainWhenAHiddenConfirmationShows(t *testing.T) {
 	d := e.start()
 	d.fill("Tab", "t", "tab {path}")
 	d.send(tea.WindowSizeMsg{Width: 80, Height: 8})
-	d.press("enter") // the confirmation, hidden by the notice
+	d.press("enter", "enter") // the confirmation, hidden by the notice
 	d.pass()
 
 	d.send(tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -510,12 +539,13 @@ func TestOnAScreenTooSmallForTheDialogANoticeShowsAndTheTextIsKept(t *testing.T)
 	e.config(zedConfig)
 	d := e.start()
 	d.fill("Tab", "t", "tab {path}")
+	d.press("enter")
 
 	for _, step := range []struct {
 		name string
 		want string // a row of the dialog at 80x24
 	}{
-		{"fields", "> Command tab {path}"},
+		{"fields", "> After open ‹ default (stay open) ›"},
 		{"confirmation", "command = 'tab {path}'"},
 	} {
 		for _, size := range [][2]int{{80, 1}, {80, 4}, {80, 5}, {80, 10}, {13, 24}} {
@@ -554,7 +584,7 @@ func TestTheFileIsReadAgainAtWriteTimeAndNotWrittenWhenItNoLongerLoads(t *testin
 	e.config(zedConfig)
 	d := e.start()
 	d.fill("Tab", "t", "tab {path}")
-	d.press("enter")
+	d.press("enter", "enter")
 	d.pass()
 	const edited = "paths = [\"~/code\"\n" // edited into a broken state meanwhile
 	e.config(edited)
@@ -569,6 +599,23 @@ func TestTheFileIsReadAgainAtWriteTimeAndNotWrittenWhenItNoLongerLoads(t *testin
 	}
 }
 
+func TestAWriteRefusedGoesBackToTheFieldsWithTheChoiceKept(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	e.config(zedConfig)
+	d := e.start()
+	d.fill("Tab", "t", "tab {path}")
+	d.press("tab", "right", "right", "enter")
+	d.pass()
+	e.config("paths = [\"~/code\"\n") // edited into a broken state meanwhile
+
+	d.press("enter")
+
+	if got := dialogText(d); !strings.Contains(got, "> After open ‹ close loper ›") || !strings.Contains(got, "config.toml:") {
+		t.Errorf("dialog reads %q, want the fields with the choice and the loader's message", got)
+	}
+}
+
 func TestAFailedWriteShowsTheErrorAndLeavesTheFileWhole(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
@@ -576,7 +623,7 @@ func TestAFailedWriteShowsTheErrorAndLeavesTheFileWhole(t *testing.T) {
 	dir := filepath.Dir(configPath())
 	d := e.start()
 	d.fill("Tab", "t", "tab {path}")
-	d.press("enter")
+	d.press("enter", "enter")
 	d.pass()
 	if err := os.Chmod(dir, 0o500); err != nil {
 		t.Fatal(err)
@@ -602,7 +649,7 @@ func TestEnterAgainWhileTheWriteRunsAppendsTheBlockOnce(t *testing.T) {
 	e.config(zedConfig)
 	d := e.start()
 	d.fill("Tab", "", "tab {path}") // no key, so a second block would load
-	d.press("enter")
+	d.press("enter", "enter")
 	d.pass()
 
 	d.hold = true
@@ -621,7 +668,7 @@ func TestACheckThatArrivesAfterTheFieldsChangedIsIgnored(t *testing.T) {
 	d.fill("Tab", "t", "tab {path}")
 
 	d.hold = true
-	d.press("enter", "x")
+	d.press("enter", "enter", "up", "x")
 	d.release()
 
 	if got := dialogText(d); strings.Contains(got, "[[targets]]") || !strings.Contains(got, "Command tab {path}x") {
@@ -629,13 +676,32 @@ func TestACheckThatArrivesAfterTheFieldsChangedIsIgnored(t *testing.T) {
 	}
 }
 
+func TestACheckThatArrivesAfterTheChoiceChangedIsIgnored(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	d := e.start()
+	d.fill("Tab", "t", "tab {path}")
+	d.press("tab")
+
+	d.hold = true
+	d.press("enter", "right")
+	d.release()
+
+	if got := dialogText(d); strings.Contains(got, "[[targets]]") || !strings.Contains(got, "> After open ‹ stay open ›") {
+		t.Errorf("dialog reads %q, want the fields with the choice made since, not the confirmation of before", got)
+	}
+}
+
 func TestCtrlCQuitsFromTheDialogAndItsConfirmation(t *testing.T) {
-	for _, keys := range [][]string{{}, {"enter"}} {
+	for _, keys := range [][]string{{}, {"enter", "enter"}} {
 		e := newEnv(t)
 		e.repo("code/alpha")
 		d := e.start()
 		d.fill("Tab", "t", "tab {path}")
 		d.press(keys...)
+		if confirming := strings.Contains(dialogText(d), "Append to"); confirming != (len(keys) > 0) {
+			t.Fatalf("after %q: confirmation showing %v, want %v:\n%s", keys, confirming, len(keys) > 0, d.screen())
+		}
 
 		d.press("ctrl+c")
 
@@ -758,10 +824,10 @@ func TestAPasteGoesToTheFieldWithoutLineBreaksOrControlCharacters(t *testing.T) 
 	if got, want := boxRows(d), "> Command tab{path}"; !slices.Contains(got, want) {
 		t.Errorf("dialog reads %q, want the row %q", got, want)
 	}
-	d.press("enter")
+	d.press("enter", "enter")
 	d.paste("x") // the confirmation takes no text
 	d.press("esc")
-	if got, want := boxRows(d), "> Command tab{path}"; !slices.Contains(got, want) {
+	if got, want := boxRows(d), "Command tab{path}"; !slices.Contains(got, want) {
 		t.Errorf("after a paste in the confirmation: dialog reads %q, want the row %q", got, want)
 	}
 }
@@ -845,6 +911,127 @@ func TestWithCloseOnOpenAnOpenThatSucceedsWhileTheDialogIsOpenDoesNotQuit(t *tes
 	}
 }
 
+func TestTheDialogShowsAfterOpenWithWhatTheDefaultMeansNow(t *testing.T) {
+	for setting, want := range map[string]string{"false": "After open ‹ default (stay open) ›", "true": "After open ‹ default (close loper) ›"} {
+		e := newEnv(t)
+		e.repo("code/alpha")
+		e.config("close_on_open = " + setting + "\n")
+		d := e.start()
+
+		d.press("a")
+
+		if got, want := boxRows(d), []string{"> Name", "Key", "Command", want}; len(got) < 4 || !slices.Equal(got[:4], want) {
+			t.Errorf("close_on_open %s: fields read %q, want %q", setting, got, want)
+		}
+		d.press("up", "up", "up", "up", "down", "down", "down") // to After open
+		if got, want := boxRows(d), "> "+want; !slices.Contains(got, want) {
+			t.Errorf("close_on_open %s: selected, fields read %q, want the row %q", setting, got, want)
+		}
+	}
+}
+
+func TestEnterOnTheCommandMovesToAfterOpenAndFromThereToTheConfirmation(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	d := e.start()
+	d.fill("Tab", "t", "tab {path}")
+
+	d.press("enter")
+	if got, want := boxRows(d), "> After open ‹ default (stay open) ›"; !slices.Contains(got, want) {
+		t.Fatalf("after enter on the command: dialog reads %q, want the row %q", got, want)
+	}
+	d.press("up", "down", "shift+tab", "tab")
+	if got, want := boxRows(d), "> After open ‹ default (stay open) ›"; !slices.Contains(got, want) {
+		t.Fatalf("after moving away and back: dialog reads %q, want the row %q", got, want)
+	}
+	d.press("tab", "down") // nowhere further to go
+	d.press("enter")
+	if got := dialogText(d); !strings.Contains(got, "Append to") {
+		t.Errorf("after enter on After open: dialog reads %q, want the confirmation", got)
+	}
+}
+
+func TestLeftRightAndSpaceChangeTheChoiceAndOtherKeysDoNothingThere(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	d := e.start()
+	d.fill("Tab", "t", "tab")
+	d.press("space")
+	d.typeText("{path}")
+	d.press("tab")
+
+	for _, step := range []struct {
+		key, want string
+	}{
+		{"right", "stay open"},
+		{"right", "close loper"},
+		{"space", "default (stay open)"},
+		{"left", "close loper"},
+		{"x", "close loper"},
+		{"backspace", "close loper"},
+		{"left", "stay open"},
+	} {
+		d.press(step.key)
+		if got, want := boxRows(d), "> After open ‹ "+step.want+" ›"; !slices.Contains(got, want) {
+			t.Fatalf("after %s: dialog reads %q, want the row %q", step.key, got, want)
+		}
+	}
+	if got, want := boxRows(d), []string{"Name Tab", "Key t", "Command tab {path}"}; len(got) < 3 || !slices.Equal(got[:3], want) {
+		t.Errorf("fields read %q, want %q, with the space in the command", got, want)
+	}
+}
+
+func TestAPasteOnAfterOpenDoesNothing(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	d := e.start()
+	d.fill("Tab", "t", "tab {path}")
+	d.press("tab")
+
+	d.paste("close loper")
+
+	if got, want := boxRows(d), []string{"Name Tab", "Key t", "Command tab {path}", "> After open ‹ default (stay open) ›"}; len(got) < 4 || !slices.Equal(got[:4], want) {
+		t.Errorf("dialog reads %q, want %q", got, want)
+	}
+}
+
+func TestAnAddedTargetWritesItsChoiceAndBehavesSoAtOnce(t *testing.T) {
+	for _, c := range []struct {
+		setting string
+		keys    []string // on After open
+		block   string   // what is written after tabBlock
+		quits   bool
+	}{
+		{"false", []string{"right", "right"}, "close = true\n", true},
+		{"true", []string{"right"}, "close = false\n", false},
+		{"true", nil, "", true},
+	} {
+		e := newEnv(t)
+		alpha := e.repo("code/alpha")
+		e.fakeTarget("tab")
+		e.config("close_on_open = " + c.setting + "\n")
+		d := e.start()
+		d.fill("Tab", "t", "tab {path}")
+		d.press("tab")
+		d.press(c.keys...)
+
+		d.press("enter")
+		d.pass()
+		d.press("enter")
+
+		if got, _ := fileText(t, configPath()); got != "close_on_open = "+c.setting+"\n\n"+tabBlock+c.block {
+			t.Errorf("%q: config is %q, want the block with %q", c.keys, got, c.block)
+		}
+		d.press("t")
+		if got, want := e.targetArgs("tab"), []string{alpha}; !slices.Equal(got, want) {
+			t.Errorf("%q: tab called with %q, want %q", c.keys, got, want)
+		}
+		if d.quit != c.quits {
+			t.Errorf("%q: quit %v after the open, want %v", c.keys, d.quit, c.quits)
+		}
+	}
+}
+
 // dialogRows is the add dialog's rows as styled shows them, with their
 // spacing collapsed.
 func dialogRows(d *driver) []string {
@@ -897,7 +1084,7 @@ func TestAFieldLeftEmptyIsNeverTakenAsItsExample(t *testing.T) {
 		d := e.start()
 
 		d.fill(c.name, c.key, c.command)
-		d.press("enter")
+		d.press("enter", "enter")
 		if c.reason == "" {
 			d.pass()
 		}

@@ -270,6 +270,36 @@ func TestWithCloseOnOpenTheToolQuitsAfterASuccessfulOpen(t *testing.T) {
 	}
 }
 
+func TestATargetsCloseOverridesCloseOnOpenAfterASuccessfulOpen(t *testing.T) {
+	for _, c := range []struct {
+		setting, close string // "" leaves the line out
+		quits          bool
+	}{
+		{"false", "true", true},
+		{"false", "", false},
+		{"true", "false", false},
+		{"true", "", true},
+	} {
+		e := newEnv(t)
+		e.repo("code/alpha")
+		body := "close_on_open = " + c.setting + "\n\n[[targets]]\nname = \"Zed\"\nkey = \"z\"\ncommand = \"zed {path}\"\n"
+		if c.close != "" {
+			body += "close = " + c.close + "\n"
+		}
+		e.config(body)
+		d := e.start()
+
+		d.press("z")
+
+		if e.targetArgs("zed") == nil {
+			t.Errorf("close_on_open %s, close %q: zed did not run", c.setting, c.close)
+		}
+		if d.quit != c.quits {
+			t.Errorf("close_on_open %s, close %q: quit %v, want %v", c.setting, c.close, d.quit, c.quits)
+		}
+	}
+}
+
 func TestWithCloseOnOpenAFailedOpenShowsTheDialogAndTheToolDoesNotQuit(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
@@ -281,6 +311,22 @@ name = "Broken"
 key = "b"
 command = "false {path}"
 `)
+	d := e.start()
+
+	d.press("b")
+
+	if d.quit {
+		t.Error("the tool quit after a failed open")
+	}
+	if got := boxRows(d); len(got) != 2 || got[1] != "exit status 1" {
+		t.Errorf("dialog reads %q, want the command line and the exit status:\n%s", got, d.screen())
+	}
+}
+
+func TestAFailedOpenDoesNotQuitWhenItsTargetSaysClose(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	e.config("\n[[targets]]\nname = \"Broken\"\nkey = \"b\"\ncommand = \"false {path}\"\nclose = true\n")
 	d := e.start()
 
 	d.press("b")
