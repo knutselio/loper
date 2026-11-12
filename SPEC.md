@@ -110,7 +110,7 @@ Tools that list multiple repos exist (gitpane, git-scope, dirtygit), but they ar
 64. As a developer, I want a config mistake reported at startup with the line it is on, so that a typo is never silently ignored.
 65. As a developer, I want a target key that clashes with one of the tool's own keys reported as an error, so that a key never does two things.
 66. As a developer, I want to run the tool against another config file with a flag, so that I can try changes without touching my real config.
-67. As a developer, I want a help flag that prints the usage, the config file location, where targets come from and the keys, so that I can check them without starting the picker.
+67. As a developer, I want a help flag that prints the usage, the config file location, the keys and my configured targets, so that I can check them without starting the picker.
 68. As a developer, I want to add a target from inside the tool by typing its name, key and command, so that a new target does not mean opening the config file.
 69. As a developer, I want a target I add that way checked by the same rules as the config file, with the reason shown when it is refused, so that the tool never writes a config it cannot load.
 70. As a developer, I want to see the exact lines that will be added and the file they go to before anything is written, and the rest of my config file left as it was, comments included, so that my hand-written file stays mine.
@@ -250,7 +250,7 @@ Inside the add dialog every printable key is text, `q`, the list keys and the ta
 ### Open targets
 
 - The command of a target is entirely up to the user. The tool knows nothing about Zed, Rex or any other program: it substitutes the placeholders and runs what the user wrote.
-- A target has a `name`, a `command` and an optional single-character `key`. A target without a key is reachable only through the menu.
+- A target has a `name`, a `command` and an optional single-character `key`. The name is required, a name of only spaces counts as empty, and it may not contain control characters such as a line break or an escape, which would break the rows or reach the terminal. A target without a key is reachable only through the menu.
 - The command must contain `{path}`, which is replaced by the repo's absolute path. `{name}` is replaced by the repo's name. There are no other placeholders.
 - The command is not run through a shell. The tool splits it into words using shell-style quoting (single quotes, double quotes and backslash), then substitutes each placeholder as part of a single argument, so a path with spaces needs no quoting. An unbalanced quote is a config error. A user who needs shell features writes `sh -c '…'` as the command.
 - The command runs in the background with the repo as its working folder and the tool's own environment. The tool waits for it to exit, for at most 2 seconds. The wait is a parameter of the target runner, not a config setting, so tests can shorten it.
@@ -271,6 +271,7 @@ Inside the add dialog every printable key is text, `q`, the list keys and the ta
   - The file is written whole, through a temporary file renamed over it, so a failed write leaves it as it was and the dialog shows the error. The file keeps its mode; a new file is private to the user. A config file that is a symlink stays one: the file it points to is rewritten. A link to a file that does not exist is refused, and nothing is written.
 - These are errors that stop the tool at startup with a message naming the file and line:
   - an unknown setting or an invalid value;
+  - a target without a name, or with a name that is only spaces or contains a control character;
   - a target without `{path}`;
   - a target command with an unbalanced quote;
   - a `columns` list without `name`, or with a column listed twice;
@@ -322,10 +323,12 @@ command = "rex split -c {path} -- lazygit"
 | ----------------------- | -------------------------------------------------------------------------------- |
 | `loper`                 | Starts the picker                                                                |
 | `loper --version`       | Prints the version                                                               |
-| `loper --help`          | Prints usage, the config file location, where targets come from and the key list |
+| `loper --help`          | Prints usage, the config file location, the key list and the configured targets  |
 | `loper --config <file>` | Uses another config file for this run                                            |
 
 There are no subcommands in this version.
+
+`--help` ends with a "Targets" section that lists each target in the config file in use, honouring `--config` and `XDG_CONFIG_HOME`: its key, blank when it has none, and its name, in the order they are written. With no file or no targets it says `none; add one in the picker with a, or in the config file`. A config file that does not load, including a `--config` file that does not exist, does not stop `--help`: the loader's message takes the place of the list, everything else is printed and the exit code is 0.
 
 ### Install
 

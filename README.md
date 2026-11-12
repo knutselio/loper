@@ -56,7 +56,7 @@ key = "z"
 command = "zed {path}"
 ```
 
-`loper --help` prints the config file in use and the keys. `loper --config <file>` uses another file for one run.
+`loper --help` prints the config file in use, the keys and your targets. `loper --config <file>` uses another file for one run.
 
 ## Features
 

@@ -68,9 +68,9 @@ type checked struct {
 }
 
 type checkedTarget struct {
-	Name    string  `toml:"name"`
-	Key     key     `toml:"key"`
-	Command command `toml:"command"`
+	Name    targetName `toml:"name"`
+	Key     key        `toml:"key"`
+	Command command    `toml:"command"`
 }
 
 // folder checks a paths entry: an absolute path, or one that starts with ~.
@@ -149,6 +149,23 @@ func (*command) UnmarshalText(b []byte) error {
 	}
 	return nil
 }
+
+// targetName checks a target name: not only spaces, and no control characters,
+// which would break the rows or reach the terminal as escapes.
+type targetName struct{}
+
+func (*targetName) UnmarshalText(b []byte) error {
+	n := string(b)
+	if strings.TrimSpace(n) == "" {
+		return errNoName
+	}
+	if strings.ContainsFunc(n, unicode.IsControl) {
+		return fmt.Errorf("target name %q has a control character", n)
+	}
+	return nil
+}
+
+var errNoName = errors.New("a target needs a name")
 
 // key checks a target key: one printable, non-space character that is not
 // one of the tool's own keys, including those of features still to come.
@@ -265,8 +282,9 @@ func AddTarget(path, home, name, k, cmd string) ([]target.Target, error) {
 // spaces around it.
 func withTarget(path, home, name, k, cmd string) (string, []byte, string, Settings, error) {
 	fail := func(err error) (string, []byte, string, Settings, error) { return "", nil, "", Settings{}, err }
-	if name = strings.TrimSpace(name); name == "" {
-		return fail(errors.New("a target needs a name"))
+	name = strings.TrimSpace(name)
+	if err := (&targetName{}).UnmarshalText([]byte(name)); err != nil {
+		return fail(err)
 	}
 	if k != "" {
 		if err := (&key{}).UnmarshalText([]byte(k)); err != nil {
@@ -362,7 +380,7 @@ func inlineTargets(b []byte) bool {
 }
 
 // checkTargets reports what the per-value checks cannot see: a target with
-// no command, and a key used by two targets. b is the file at path.
+// no name or no command, and a key used by two targets. b is the file at path.
 func checkTargets(path string, b []byte, targets []targetFile) error {
 	lines, err := targetLines(path, b)
 	if err != nil {
@@ -370,6 +388,9 @@ func checkTargets(path string, b []byte, targets []targetFile) error {
 	}
 	used := map[string]int{} // key → the line of the target that has it
 	for i, t := range targets {
+		if t.Name == "" {
+			return fmt.Errorf("%s:%d: %w", path, lines[i].start, errNoName)
+		}
 		if t.Command == "" {
 			return fmt.Errorf("%s:%d: target %q has no command; it needs one with {path}", path, lines[i].start, t.Name)
 		}

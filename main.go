@@ -62,14 +62,17 @@ func run(args []string, stdout, stderr io.Writer, start func(home string, s conf
 	}
 	if *showHelp {
 		home := ""
-		// Only the standard location without XDG_CONFIG_HOME is in the home folder.
+		// Only the standard location without XDG_CONFIG_HOME is in the home
+		// folder. The targets do not depend on it, so without it they still load.
 		if *configFile == "" && xdg.Dir("XDG_CONFIG_HOME", "") == "" {
 			if home, err = os.UserHomeDir(); err != nil {
 				fmt.Fprintln(stderr, "loper:", err)
 				return 1
 			}
 		}
-		help(stdout, config.Path(*configFile, home))
+		// A config that does not load is shown in the help, not an error.
+		settings, err := config.Load(*configFile, home)
+		help(stdout, config.Path(*configFile, home), settings.Targets, err)
 		return 0
 	}
 	if *showVersion {
@@ -102,17 +105,19 @@ Options:
   --version        Print the version
 `
 
-// help prints the usage, the config file that would be read, where targets
-// come from and loper's own keys.
-func help(w io.Writer, configFile string) {
+// help prints the usage, the config file that would be read, loper's own keys
+// and the configured targets, or why the config file does not load.
+func help(w io.Writer, configFile string, targets []target.Target, loadErr error) {
 	fmt.Fprintf(w, "loper picks one of your git repos and opens it.\n\n%s\nConfig file: %s\n", usage, configFile)
-	fmt.Fprintln(w, "Targets are defined in the config file, or added in the picker with a.")
 	sections := ui.KeyList()
 	keyWidth := 0
 	for _, s := range sections {
 		for _, b := range s.Bindings {
 			keyWidth = max(keyWidth, ansi.StringWidth(b.Keys))
 		}
+	}
+	row := func(keys, text string) {
+		fmt.Fprintf(w, "  %s%s  %s\n", keys, strings.Repeat(" ", keyWidth-ansi.StringWidth(keys)), text)
 	}
 	for _, s := range sections {
 		title := s.Title
@@ -121,8 +126,18 @@ func help(w io.Writer, configFile string) {
 		}
 		fmt.Fprintf(w, "\n%s:\n", title)
 		for _, b := range s.Bindings {
-			fmt.Fprintf(w, "  %s%s  %s\n", b.Keys, strings.Repeat(" ", keyWidth-ansi.StringWidth(b.Keys)), b.Action)
+			row(b.Keys, b.Action)
 		}
+	}
+	fmt.Fprint(w, "\nTargets:\n")
+	switch {
+	case loadErr != nil:
+		fmt.Fprintf(w, "  %v\n", loadErr)
+	case len(targets) == 0:
+		fmt.Fprintln(w, "  none; add one in the picker with a, or in the config file")
+	}
+	for _, t := range targets {
+		row(t.Key, t.Name)
 	}
 }
 

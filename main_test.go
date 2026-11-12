@@ -226,6 +226,41 @@ func TestTwoInlineTargetsWithTheSameKeyStopTheToolNamingTheFileAndLine(t *testin
 		3, `target key "z" is already used by the target on line 2`)
 }
 
+func TestATargetWithoutANameStopsTheToolNamingTheFileAndLine(t *testing.T) {
+	startupFails(t, targetConfig("key = \"t\"\ncommand = \"tab {path}\"\n"),
+		6, `a target needs a name`)
+	for _, value := range []string{`""`, `"   "`} {
+		startupFails(t, targetConfig("name = "+value+"\nkey = \"t\"\ncommand = \"tab {path}\"\n"),
+			7, `a target needs a name`)
+	}
+}
+
+func TestATargetNameWithAControlCharacterStopsTheToolNamingTheFileAndLine(t *testing.T) {
+	for toml, quoted := range map[string]string{`a\nb`: `"a\nb"`, `\u001b[31mred`: `"\x1b[31mred"`, `Rex\ttab`: `"Rex\ttab"`} {
+		startupFails(t, targetConfig("name = \""+toml+"\"\nkey = \"t\"\ncommand = \"tab {path}\"\n"),
+			7, `target name `+quoted+` has a control character`)
+	}
+}
+
+func TestTheHelpFlagShowsWhyATargetNameIsRefused(t *testing.T) {
+	home := tempHome(t)
+	file := filepath.Join(home, ".config", "loper", "config.toml")
+	writeConfig(t, file, targetConfig("name = \"\\u001b[31mred\"\ncommand = \"tab {path}\"\n"))
+
+	code, stdout, stderr := withoutUI(t, "--help")
+
+	if code != 0 || stderr != "" {
+		t.Errorf("exit code %d, stderr %q; want 0 and nothing", code, stderr)
+	}
+	if strings.Contains(stdout, "\x1b") {
+		t.Errorf("stdout has a raw escape:\n%s", stdout)
+	}
+	want := []string{"  " + file + `:7: target name "\x1b[31mred" has a control character`}
+	if got := targetsSection(t, stdout); !slices.Equal(got, want) {
+		t.Errorf("Targets section %q, want %q", got, want)
+	}
+}
+
 func TestATargetWithoutACommandStopsTheToolNamingTheFileAndLine(t *testing.T) {
 	startupFails(t, targetConfig("name = \"Tab\"\nkey = \"t\"\n"),
 		6, `target "Tab" has no command; it needs one with {path}`)
@@ -394,8 +429,7 @@ func TestTheHelpFlagPrintsTheUsageTheConfigFileAndTheKeys(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Errorf("exit code %d, stderr %q; want 0 and nothing", code, stderr)
 	}
-	want := []string{"Usage: loper [--config <file>]", "Config file: " + filepath.Join(xdgConfig, "loper", "config.toml"), "\n  a  ", "Add a target to the config file",
-		"Targets are defined in the config file, or added in the picker with a."}
+	want := []string{"Usage: loper [--config <file>]", "Config file: " + filepath.Join(xdgConfig, "loper", "config.toml"), "\n  a  ", "Add a target to the config file"}
 	for _, s := range ui.KeyList() {
 		want = append(want, s.Title)
 		for _, b := range s.Bindings {
@@ -407,23 +441,81 @@ func TestTheHelpFlagPrintsTheUsageTheConfigFileAndTheKeys(t *testing.T) {
 			t.Errorf("stdout does not contain %q:\n%s", w, stdout)
 		}
 	}
+	if got, want := targetsSection(t, stdout), []string{"  " + noTargets}; !slices.Equal(got, want) {
+		t.Errorf("Targets section %q, want %q", got, want)
+	}
 }
 
-func TestTheHelpFlagWinsOverTheOtherFlagsAndNeverReadsTheConfigFile(t *testing.T) {
+// noTargets is what the Targets section of --help says when there are none.
+const noTargets = "none; add one in the picker with a, or in the config file"
+
+// targetsSection returns the lines of the Targets section that ends the
+// --help output in stdout, and checks that it is said only once.
+func targetsSection(t *testing.T, stdout string) []string {
+	t.Helper()
+	before, section, ok := strings.Cut(stdout, "\nTargets:\n")
+	if !ok || strings.Contains(section, "Targets") || strings.Contains(before, "Targets are") {
+		t.Fatalf("stdout does not end with one Targets section:\n%s", stdout)
+	}
+	return strings.Split(strings.TrimSuffix(section, "\n"), "\n")
+}
+
+func TestTheHelpFlagListsTheConfiguredTargetsInOrder(t *testing.T) {
+	home := tempHome(t)
+	body := "[[targets]]\nname = \"Zed\"\nkey = \"z\"\ncommand = \"zed {path}\"\n\n" +
+		"[[targets]]\nname = \"Rex tab\"\ncommand = \"rex window new -c {path}\"\n\n" +
+		"[[targets]]\nname = \"Lazygit\"\nkey = \"l\"\ncommand = \"rex split -c {path} -- lazygit\"\n"
+	writeConfig(t, filepath.Join(home, ".config", "loper", "config.toml"), body)
+	other := filepath.Join(home, "other.toml")
+	writeConfig(t, other, "[[targets]]\nname = \"Other\"\nkey = \"o\"\ncommand = \"other {path}\"\n")
+	for _, c := range []struct {
+		args  []string
+		keys  []string
+		names []string
+	}{
+		{[]string{"--help"}, []string{"z", " ", "l"}, []string{"Zed", "Rex tab", "Lazygit"}},
+		{[]string{"--help", "--config", other}, []string{"o"}, []string{"Other"}},
+		{[]string{"--config", other, "--help"}, []string{"o"}, []string{"Other"}},
+	} {
+		code, stdout, stderr := withoutUI(t, c.args...)
+
+		if code != 0 || stderr != "" {
+			t.Errorf("%q: exit code %d, stderr %q; want 0 and nothing", c.args, code, stderr)
+		}
+		if strings.Contains(stdout, "\x1b") {
+			t.Errorf("%q: stdout has colour or other escapes:\n%s", c.args, stdout)
+		}
+		lines := targetsSection(t, stdout)
+		if len(lines) != len(c.names) {
+			t.Fatalf("%q: Targets section %q, want %q", c.args, lines, c.names)
+		}
+		column := strings.Index(lines[0], c.names[0])
+		for i, line := range lines {
+			// Two spaces, the key or a blank, then the name in one column.
+			if !strings.HasPrefix(line, "  "+c.keys[i]+" ") || strings.Index(line, c.names[i]) != column ||
+				strings.TrimSpace(line[3:]) != c.names[i] {
+				t.Errorf("%q: Targets line %q, want key %q and %q at column %d", c.args, line, c.keys[i], c.names[i], column)
+			}
+		}
+	}
+}
+
+func TestTheHelpFlagWinsOverTheOtherFlagsWhateverTheConfigFile(t *testing.T) {
 	home := tempHome(t)
 	standard := filepath.Join(home, ".config", "loper", "config.toml")
 	bad := filepath.Join(home, "bad.toml")
 	writeConfig(t, bad, "colour = \"blue\"\n")
 	missing := filepath.Join(home, "missing.toml")
 	for _, c := range []struct {
-		args []string
-		file string
+		args    []string
+		file    string
+		targets string
 	}{
-		{[]string{"-h"}, standard},
-		{[]string{"--version", "--help"}, standard},
-		{[]string{"--help", "--version"}, standard},
-		{[]string{"--config", bad, "--help"}, bad},
-		{[]string{"--help", "--config", missing}, missing},
+		{[]string{"-h"}, standard, noTargets},
+		{[]string{"--version", "--help"}, standard, noTargets},
+		{[]string{"--help", "--version"}, standard, noTargets},
+		{[]string{"--config", bad, "--help"}, bad, bad + `:1: unknown setting "colour"`},
+		{[]string{"--help", "--config", missing}, missing, "config file " + missing + " does not exist"},
 	} {
 		code, stdout, stderr := withoutUI(t, c.args...)
 
@@ -433,21 +525,33 @@ func TestTheHelpFlagWinsOverTheOtherFlagsAndNeverReadsTheConfigFile(t *testing.T
 		if want := "Config file: " + c.file + "\n"; !strings.Contains(stdout, want) {
 			t.Errorf("%q: stdout does not contain %q:\n%s", c.args, want, stdout)
 		}
+		if got, want := targetsSection(t, stdout), []string{"  " + c.targets}; !slices.Equal(got, want) {
+			t.Errorf("%q: Targets section %q, want %q", c.args, got, want)
+		}
 	}
 }
 
-func TestTheHelpFlagNamesTheStandardConfigFileWhenItIsInvalid(t *testing.T) {
+func TestTheHelpFlagPrintsEverythingAndTheLoadersMessageWhenTheStandardConfigFileIsInvalid(t *testing.T) {
 	home := tempHome(t)
 	file := filepath.Join(home, ".config", "loper", "config.toml")
 	writeConfig(t, file, "paths = [\n")
+	_, loadErr := config.Load("", home)
 
 	code, stdout, stderr := withoutUI(t, "--help")
 
 	if code != 0 || stderr != "" {
 		t.Errorf("exit code %d, stderr %q; want 0 and nothing", code, stderr)
 	}
-	if want := "Config file: " + file + "\n"; !strings.Contains(stdout, want) {
-		t.Errorf("stdout does not contain %q:\n%s", want, stdout)
+	for _, want := range []string{"Usage: loper [--config <file>]", "Config file: " + file + "\n", "Add a target to the config file"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("stdout does not contain %q:\n%s", want, stdout)
+		}
+	}
+	if loadErr == nil || !strings.HasPrefix(loadErr.Error(), file+":1: ") {
+		t.Fatalf("the loader accepted the file or did not name it and the line: %v", loadErr)
+	}
+	if got, want := targetsSection(t, stdout), []string{"  " + loadErr.Error()}; !slices.Equal(got, want) {
+		t.Errorf("Targets section %q, want %q", got, want)
 	}
 }
 
