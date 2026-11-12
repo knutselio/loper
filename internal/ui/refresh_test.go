@@ -29,7 +29,7 @@ func TestRPicksUpARepoCreatedWhileTheToolWasOpen(t *testing.T) {
 	d.hold = true // the refresh's result stays on its way
 	d.press("r")
 
-	if got, want := header(d), "repos 1 sort: last opened ⠋ refreshing"; got != want {
+	if got, want := header(d), "loper · 1 repo sort: last opened ⠋ refreshing"; got != want {
 		t.Errorf("while refreshing: header reads %q, want %q", got, want)
 	}
 	d.release()
@@ -91,7 +91,7 @@ func TestRWhileTheLastSpinnerTickIsOnItsWayKeepsOneSpinner(t *testing.T) {
 	d.press("r")
 	d.tick()
 
-	if got, want := header(d), "repos 1 sort: last opened ⠙ refreshing"; got != want {
+	if got, want := header(d), "loper · 1 repo sort: last opened ⠙ refreshing"; got != want {
 		t.Errorf("after a tick: header reads %q, want %q", got, want)
 	}
 	d.release()
@@ -113,7 +113,7 @@ func TestRAfterTheSpinnerStoppedStartsItAgain(t *testing.T) {
 	if !d.tick() {
 		t.Fatal("the spinner does not tick while r's refresh runs")
 	}
-	if got, want := header(d), "repos 1 sort: last opened ⠙ refreshing"; got != want {
+	if got, want := header(d), "loper · 1 repo sort: last opened ⠙ refreshing"; got != want {
 		t.Errorf("after a tick: header reads %q, want %q", got, want)
 	}
 }

@@ -28,7 +28,7 @@ func (e *env) openedBefore(ago map[string]time.Duration) {
 func order(d *driver) []string {
 	lines := strings.Split(d.screen(), "\n")
 	var rows []string
-	for _, line := range lines[2 : len(lines)-2] {
+	for _, line := range lines[3 : len(lines)-2] { // under the headings
 		if words := strings.Fields(strings.TrimPrefix(line, " > ")); len(words) >= 2 {
 			rows = append(rows, words[0]+" "+words[1])
 		}
@@ -119,9 +119,9 @@ func TestSSwitchesToAlphabeticalOrderAndBackAndTheHeaderShowsTheSort(t *testing.
 		order  []string
 		header string
 	}{
-		{nil, byLastOpened, "repos 3 sort: last opened"},
-		{[]string{"s"}, byName, "repos 3 sort: name"},
-		{[]string{"s"}, byLastOpened, "repos 3 sort: last opened"},
+		{nil, byLastOpened, "loper · 3 repos sort: last opened"},
+		{[]string{"s"}, byName, "loper · 3 repos sort: name"},
+		{[]string{"s"}, byLastOpened, "loper · 3 repos sort: last opened"},
 	}
 	for _, s := range steps {
 		d.press(s.keys...)
@@ -144,7 +144,7 @@ func TestSortNameInTheConfigStartsInAlphabeticalOrder(t *testing.T) {
 	if got := order(d); !slices.Equal(got, byName) {
 		t.Errorf("rows %q, want %q", got, byName)
 	}
-	if got, want := header(d), "repos 3 sort: name"; got != want {
+	if got, want := header(d), "loper · 3 repos sort: name"; got != want {
 		t.Errorf("header reads %q, want %q", got, want)
 	}
 }

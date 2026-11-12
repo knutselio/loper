@@ -40,7 +40,7 @@ func TestEachColumnButTheLastIsPaddedToItsWidestValueInDisplayCells(t *testing.T
 		" > ~/code  alpha   a-longer-branch",
 		"   ~/code  日本語  main", // no trailing spaces after the last column
 	}
-	if got := lines[2:4]; !slices.Equal(got, want) {
+	if got := lines[3:5]; !slices.Equal(got, want) {
 		t.Errorf("rows read %q, want %q", got, want)
 	}
 }
@@ -143,7 +143,7 @@ func TestRowStyleRootPathShowsTheSameRowsFromTheCacheAsAfterTheRefresh(t *testin
 func rows(d *driver) []string {
 	lines := strings.Split(d.screen(), "\n")
 	var rows []string
-	for _, line := range lines[2 : len(lines)-2] {
+	for _, line := range lines[3 : len(lines)-2] { // under the headings
 		if row := strings.Join(strings.Fields(strings.TrimPrefix(line, " > ")), " "); row != "" {
 			rows = append(rows, row)
 		}
@@ -173,7 +173,9 @@ func TestUnderRootPathBothSortsOrderByTheDisplayedPathIgnoringCase(t *testing.T)
 // styled returns s with each run of dimmed text in braces, each run of
 // otherwise styled text in brackets, and every other escape sequence
 // removed, so a test sees what is dimmed and what is highlighted. A run
-// with no text, which the screen does not show, is left out.
+// with no text, which the screen does not show, is left out, and so is
+// reverse video, the bar of the selection, which bar_test.go checks on the
+// raw screen.
 func styled(s string) string {
 	dim, other := false, false
 	on := map[string]bool{} // the attributes and colours other than dim that are on
@@ -189,6 +191,7 @@ func styled(s string) string {
 			case p == "22": // ends bold as well as dim
 				d = false
 				delete(on, "1")
+			case p == "7" || p == "27":
 			case p == "39":
 				delete(on, "foreground")
 			case p == "49":
@@ -228,7 +231,7 @@ func styled(s string) string {
 func styledRows(d *driver) []string {
 	lines := strings.Split(d.screen(), "\n")
 	var rows []string
-	for _, line := range lines[2 : len(lines)-2] {
+	for _, line := range lines[3 : len(lines)-2] { // under the headings
 		if row := strings.Join(strings.Fields(styled(line)), " "); row != "" {
 			rows = append(rows, row)
 		}
@@ -315,5 +318,59 @@ func TestUnderRootPathARepoAlsoListedDirectlyShowsItsBareNameInEitherOrder(t *te
 		if got, want := rows(d), []string{"alpha main -", "backend main -"}; !slices.Equal(got, want) {
 			t.Errorf("paths = %s: rows %q, want %q", paths, got, want)
 		}
+	}
+}
+
+func TestAHeadingsLineNamesEachShownColumnAlignedWithIt(t *testing.T) {
+	for _, c := range []struct {
+		config             string
+		headings, firstRow string
+	}{
+		{"", "   NAME   FOLDER  BRANCH  OPENED", " > alpha  ~/code  main    -"},
+		{`columns = ["branch", "name"]`, "   BRANCH  NAME", " > main    alpha"},
+		{`row_style = "root-path"`, "   NAME   BRANCH  OPENED", " > alpha  main    -"},
+		{`row_style = "name"`, "   NAME   BRANCH  OPENED", " > alpha  main    -"},
+	} {
+		e := newEnv(t)
+		e.repo("code/alpha")
+		e.config(c.config)
+
+		lines := strings.Split(e.start().screen(), "\n")
+
+		if got, want := lines[2:4], []string{c.headings, c.firstRow}; !slices.Equal(got, want) {
+			t.Errorf("%q: the lines under the rule read %q, want %q", c.config, got, want)
+		}
+	}
+
+	e := newEnv(t)
+	e.color = true
+	e.repo("code/alpha")
+	if got, want := styled(strings.Split(e.start().screen(), "\n")[2]), "   {NAME   FOLDER  BRANCH  OPENED}"; got != want {
+		t.Errorf("with colour: headings read %q, want them dimmed: %q", got, want)
+	}
+}
+
+func TestTheHeadingsStayDuringASearchAndAreNotShownWithoutRows(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	d := e.start()
+	d.press("/")
+	d.typeText("alp")
+	if got := strings.Split(d.screen(), "\n")[2]; got != "   NAME   FOLDER  BRANCH  OPENED" {
+		t.Errorf("searching: line 3 is %q, want the headings", got)
+	}
+	d.typeText("xyz")
+	if got := strings.Split(d.screen(), "\n")[2]; got != "   No matches" {
+		t.Errorf("no matches: line 3 is %q, want No matches in place of the headings", got)
+	}
+
+	d = newEnv(t).launch()
+	d.next() // no cache yet
+	if got := strings.Split(d.screen(), "\n")[2]; got != "   ⠋ scanning…" {
+		t.Errorf("scanning: line 3 is %q, want scanning in place of the headings", got)
+	}
+
+	if got := strings.Split(newEnv(t).start().screen(), "\n")[2]; !strings.HasPrefix(got, "   No repos found in ") {
+		t.Errorf("no repos: line 3 is %q, want the no-repos message in place of the headings", got)
 	}
 }

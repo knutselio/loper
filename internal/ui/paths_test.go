@@ -71,7 +71,7 @@ func TestAPathsEntryThatIsARepoAppearsAsOneRow(t *testing.T) {
 
 	screen := e.start().screen()
 
-	for _, row := range []string{"alpha ~/code main", "dotfiles ~ main", "repos 2"} {
+	for _, row := range []string{"alpha ~/code main", "dotfiles ~ main", "loper · 2 repos"} {
 		if !hasRow(screen, row) {
 			t.Errorf("screen has no row %q:\n%s", row, screen)
 		}
@@ -106,7 +106,7 @@ func TestASymlinkListedDirectlyIsFollowedAndShowsThePathAsWritten(t *testing.T) 
 	d := e.start()
 	screen := d.screen()
 
-	for _, row := range []string{"dots ~ main", "backend ~/work main", "repos 2"} {
+	for _, row := range []string{"dots ~ main", "backend ~/work main", "loper · 2 repos"} {
 		if !hasRow(screen, row) {
 			t.Errorf("screen has no row %q:\n%s", row, screen)
 		}
@@ -153,7 +153,7 @@ func TestOverlappingPathsListARepoOnce(t *testing.T) {
 
 	d := e.start()
 
-	if !hasRow(d.screen(), "repos 2") {
+	if !hasRow(d.screen(), "loper · 2 repos") {
 		t.Errorf("header does not count 2 repos:\n%s", d.screen())
 	}
 	if got, want := order(d), []string{"alpha ~/code", "beta ~/code"}; !slices.Equal(got, want) {

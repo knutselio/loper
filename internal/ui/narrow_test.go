@@ -196,14 +196,16 @@ func paletteParam(p string) bool {
 func TestColumnsDropInAFixedOrderAsTheTerminalNarrowsAndComeBackAsItWidens(t *testing.T) {
 	for _, c := range []struct {
 		columns string
-		// alpha's row and b's row with all four, three, two and one column,
-		// then with the name cut
-		alpha, b [5]string
+		// the headings, alpha's row and b's row with all four, three, two and
+		// one column, then with the name cut
+		headings, alpha, b [5]string
 	}{
 		{`["name", "folder", "branch", "last_opened"]`,
+			[5]string{"NAME FOLDER BRANCH OPENED", "NAME FOLDER BRANCH", "NAME FOLDER", "NAME", "NAME"},
 			[5]string{"alpha ~/code main 1h ago", "alpha ~/code main", "alpha ~/code", "alpha", "alp…"},
 			[5]string{"b ~/code main -", "b ~/code main", "b ~/code", "b", "b"}},
 		{`["last_opened", "branch", "folder", "name"]`,
+			[5]string{"OPENED BRANCH FOLDER NAME", "BRANCH FOLDER NAME", "FOLDER NAME", "NAME", "NAME"},
 			[5]string{"1h ago main ~/code alpha", "main ~/code alpha", "~/code alpha", "alpha", "alp…"},
 			[5]string{"- main ~/code b", "main ~/code b", "~/code b", "b", "b"}},
 	} {
@@ -214,15 +216,15 @@ func TestColumnsDropInAFixedOrderAsTheTerminalNarrowsAndComeBackAsItWidens(t *te
 		e.config("columns = " + c.columns)
 		d := e.start()
 
-		// The marker takes 3 cells and two columns are 2 apart, so the row is
-		// 30 cells with all four columns, 22 with three, 16 with two and 8
-		// with the name alone.
+		// The marker takes 3 cells and two columns are 2 apart, and the branch
+		// column is as wide as its heading, so the row is 32 cells with all
+		// four columns, 24 with three, 16 with two and 8 with the name alone.
 		for _, s := range []struct{ width, want int }{
-			{80, 0}, {30, 0}, {29, 1}, {22, 1}, {21, 2}, {16, 2}, {15, 3}, {8, 3}, {7, 4}, {80, 0},
+			{80, 0}, {32, 0}, {31, 1}, {24, 1}, {23, 2}, {16, 2}, {15, 3}, {8, 3}, {7, 4}, {80, 0},
 		} {
 			d.send(tea.WindowSizeMsg{Width: s.width, Height: 24})
 			screen := d.screen()
-			for _, want := range []string{c.alpha[s.want], c.b[s.want]} {
+			for _, want := range []string{c.headings[s.want], c.alpha[s.want], c.b[s.want]} {
 				if !hasExactRow(screen, want) {
 					t.Errorf("columns = %s, width %d: want the row %q:\n%s", c.columns, s.width, want, screen)
 				}
@@ -246,7 +248,7 @@ func TestANameTooLongIsCutWithAnEllipsisAndNeverSplitsAWideCharacter(t *testing.
 		{13, " > 日本語日…"}, // the next character would be cut in half, so it goes whole
 	} {
 		d.send(tea.WindowSizeMsg{Width: c.width, Height: 24})
-		if got := strings.Split(d.screen(), "\n")[2]; got != c.want {
+		if got := strings.Split(d.screen(), "\n")[3]; got != c.want {
 			t.Errorf("width %d: row is %q, want %q", c.width, got, c.want)
 		}
 	}
@@ -260,21 +262,22 @@ func TestANarrowHeaderGivesWayWarningsFirstThenTheSortThenTheSpinner(t *testing.
 	d.hold = true
 	d.press("r") // the refresh runs until released
 
-	// The count takes 9 cells, the warning 18, the sort 20 and the spinner 15.
+	// The title takes 15 cells, the warning 18, the sort 20 and the spinner 15.
 	for _, c := range []struct {
 		width int
 		want  string
 	}{
-		{62, " repos  1  ~/nope not found  sort: last opened   ⠋ refreshing "},
-		{50, " repos  1  ~/n…  sort: last opened   ⠋ refreshing "},
-		{47, " repos  1  …  sort: last opened   ⠋ refreshing "},
-		{46, " repos  1    sort: last opened   ⠋ refreshing "}, // too little room to show a warning was cut
-		{44, " repos  1  sort: last opened   ⠋ refreshing "},
-		{43, " repos  1" + strings.Repeat(" ", 19) + "  ⠋ refreshing "},
-		{24, " repos  1  ⠋ refreshing "},
-		{23, " repos  1" + strings.Repeat(" ", 14)},
-		{9, " repos  1"},
-		{5, " rep…"},
+		{80, " loper · 1 repo  ~/nope not found" + strings.Repeat(" ", 12) + "  sort: last opened   ⠋ refreshing "},
+		{68, " loper · 1 repo  ~/nope not found  sort: last opened   ⠋ refreshing "},
+		{56, " loper · 1 repo  ~/n…  sort: last opened   ⠋ refreshing "},
+		{53, " loper · 1 repo  …  sort: last opened   ⠋ refreshing "},
+		{52, " loper · 1 repo    sort: last opened   ⠋ refreshing "}, // too little room to show a warning was cut
+		{50, " loper · 1 repo  sort: last opened   ⠋ refreshing "},
+		{49, " loper · 1 repo" + strings.Repeat(" ", 19) + "  ⠋ refreshing "},
+		{30, " loper · 1 repo  ⠋ refreshing "},
+		{29, " loper · 1 repo" + strings.Repeat(" ", 14)},
+		{15, " loper · 1 repo"},
+		{5, " lop…"},
 	} {
 		d.send(tea.WindowSizeMsg{Width: c.width, Height: 24})
 		if got := strings.Split(d.screen(), "\n")[0]; got != c.want {
@@ -338,16 +341,49 @@ func TestWithColourTheFootersKeysAreBoldAndItsSeparatorsDimmed(t *testing.T) {
 	}
 }
 
+func TestWithColourTheKeysOfTheFooterTheHelpAndTheMenuAreBoldInTheAccentColour(t *testing.T) {
+	const on, off = "\x1b[1;36m", "\x1b[22;39m" // bold cyan, from the terminal's palette
+	e := newEnv(t)
+	e.color = true
+	e.repo("code/alpha")
+	threeTargets(e)
+	d := e.start()
+
+	lines := strings.Split(d.screen(), "\n")
+	for _, key := range []string{"enter", "/", "q", "z"} {
+		if want := on + key + off + " "; !strings.Contains(lines[len(lines)-1], want) {
+			t.Errorf("footer is %q, want the key %q in the accent: %q", lines[len(lines)-1], key, want)
+		}
+	}
+
+	d.press("?")
+	for _, key := range []string{"g / G", "esc"} {
+		if want := " " + on + key + off + " "; !strings.Contains(d.screen(), want) {
+			t.Errorf("help: want the key %q in the accent, %q:\n%q", key, want, d.screen())
+		}
+	}
+
+	d.press("esc", "enter")
+	for _, line := range strings.Split(d.screen(), "\n") {
+		switch {
+		case strings.Contains(line, "Terminal tab") && !strings.Contains(line, on+"t"+off):
+			t.Errorf("menu: the row %q does not have its key in the accent", line)
+		case strings.Contains(line, "Zed") && strings.Contains(line, "│") && strings.Contains(line, "36"):
+			t.Errorf("menu: the highlighted row %q has the accent, which the bar leaves out", line)
+		}
+	}
+}
+
 func TestWithColourTheSelectionIsMarkedAndTheRulesAndBordersAreDimmed(t *testing.T) {
 	e := newEnv(t)
 	e.color = true
 	e.repo("code/alpha")
 	e.repo("code/beta")
 	d := e.start()
-	d.send(tea.WindowSizeMsg{Width: 30, Height: 8})
+	d.send(tea.WindowSizeMsg{Width: 32, Height: 8})
 
 	lines := strings.Split(d.screen(), "\n")
-	rule := " {" + strings.Repeat("─", 28) + "} "
+	rule := " {" + strings.Repeat("─", 30) + "} "
 	if got := styled(lines[1]); got != rule {
 		t.Errorf("top rule reads %q, want it dimmed: %q", got, rule)
 	}
@@ -357,8 +393,8 @@ func TestWithColourTheSelectionIsMarkedAndTheRulesAndBordersAreDimmed(t *testing
 	if got, want := styledRows(d), []string{"[>] alpha {~/code} main -", "beta {~/code} main -"}; !slices.Equal(got, want) {
 		t.Errorf("rows read %q, want %q", got, want)
 	}
-	if want := " \x1b[1m>\x1b[22m alpha"; !strings.HasPrefix(lines[2], want) { // bold, in the terminal's own text colour
-		t.Errorf("selected row is %q, want it to start with %q", lines[2], want)
+	if want := "\x1b[7m \x1b[1m>\x1b[22m alpha"; !strings.HasPrefix(lines[3], want) { // bold, in the terminal's own text colour, in the bar
+		t.Errorf("selected row is %q, want it to start with %q", lines[3], want)
 	}
 
 	d.press("enter")
@@ -377,7 +413,7 @@ func TestWithColourTheSelectionIsMarkedAndTheRulesAndBordersAreDimmed(t *testing
 		}
 		box = append(box, strings.Join(strings.Fields(s[i:j]), " "))
 	}
-	if want := []string{"{╭─} Open alpha {─╮}", "{│} [>] z Zed {│}", "{╰──────────────╯}"}; !slices.Equal(box, want) {
+	if want := []string{"{╭─} Open alpha {─╮}", "{│} [>] [z] Zed {│}", "{╰──────────────╯}"}; !slices.Equal(box, want) {
 		t.Errorf("menu reads %q, want %q", box, want)
 	}
 }
@@ -389,16 +425,22 @@ func TestWithColourAMenuOverDimmedFoldersKeepsEachStyleOnItsOwnSide(t *testing.T
 		e.repo("code/a-folder-name-long-enough-to-run-under-the-menu/" + name)
 	}
 	d := e.start()
-	d.send(tea.WindowSizeMsg{Width: 80, Height: 8}) // the menu covers the three rows, in the middle of their folders
+	d.send(tea.WindowSizeMsg{Width: 80, Height: 9}) // the menu covers the three rows, in the middle of their folders
 
 	d.press("enter")
 
-	edges := regexp.MustCompile(`^ .*[^ ]\}\{[╭│╰].*[╮│╯]\}\{[^ ]+\}  main  -$`)
-	lines := strings.Split(d.screen(), "\n")[2:5]
+	edges := regexp.MustCompile(`^ .*[^ ]\}\{[╭│╰].*[╮│╯]\}\{[^ ]+\}  main    - *$`) // the selected row is padded for its bar
+	lines := strings.Split(d.screen(), "\n")[3:6]
 	for i, line := range lines {
 		if s := styled(line); !edges.MatchString(s) {
-			t.Errorf("line %d reads %q, want the folder's dimming to end before the box and start again after it", i+3, s)
+			t.Errorf("line %d reads %q, want the folder's dimming to end before the box and start again after it", i+4, s)
 		}
+	}
+	// The selected row's bar ends before the box and starts again after it.
+	bar := lines[0]
+	before, after := bar[:strings.Index(bar, "╭")], bar[strings.Index(bar, "╮"):]
+	if strings.LastIndex(before, "\x1b[27m") < strings.LastIndex(before, reverse) || !strings.Contains(after, reverse) {
+		t.Errorf("line 4 is %q, want the bar to end before the box and start again after it", bar)
 	}
 }
 
@@ -421,7 +463,7 @@ func TestUnderRootPathAPathTooLongIsCutFromItsStartAndKeepsTheName(t *testing.T)
 		{9, " > backe…"},
 	} {
 		d.send(tea.WindowSizeMsg{Width: c.width, Height: 24})
-		if got := strings.Split(d.screen(), "\n")[2]; got != c.want {
+		if got := strings.Split(d.screen(), "\n")[3]; got != c.want {
 			t.Errorf("width %d: row is %q, want %q", c.width, got, c.want)
 		}
 	}
@@ -440,7 +482,7 @@ func TestUnderRootPathAPathTooLongIsCutFromItsStartAndKeepsTheName(t *testing.T)
 	e.config(`row_style = "root-path"`)
 	d = e.start()
 	d.send(tea.WindowSizeMsg{Width: 13, Height: 24}) // the cut falls in the middle of 本, which goes whole
-	if got, want := strings.Split(d.screen(), "\n")[2], " > …/backend"; got != want {
+	if got, want := strings.Split(d.screen(), "\n")[3], " > …/backend"; got != want {
 		t.Errorf("wide path: row is %q, want %q", got, want)
 	}
 }
@@ -481,6 +523,16 @@ func TestTheFolderAndBranchShrinkBeforeTheFirstColumnDrops(t *testing.T) {
 		d.send(tea.WindowSizeMsg{Width: c.width, Height: 24})
 		if screen := d.screen(); !hasExactRow(screen, c.want) {
 			t.Errorf("width %d: want the row %q:\n%s", c.width, c.want, screen)
+		}
+		// The headings line up with the shrunk columns.
+		lines := strings.Split(d.screen(), "\n")
+		for _, h := range []struct{ heading, cell string }{{"FOLDER", "~/code"}, {"BRANCH", "a-long-b"}} {
+			if !strings.Contains(lines[3], h.cell) {
+				continue
+			}
+			if got, want := strings.Index(lines[2], h.heading), ansi.StringWidth(lines[3][:strings.Index(lines[3], h.cell)]); got != want {
+				t.Errorf("width %d: %s is at cell %d, its column at %d:\n%s", c.width, h.heading, got, want, d.screen())
+			}
 		}
 	}
 }

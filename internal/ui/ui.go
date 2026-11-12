@@ -49,9 +49,10 @@ type Deps struct {
 	// CacheMaxAge is how old the cache may be before a launch scans again
 	// rather than re-reading the cached repos; 0 means every launch scans.
 	CacheMaxAge time.Duration
-	// Color turns the styles on: the selection marker, dimmed folders, rules
-	// and borders, highlighted matches, and bold keys in the footer and the
-	// help. It is off when NO_COLOR is set
+	// Color turns the styles on: the bold title and selection marker, the
+	// bar of the selection, dimmed headings, folders, rules and borders,
+	// highlighted matches, and keys in the accent colour in the footer, the
+	// help and the menu. It is off when NO_COLOR is set
 	// and non-empty, and then the output has no escape codes at all.
 	Color bool
 	// Columns are the columns to show, in order, out of name, folder, branch
@@ -153,15 +154,21 @@ type failedMsg struct {
 // tickMsg moves the spinner on a frame.
 type tickMsg struct{}
 
+// headings are the column headings, by column.
+var headings = map[string]string{"name": "NAME", "folder": "FOLDER", "branch": "BRANCH", "last_opened": "OPENED"}
+
 // spinner is the frames of the refresh spinner.
 var spinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 // The styles, from the terminal's own palette and attributes only, so the
 // tool follows the terminal's theme. matchOn and matchOff start and end the
 // highlight of a matched letter, dimOn and dimOff a dimmed part (a folder,
-// the path before a name, the rules and the borders of a box), and
-// boldOn and boldOff the marker of the selected row or target and the keys of
-// the footer and the help.
+// the path before a name, the rules and the borders of a box), boldOn and
+// boldOff the title and the marker of the selected row or target, and keyOn
+// and keyOff the keys of the footer, the help and the target menu, in the
+// accent colour. barOn and barOff draw the selected row or target as a bar,
+// in reverse video; the styles inside the bar end only their own attribute,
+// so none of them ends the bar.
 var (
 	matchOn  = ansi.Style{}.Underline(true).String()
 	matchOff = ansi.Style{}.NoUnderline().String()
@@ -169,6 +176,10 @@ var (
 	dimOff   = ansi.Style{}.Normal().String()
 	boldOn   = ansi.Style{}.Bold().String()
 	boldOff  = ansi.Style{}.Normal().String()
+	keyOn    = ansi.Style{}.Bold().ForegroundColor(ansi.Cyan).String()
+	keyOff   = ansi.Style{}.Normal().DefaultForegroundColor().String()
+	barOn    = ansi.Style{}.Reverse(true).String()
+	barOff   = ansi.Style{}.NoReverse().String()
 )
 
 func New(deps Deps) Model {
@@ -353,9 +364,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "G":
 			m.selected = max(len(m.repos)-1, 0)
 		case "ctrl+d":
-			m.selected = min(m.selected+max(m.listHeight()/2, 1), max(len(m.repos)-1, 0))
+			m.selected = min(m.selected+max(m.pageHeight()/2, 1), max(len(m.repos)-1, 0))
 		case "ctrl+u":
-			m.selected = max(m.selected-max(m.listHeight()/2, 1), 0)
+			m.selected = max(m.selected-max(m.pageHeight()/2, 1), 0)
 		case "enter":
 			m.menu, m.choice, m.menuTop = len(m.repos) > 0 && m.menuRows() > 0, 0, 0
 		case "/":
@@ -384,8 +395,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	m.offset = min(m.offset, m.selected, max(len(m.repos)-m.listHeight(), 0))
-	m.offset = max(m.offset, m.selected-m.listHeight()+1)
+	m.offset = min(m.offset, m.selected, max(len(m.repos)-m.pageHeight(), 0))
+	m.offset = max(m.offset, m.selected-m.pageHeight()+1)
 	return m, cmd
 }
 
@@ -521,7 +532,7 @@ func (m Model) helpContent() (rows []string, width int) {
 			rows = append(rows, " "+s.Title+" ")
 		}
 		for _, b := range s.Bindings {
-			rows = append(rows, " "+pad(m.bold(b.Keys), keyWidth)+"  "+b.Action+" ")
+			rows = append(rows, " "+pad(m.key(b.Keys), keyWidth)+"  "+b.Action+" ")
 		}
 	}
 	rows = append(rows, "", " Targets ")
@@ -530,7 +541,7 @@ func (m Model) helpContent() (rows []string, width int) {
 		if t.Key == "" {
 			name += " (through the menu)"
 		}
-		rows = append(rows, " "+pad(m.bold(t.Key), keyWidth)+"  "+name+" ")
+		rows = append(rows, " "+pad(m.key(t.Key), keyWidth)+"  "+name+" ")
 	}
 	for _, r := range rows {
 		width = max(width, ansi.StringWidth(r))
@@ -550,9 +561,12 @@ func (m Model) keyed(msg tea.KeyPressMsg) (target.Target, bool) {
 
 func (m Model) View() tea.View {
 	now := m.deps.Now()
-	// The width of each column's widest value, over all repos, so the columns
-	// stay put while searching.
+	// The width of each column's widest value, over all repos and the
+	// heading, so the columns stay put while searching.
 	full := make([]int, len(m.columns))
+	for i, c := range m.columns {
+		full[i] = ansi.StringWidth(headings[c])
+	}
 	for _, r := range m.all {
 		for i, c := range m.columns {
 			full[i] = max(full[i], ansi.StringWidth(m.cell(c, r, matcher.Match{}, now, math.MaxInt)))
@@ -560,7 +574,11 @@ func (m Model) View() tea.View {
 	}
 	shown, widths := m.fit(full)
 	rule := ansi.Truncate(" "+m.dim(strings.Repeat("─", max(m.width-2, 0)))+" ", m.width, "")
-	count, warnings := fmt.Sprintf(" repos  %d", len(m.repos)), ""
+	noun := "repos"
+	if len(m.repos) == 1 {
+		noun = "repo"
+	}
+	count, warnings := fmt.Sprintf(" %s · %d %s", m.bold("loper"), len(m.repos), noun), ""
 	for _, path := range m.missing {
 		warnings += "  " + m.shorten(path) + " not found"
 	}
@@ -608,7 +626,26 @@ func (m Model) View() tea.View {
 	case m.loaded:
 		empty = []string{spinner[m.frame] + " scanning…"}
 	}
-	for i := m.offset; i < m.offset+m.listHeight(); i++ {
+	// join lines up the shown columns, each cell from cell given its room.
+	join := func(cell func(c string, room int) string) string {
+		cells := make([]string, len(shown))
+		for j, k := range shown {
+			room := widths[k]
+			if len(shown) == 1 { // the name alone has the whole row
+				room = max(m.width-3, 0)
+			}
+			cells[j] = cell(m.columns[k], room)
+			if j < len(cells)-1 { // the last column is not padded, so a row has no trailing spaces
+				cells[j] = pad(cells[j], widths[k])
+			}
+		}
+		return strings.Join(cells, "  ")
+	}
+	if m.pageHeight() < m.listHeight() {
+		line := join(func(c string, room int) string { return headings[c] })
+		lines = append(lines, ansi.Truncate("   "+m.dim(line), m.width, "…"))
+	}
+	for i := m.offset; i < m.offset+m.pageHeight(); i++ {
 		if i >= len(m.repos) {
 			line := ""
 			if i < len(empty) {
@@ -626,18 +663,12 @@ func (m Model) View() tea.View {
 		if m.hits != nil {
 			h = m.hits[i]
 		}
-		cells := make([]string, len(shown))
-		for j, k := range shown {
-			room := widths[k]
-			if len(shown) == 1 { // the name alone has the whole row
-				room = max(m.width-3, 0)
-			}
-			cells[j] = m.cell(m.columns[k], r, h, now, room)
-			if j < len(cells)-1 { // the last column is not padded, so a row has no trailing spaces
-				cells[j] = pad(cells[j], widths[k])
-			}
+		cells := join(func(c string, room int) string { return m.cell(c, r, h, now, room) })
+		line := ansi.Truncate(marker+cells, m.width, "…")
+		if i == m.selected {
+			line = m.bar(line, m.width)
 		}
-		lines = append(lines, ansi.Truncate(marker+strings.Join(cells, "  "), m.width, "…"))
+		lines = append(lines, line)
 	}
 	keys := m.footer()
 	if m.notice != "" {
@@ -666,13 +697,13 @@ func (m Model) footer() string {
 	for _, s := range KeyList() {
 		for _, b := range s.Bindings {
 			if b.FooterLabel != "" {
-				items = append(items, m.bold(b.FooterKey)+" "+b.FooterLabel)
+				items = append(items, m.key(b.FooterKey)+" "+b.FooterLabel)
 			}
 		}
 	}
 	for _, t := range m.deps.Targets {
 		if t.Key != "" {
-			items = append(items, m.bold(t.Key)+" "+t.Name)
+			items = append(items, m.key(t.Key)+" "+t.Name)
 		}
 	}
 	for n := len(items); n >= 0; n-- {
@@ -794,13 +825,29 @@ func (m Model) dim(s string) string {
 	return dimOn + s + dimOff
 }
 
-// bold styles s as the marker of what is selected or as a key, unless colour
-// is off.
+// bold styles s as the title or the marker of what is selected, unless
+// colour is off.
 func (m Model) bold(s string) string {
 	if !m.deps.Color || s == "" {
 		return s
 	}
 	return boldOn + s + boldOff
+}
+
+// bar draws s, padded to width cells, as a bar, unless colour is off.
+func (m Model) bar(s string, width int) string {
+	if !m.deps.Color {
+		return s
+	}
+	return barOn + pad(s, width) + barOff
+}
+
+// key styles s as a key, unless colour is off.
+func (m Model) key(s string) string {
+	if !m.deps.Color || s == "" {
+		return s
+	}
+	return keyOn + s + keyOff
 }
 
 // highlight marks the characters of s at the positions pos, which are in
@@ -855,13 +902,15 @@ func (m Model) overlayMenu(lines []string) []string {
 	rows := make([]string, len(m.deps.Targets))
 	width := 0
 	for i, t := range m.deps.Targets {
-		marker := "  "
-		if i == m.choice {
-			marker = m.bold(">") + " "
+		marker, key := "  ", m.key(t.Key)
+		if i == m.choice { // in the bar, without the accent
+			marker, key = m.bold(">")+" ", m.bold(t.Key)
 		}
-		rows[i] = " " + marker + pad(t.Key, keyWidth) + "  " + t.Name + " "
+		rows[i] = " " + marker + pad(key, keyWidth) + "  " + t.Name + " "
 		width = max(width, ansi.StringWidth(rows[i]))
 	}
+	width = m.boxWidth(title, width) // the bar spans the menu
+	rows[m.choice] = m.bar(ansi.Truncate(rows[m.choice], width, "…"), width)
 	return m.overlay(lines, m.box(title, rows[m.menuTop:m.menuTop+m.menuRows()], width))
 }
 
@@ -914,8 +963,7 @@ func clean(s string) string {
 // what the rows want inside the border; the box grows to fit the title and
 // shrinks to fit the screen, cutting rows that are too long.
 func (m Model) box(title string, rows []string, width int) []string {
-	width = max(width, ansi.StringWidth(title)+2) // a stroke of the border either side of the title
-	width = max(min(width, m.width-2), 0)         // inside the two side borders
+	width = m.boxWidth(title, width)
 	// One stroke of the border comes before the title, if there is room.
 	stroke := min(width, 1)
 	title = ansi.Truncate(title, width-stroke, "")
@@ -925,6 +973,13 @@ func (m Model) box(title string, rows []string, width int) []string {
 		box = append(box, side+pad(ansi.Truncate(r, width, "…"), width)+side)
 	}
 	return append(box, m.dim("╰"+strings.Repeat("─", width)+"╯"))
+}
+
+// boxWidth is the width inside the border of a box with title whose rows
+// want width: room for a stroke of the border either side of the title, and
+// no more than the screen has inside the two side borders.
+func (m Model) boxWidth(title string, width int) int {
+	return max(min(max(width, ansi.StringWidth(title)+2), m.width-2), 0)
 }
 
 // overlay places box centred over the list part of lines, which stays
@@ -1039,6 +1094,16 @@ func (m Model) compareNames(a, b repo) int {
 // header, the footer and their rules.
 func (m Model) listHeight() int {
 	return max(m.height-4, 0)
+}
+
+// pageHeight is the number of rows of the list on screen at a time: the
+// list's height, less the headings line, which shows only when there are
+// rows and room for one under it.
+func (m Model) pageHeight() int {
+	if len(m.repos) > 0 && m.listHeight() > 1 {
+		return m.listHeight() - 1
+	}
+	return m.listHeight()
 }
 
 // pad fills s with spaces to width display cells.

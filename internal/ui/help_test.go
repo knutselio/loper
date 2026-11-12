@@ -93,7 +93,7 @@ func TestWhileTheHelpIsOpenListKeysAndTargetKeysDoNothing(t *testing.T) {
 	if got := d.selected(); !startsWith(got, "alpha ~/code main") {
 		t.Errorf("selected %q, want alpha still selected", got)
 	}
-	if got, want := header(d), "repos 2 sort: last opened"; got != want {
+	if got, want := header(d), "loper · 2 repos sort: last opened"; got != want {
 		t.Errorf("header reads %q, want no search, no sort switch and no refresh: %q", got, want)
 	}
 	if got := boxRows(d); got != nil {

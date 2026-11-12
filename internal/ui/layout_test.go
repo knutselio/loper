@@ -18,17 +18,35 @@ func TestTheHeaderShowsTheRepoCountOnTheLeftAndTheSortOnTheRight(t *testing.T) {
 
 	lines := strings.Split(e.start().screen(), "\n") // the screen is 80 wide
 
-	if got := strings.Fields(lines[0]); strings.Join(got, " ") != "repos 3 sort: last opened" {
-		t.Errorf("header reads %q, want %q", lines[0], "repos 3 sort: last opened")
+	if got := strings.Fields(lines[0]); strings.Join(got, " ") != "loper · 3 repos sort: last opened" {
+		t.Errorf("header reads %q, want %q", lines[0], "loper · 3 repos sort: last opened")
 	}
-	if !strings.HasPrefix(lines[0], " repos  3 ") || !strings.HasSuffix(lines[0], " sort: last opened ") || ansi.StringWidth(lines[0]) != 80 {
+	if !strings.HasPrefix(lines[0], " loper · 3 repos ") || !strings.HasSuffix(lines[0], " sort: last opened ") || ansi.StringWidth(lines[0]) != 80 {
 		t.Errorf("header %q does not have the count on the left and the sort on the right, inside the margin", lines[0])
+	}
+}
+
+func TestTheTitleCountsOneRepoAndNoReposAndIsBoldWithColour(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	if got, want := header(e.start()), "loper · 1 repo sort: last opened"; got != want {
+		t.Errorf("one repo: header reads %q, want %q", got, want)
+	}
+
+	e = newEnv(t)
+	if got, want := header(e.start()), "loper · 0 repos ~/code not found sort: last opened"; got != want {
+		t.Errorf("no repos: header reads %q, want %q", got, want)
+	}
+
+	e.color = true
+	if got, want := strings.Split(e.start().screen(), "\n")[0], " \x1b[1mloper\x1b[22m · 0 repos"; !strings.HasPrefix(got, want) {
+		t.Errorf("with colour: header is %q, want it to start with %q", got, want)
 	}
 }
 
 // The only full-screen snapshot in the suite: it guards the layout of
 // "Layout" in SPEC.md, a header and a footer each under or over a rule, with
-// the list between them.
+// the headings and the list between them.
 func TestTheScreenIsTheHeaderTheListAndTheFooterBetweenRules(t *testing.T) {
 	e := newEnv(t)
 	backend := e.repo("code/work/unlimited/backend")
@@ -56,13 +74,13 @@ command = "` + e.fakeTarget("rex") + ` {path}"
 	d.send(tea.WindowSizeMsg{Width: 80, Height: 10})
 
 	want := strings.Join([]string{
-		" repos  4                                      sort: last opened   ⠋ refreshing ",
+		" loper · 4 repos                               sort: last opened   ⠋ refreshing ",
 		" ────────────────────────────────────────────────────────────────────────────── ",
+		"   NAME        FOLDER                 BRANCH               OPENED",
 		" > backend     ~/code/work/unlimited  fix/bug-1116         2h ago",
 		"   aycapi      ~/code/work/mono       main                 yesterday",
 		"   exa-men-v2  ~/code/work/mono       feature/aycid-login  3d ago",
 		"   dotfiles    ~                      main                 -",
-		"",
 		"",
 		" ────────────────────────────────────────────────────────────────────────────── ",
 		" enter open | / search | s sort | r refresh | ? help | q quit | z Zed | …",
@@ -95,15 +113,17 @@ func TestCtrlDAndCtrlUMoveHalfAPageAndStopAtTheEnds(t *testing.T) {
 		e.repo(fmt.Sprintf("code/repo%d", i))
 	}
 	d := e.start()
-	d.send(tea.WindowSizeMsg{Width: 80, Height: 10}) // 6 list rows: half a page is 3
+	d.send(tea.WindowSizeMsg{Width: 80, Height: 10}) // 5 list rows under the headings: half a page is 2
 
 	steps := []struct {
 		key  string
 		want string
 	}{
-		{"ctrl+d", "repo3"},
+		{"ctrl+d", "repo2"},
+		{"ctrl+d", "repo4"},
 		{"ctrl+d", "repo5"},
-		{"ctrl+u", "repo2"},
+		{"ctrl+u", "repo3"},
+		{"ctrl+u", "repo1"},
 		{"ctrl+u", "repo0"},
 	}
 	for _, s := range steps {
@@ -120,7 +140,7 @@ func TestMovingPastTheLastVisibleRowScrollsTheList(t *testing.T) {
 		e.repo(fmt.Sprintf("code/repo%d", i))
 	}
 	d := e.start()
-	d.send(tea.WindowSizeMsg{Width: 80, Height: 10}) // room for 6 rows
+	d.send(tea.WindowSizeMsg{Width: 80, Height: 11}) // room for 6 rows under the headings
 
 	steps := []struct {
 		keys  []string
@@ -138,14 +158,14 @@ func TestMovingPastTheLastVisibleRowScrollsTheList(t *testing.T) {
 	for _, s := range steps {
 		d.press(s.keys...)
 		lines := strings.Split(d.screen(), "\n")
-		if len(lines) != 10 || !strings.HasPrefix(lines[9], " enter open") {
+		if len(lines) != 11 || !strings.HasPrefix(lines[10], " enter open") {
 			t.Fatalf("after %v: the list overflows the screen:\n%s", s.keys, d.screen())
 		}
 		if got, want := d.selected(), s.want+" ~/code main"; !startsWith(got, want) {
 			t.Fatalf("after %v: selected %q, want %q", s.keys, got, want)
 		}
-		if !hasRow(lines[2], s.first+" ~/code main") {
-			t.Fatalf("after %v: top row is %q, want %s", s.keys, lines[2], s.first)
+		if !hasRow(lines[3], s.first+" ~/code main") {
+			t.Fatalf("after %v: top row is %q, want %s", s.keys, lines[3], s.first)
 		}
 	}
 }
@@ -161,8 +181,8 @@ func TestGrowingTheWindowAfterScrollingShowsEveryRepoThatFits(t *testing.T) {
 
 	d.send(tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	if lines := strings.Split(d.screen(), "\n"); !hasRow(lines[2], "repo0 ~/code main") {
-		t.Errorf("top row is %q, want repo0 once all repos fit:\n%s", lines[2], d.screen())
+	if lines := strings.Split(d.screen(), "\n"); !hasRow(lines[3], "repo0 ~/code main") {
+		t.Errorf("top row is %q, want repo0 once all repos fit:\n%s", lines[3], d.screen())
 	}
 	if got := d.selected(); !startsWith(got, "repo9 ~/code main") {
 		t.Errorf("selected %q, want repo9 still selected", got)
@@ -207,7 +227,7 @@ func TestShrinkingTheWindowKeepsTheSelectedRowVisible(t *testing.T) {
 	d := e.start()
 	d.press("G")
 
-	d.send(tea.WindowSizeMsg{Width: 80, Height: 8}) // room for 4 rows
+	d.send(tea.WindowSizeMsg{Width: 80, Height: 9}) // room for 4 rows under the headings
 
 	if got := d.selected(); !startsWith(got, "repo9 ~/code main") {
 		t.Errorf("selected %q, want repo9 still visible", got)

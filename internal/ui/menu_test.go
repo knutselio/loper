@@ -201,7 +201,7 @@ func TestTheMenuSitsOverTheListWhichStaysVisibleAroundIt(t *testing.T) {
 	if len(lines) != 24 {
 		t.Errorf("screen has %d lines with the menu open, want 24", len(lines))
 	}
-	for _, row := range []string{"repos 21", "enter open | / search | s sort | r refresh | ? help | q quit | z Zed | …"} {
+	for _, row := range []string{"loper · 21 repos", "enter open | / search | s sort | r refresh | ? help | q quit | z Zed | …"} {
 		if !hasRow(screen, row) {
 			t.Errorf("screen has no row %q with the menu open:\n%s", row, screen)
 		}
@@ -354,7 +354,7 @@ func TestWideCharactersUnderTheMenuEdgesKeepTheRestOfTheirRowInPlace(t *testing.
 	lines := strings.Split(d.screen(), "\n")
 
 	folderCell := func(line string) int { return ansi.StringWidth(line[:strings.Index(line, "~/code")]) }
-	want := folderCell(lines[2]) // the row for 0, which the menu does not cover
+	want := folderCell(lines[3]) // the row for 0, which the menu does not cover
 	covered := 0
 	for i, line := range lines {
 		if !strings.ContainsAny(line, "╭│╰") {

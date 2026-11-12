@@ -61,7 +61,7 @@ Tools that list multiple repos exist (gitpane, git-scope, dirtygit), but they ar
 27. As a developer, I want a repo with a detached HEAD to show its short commit hash, so that the branch column is never blank.
 28. As a developer, I want a repo with no commits yet to show the branch it will start on, so that a fresh repo looks normal in the list.
 29. As a developer, I want the tool to honour `NO_COLOR`, so that it behaves like my other terminal tools when I turn colour off.
-30. As a developer, I want columns to drop from the right and long values to be cut with an ellipsis in a narrow terminal, so that the list stays readable in a small split.
+30. As a developer, I want columns to drop in a fixed order and long values to be cut with an ellipsis in a narrow terminal, so that the list stays readable in a small split.
 31. As a developer, I want the tool to use my terminal's own colours, so that it matches whatever theme I run.
 
 ### Sorting and searching
@@ -197,8 +197,9 @@ Each module hides its details behind a small interface. The UI is the only modul
 A single full-width scrolling list between a one-line header and a one-line footer. There are no side panels and no paging.
 
 ```
- repos  7                                    sort: last opened   ⠋ refreshing
+ loper · 7 repos                             sort: last opened   ⠋ refreshing
  ──────────────────────────────────────────────────────────────────────────────
+   NAME         FOLDER                   BRANCH                 OPENED
  > backend      ~/code/work/unlimited    fix/bug-1116           2h ago
    aycapi       ~/code/work/mono         main                   yesterday
    exa-men-v2   ~/code/work/mono         feature/aycid-login    3d ago
@@ -207,8 +208,11 @@ A single full-width scrolling list between a one-line header and a one-line foot
  enter open | / search | s sort | r refresh | ? help | q quit | z Zed | …
 ```
 
-- **Header:** repo count, current sort, refresh spinner and any path warnings.
-- **Footer:** the tool's own keys, then the targets with their keys, separated by ` | `. With colour on, each key is bold and the separators are dimmed. When the line does not fit, whole items are dropped from the end and it ends with `…`. After a successful open it briefly shows a confirmation such as "Opened aycapi in Zed".
+- **Header:** the title, such as `loper · 7 repos` with `loper` in bold, or `loper · 1 repo` for one; then the current sort, refresh spinner and any path warnings.
+- **Headings:** a dimmed line under the header's rule names the columns shown, `NAME`, `FOLDER`, `BRANCH` and `OPENED`, each aligned with its column. A column is at least as wide as its heading. The headings stay during a search and are not shown when the list has no rows or room for only one line.
+- **Selection:** the selected row is marked with `>`. With colour on, it is also drawn in reverse video across the full width of the screen, gaps and padding included, and the dimmed and highlighted parts inside it never end it. The highlighted target in the menu is drawn the same way across the menu's width.
+- **Accent:** with colour on, the keys in the footer, the help overlay and the target menu are bold in one palette colour, cyan. Inside the reverse-video bar the accent is not used.
+- **Footer:** the tool's own keys, then the targets with their keys, separated by ` | `. With colour on, each key is in the accent and the separators are dimmed. When the line does not fit, whole items are dropped from the end and it ends with `…`. After a successful open it briefly shows a confirmation such as "Opened aycapi in Zed".
 - **Overlays:** the target menu, the error dialog and the help screen appear on top of the list. Nothing else does.
 - **Empty states:**
   - First launch with no cache: the spinner and "scanning…".

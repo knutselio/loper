@@ -261,7 +261,7 @@ func TestLastOpenedStartsOnAStraightEdgeAfterBranchesOfDifferentLengths(t *testi
 	d.press("z")
 
 	lines := strings.Split(d.screen(), "\n")
-	if got, want := cellColumn(t, lines[3], "-"), cellColumn(t, lines[2], "just now"); got != want {
+	if got, want := cellColumn(t, lines[4], "-"), cellColumn(t, lines[3], "just now"); got != want {
 		t.Errorf("last opened starts at cell %d for beta and %d for alpha:\n%s", got, want, d.screen())
 	}
 }

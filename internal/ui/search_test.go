@@ -122,7 +122,7 @@ func TestWhileSearchingTargetKeysAndListKeysAreTextAndTriggerNothing(t *testing.
 		t.Errorf("after backspace: header reads %q, want %q", got, want)
 	}
 	d.press("esc")
-	if got, want := header(d), "repos 1 sort: last opened"; got != want {
+	if got, want := header(d), "loper · 1 repo sort: last opened"; got != want {
 		t.Errorf("after esc: header reads %q, want %q: s switched the sort or r refreshed", got, want)
 	}
 }
@@ -196,7 +196,7 @@ func TestEscRestoresTheFullListAndTheSelectionFromBeforeTheSearch(t *testing.T) 
 	if got := d.selected(); !startsWith(got, "beta") {
 		t.Errorf("selected %q, want beta, selected before the search", got)
 	}
-	if got, want := header(d), "repos 3 sort: last opened"; got != want {
+	if got, want := header(d), "loper · 3 repos sort: last opened"; got != want {
 		t.Errorf("header reads %q, want %q", got, want)
 	}
 }
@@ -218,7 +218,7 @@ func TestEscClosesTheMenuFirstAndASecondEscClearsTheSearch(t *testing.T) {
 		t.Errorf("after esc: header reads %q, want the search still on", got)
 	}
 	d.press("esc")
-	if got := header(d); got != "repos 2 sort: last opened" {
+	if got := header(d); got != "loper · 2 repos sort: last opened" {
 		t.Errorf("after a second esc: header reads %q, want the search cleared", got)
 	}
 }
@@ -337,7 +337,7 @@ func TestTheSearchLineKeepsTheSpinnerAndLeavesOutThePathWarnings(t *testing.T) {
 		t.Errorf("after the refresh: header reads %q, want %q", got, want)
 	}
 	d.press("esc")
-	if got, want := header(d), "repos 1 ~/nope not found sort: last opened"; got != want {
+	if got, want := header(d), "loper · 1 repo ~/nope not found sort: last opened"; got != want {
 		t.Errorf("after esc: header reads %q, want %q", got, want)
 	}
 }
@@ -366,7 +366,7 @@ func TestTheColumnsStayPutWhileSearching(t *testing.T) {
 	e.repo("code/averyverylongname")
 	d := e.start()
 	folderCell := func() int {
-		line := strings.Split(d.screen(), "\n")[2]
+		line := strings.Split(d.screen(), "\n")[3]
 		return ansi.StringWidth(line[:strings.Index(line, "~/code")])
 	}
 	before := folderCell()
