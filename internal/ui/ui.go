@@ -28,7 +28,7 @@ import (
 // Deps is everything the UI needs from the outside world.
 type Deps struct {
 	Home       string                              // shown as ~ in folders
-	ConfigFile string                              // named when no repos are found, and where the add dialog writes
+	ConfigFile string                              // named when no repos are found, and where the dialog writes targets
 	Paths      []string                            // what to scan for repos
 	Scan       func(paths []string) []scanner.Repo // the repos under paths
 	Missing    func(paths []string) []string       // the paths that do not exist
@@ -44,7 +44,7 @@ type Deps struct {
 	Tick func(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd
 	// NoticeFor is how long a footer notice shows before the keys return.
 	NoticeFor time.Duration
-	// EnterPause is how long after the add dialog's confirmation appears an
+	// EnterPause is how long after the dialog's confirmation appears an
 	// enter is ignored, so a quick second enter cannot write unseen.
 	EnterPause time.Duration
 	// CloseOnOpen quits the program after a successful open.
@@ -65,11 +65,13 @@ type Deps struct {
 	Columns []string
 	// RowStyle draws name and folder: "name-folder", "root-path" or "name".
 	RowStyle string
-	// CheckTarget returns the block the add dialog would append to the config
-	// file for a target, or why the target is refused; AddTarget appends it
-	// and returns the targets the file then loads to, the new one last.
-	CheckTarget func(file, home, name, key, command string) (string, error)
-	AddTarget   func(file, home, name, key, command string) ([]target.Target, error)
+	// CheckTarget returns, for a change to the targets of the config file,
+	// the lines it replaces and the lines it writes, or why it is refused;
+	// WriteTarget makes it and returns the targets the file then loads to
+	// and the index of the target added or changed, or of where the removed
+	// one was.
+	CheckTarget func(file, home string, c target.Change) (before, after string, err error)
+	WriteTarget func(file, home string, c target.Change) ([]target.Target, int, error)
 	// CheckFile returns why the config file cannot take a target, if it
 	// cannot, before the add dialog's fields open.
 	CheckFile func(file, home string) error
@@ -93,7 +95,7 @@ type Model struct {
 	choice   int          // the target highlighted in the menu
 	menuTop  int          // the first target shown, so the highlighted one stays in view
 	failure  *errorDialog // the error dialog for a failed open, or nil
-	add      addDialog    // the dialog that adds a target
+	add      addDialog    // the dialog that adds, edits or removes a target
 	confirms int          // how many confirmations have shown, so the end of an earlier one's moment leaves a later one
 	help     bool         // the help overlay is open
 	helpTop  int          // the first row of the help shown, so the help scrolls when it does not fit
@@ -167,38 +169,68 @@ type failedMsg struct {
 	target.Failure
 }
 
-// addDialog is the dialog that adds a target to the config file: its fields,
-// then the confirmation of the block it appends.
+// addDialog is the dialog that adds a target to the config file, or edits or
+// removes one: its fields, then the confirmation of the lines it writes. A
+// removal has no fields.
 type addDialog struct {
-	open    bool
-	refusal string    // why the config file cannot take a target, shown instead of the fields
-	fields  [3]string // the name, the key and the command, as typed
-	field   int       // the field being typed in
-	block   string    // the block to append, while the confirmation shows it
-	ready   bool      // the confirmation's first moment, in which enter is ignored, has passed
-	writing bool      // the block is being written, so keys wait for the result
-	problem string    // why the target was refused or not written
+	open bool
+	// old is the target edited or removed, as the menu listed it, or nil
+	// while adding one. Each dialog has its own, so a result for an earlier
+	// dialog is told apart by it.
+	old        *target.Target
+	remove     bool
+	refusal    string    // why the config file cannot take the change, shown instead of the fields
+	fields     [3]string // the name, the key and the command, as typed
+	field      int       // the field being typed in
+	confirming bool      // the confirmation shows
+	before     string    // old's lines in the file, while the confirmation shows them
+	block      string    // the lines to write, while the confirmation shows them
+	ready      bool      // the confirmation's first moment, in which enter is ignored, has passed
+	writing    bool      // the change is being written, so keys wait for the result
+	problem    string    // why the target was refused or not written
 }
 
-// fileCheckedMsg carries why the config file cannot take a target, or nil
-// when it can.
-type fileCheckedMsg struct{ err error }
+// change is the change to the config file that the dialog makes.
+func (a addDialog) change() target.Change {
+	return target.Change{Old: a.old, Lines: a.before, Remove: a.remove, Name: a.fields[0], Key: a.fields[1], Command: a.fields[2]}
+}
+
+// title is the dialog's title.
+func (a addDialog) title() string {
+	switch {
+	case a.remove:
+		return " Remove a target "
+	case a.old != nil:
+		return " Edit a target "
+	}
+	return " Add a target "
+}
+
+// fileCheckedMsg carries why the config file cannot take the change of the
+// dialog for old, or nil when it can.
+type fileCheckedMsg struct {
+	old *target.Target
+	err error
+}
 
 // readyMsg ends the first moment of the confirmation it counts.
 type readyMsg int
 
-// checkedMsg carries the block to append for the target in fields, or why
-// the target is refused.
+// checkedMsg carries, for the dialog for old with fields, the lines its
+// change replaces and those it writes, or why the change is refused.
 type checkedMsg struct {
-	fields [3]string
-	block  string
-	err    error
+	old           *target.Target
+	fields        [3]string
+	before, block string
+	err           error
 }
 
-// addedMsg carries the targets once a target was added, the new one last, or
-// why it was not added.
-type addedMsg struct {
+// changedMsg carries the targets once the dialog's change was written, and
+// the index of the target added or changed, or of where the removed one was,
+// or why it was not written.
+type changedMsg struct {
 	targets []target.Target
+	at      int
 	err     error
 }
 
@@ -378,32 +410,56 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case fileCheckedMsg:
 		// The refusal replaces the fields and what was typed in them; a dialog
 		// closed or past its fields since is left alone.
-		if a := m.add; msg.err != nil && a.open && a.refusal == "" && a.block == "" && !a.writing {
-			m.add = addDialog{open: true, refusal: msg.err.Error()}
+		if a := m.add; msg.err != nil && a.open && a.old == msg.old && a.refusal == "" && !a.confirming && !a.writing {
+			m.add = addDialog{open: true, old: a.old, remove: a.remove, refusal: msg.err.Error()}
 		}
 	case checkedMsg:
 		// A check of fields typed over since, or of a dialog closed, is stale.
-		if m.add.open && !m.add.writing && msg.fields == m.add.fields {
-			m.add.block, m.add.problem = msg.block, ""
-			if msg.err != nil {
+		if a := m.add; a.open && a.old == msg.old && a.refusal == "" && !a.writing && msg.fields == a.fields {
+			m.add.problem = ""
+			switch {
+			case msg.err != nil && a.remove: // with no fields to put it right in
+				m.add.refusal = msg.err.Error()
+			case msg.err != nil:
 				m.add.problem = msg.err.Error()
-				break
+			default:
+				m.add.confirming, m.add.before, m.add.block = true, msg.before, msg.block
+				m, cmd = m.pauseEnter()
 			}
-			m, cmd = m.pauseEnter()
 		}
 	case readyMsg:
 		if int(msg) == m.confirms {
 			m.add.ready = true
 		}
-	case addedMsg:
-		if msg.err != nil { // back to the fields, to put the problem right
-			m.add.writing, m.add.block, m.add.problem = false, "", msg.err.Error()
-			break
+	case changedMsg:
+		a := m.add
+		switch {
+		case msg.err != nil && a.remove:
+			m.add = addDialog{open: true, old: a.old, remove: true, refusal: msg.err.Error()}
+			return m, nil
+		case msg.err != nil: // back to the fields, to put the problem right
+			m.add = addDialog{open: true, old: a.old, fields: a.fields, field: a.field, problem: msg.err.Error()}
+			return m, nil
+		}
+		var notice string
+		switch {
+		case a.remove:
+			notice = "Removed " + a.old.Name
+		case a.old != nil:
+			notice = "Changed " + msg.targets[msg.at].Name
+		default:
+			notice = "Added " + msg.targets[msg.at].Name
 		}
 		m.add = addDialog{}
 		m.deps.Targets = msg.targets
 		m.helpLines, m.helpWidth = m.helpContent()
-		m, cmd = m.showNotice("Added " + msg.targets[len(msg.targets)-1].Name)
+		// The menu an edit or a removal came from stays, highlighting the
+		// target edited or the one in the removed one's place, unless none is
+		// left.
+		m.choice = max(min(msg.at, len(msg.targets)-1), 0)
+		m.menu = m.menu && len(msg.targets) > 0
+		m = m.scrollMenu()
+		m, cmd = m.showNotice(notice)
 	case noticeEndMsg:
 		if int(msg) == m.notices {
 			m.notice = ""
@@ -417,7 +473,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.PasteMsg:
 		switch { // as typed text, which only a search and the add dialog's fields take
 		case m.failure != nil:
-		case m.add.open && m.add.block == "" && !m.add.writing:
+		case m.add.open && !m.add.remove && m.add.refusal == "" && !m.add.confirming && !m.add.writing:
 			m.add.fields[m.add.field] += clean(msg.Content)
 		case m.searching && !m.menu:
 			m = m.search(m.query + clean(msg.Content))
@@ -425,7 +481,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		hidden := !m.addFits()
 		m.width, m.height = msg.Width, msg.Height
-		if a := m.add; a.open && a.block != "" && !a.writing && hidden && m.addFits() { // the confirmation shows only now
+		if a := m.add; a.open && a.confirming && !a.writing && hidden && m.addFits() { // the confirmation shows only now
 			m, cmd = m.pauseEnter()
 		}
 		m.menu = m.menu && m.menuRows() > 0
@@ -589,6 +645,14 @@ func (m Model) menuKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.choice = max(m.choice-1, 0)
 	case "enter":
 		return m.open(m.deps.Targets[m.choice])
+	case "e":
+		t := m.deps.Targets[m.choice] // a copy of its own, which tells this dialog apart
+		m.add = addDialog{open: true, old: &t, fields: [3]string{t.Name, t.Key, t.Command}}
+		return m, m.checkFile()
+	case "d":
+		t := m.deps.Targets[m.choice]
+		m.add = addDialog{open: true, old: &t, remove: true}
+		return m, m.check()
 	case "esc":
 		m.menu = false
 	default:
@@ -599,7 +663,7 @@ func (m Model) menuKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// addKey handles a key press while the add dialog is open. In the fields,
+// addKey handles a key press while the dialog is open. In the fields,
 // printable characters are text, so list keys and target keys are too.
 func (m Model) addKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	a := &m.add
@@ -612,7 +676,7 @@ func (m Model) addKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		case "esc":
 			m.add = addDialog{}
 		}
-	case a.block != "": // the confirmation
+	case a.confirming:
 		switch msg.String() {
 		case "enter":
 			if a.ready && m.addFits() { // never what was not there to read
@@ -620,7 +684,15 @@ func (m Model) addKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 				return m, m.write()
 			}
 		case "esc":
-			a.block = ""
+			if a.remove {
+				m.add = addDialog{}
+				break
+			}
+			a.confirming, a.before, a.block = false, "", ""
+		}
+	case a.remove: // its lines are still being read
+		if msg.String() == "esc" {
+			m.add = addDialog{}
 		}
 	default:
 		switch msg.String() {
@@ -631,6 +703,10 @@ func (m Model) addKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		case "enter":
 			if a.field < len(a.fields)-1 {
 				a.field++
+				break
+			}
+			if o := a.old; o != nil && strings.TrimSpace(a.fields[0]) == o.Name && a.fields[1] == o.Key && a.fields[2] == o.Command {
+				m.add = addDialog{} // an edit that changes nothing writes nothing
 				break
 			}
 			return m, m.check()
@@ -656,29 +732,36 @@ func (m Model) pauseEnter() (Model, tea.Cmd) {
 	return m, m.deps.Tick(m.deps.EnterPause, func(time.Time) tea.Msg { return n })
 }
 
-// checkFile checks in the background whether the config file can take a
-// target, as the add dialog opens.
+// checkFile checks in the background whether the config file can take the
+// dialog's change, as its fields open: a target added, or the target edited
+// as it is.
 func (m Model) checkFile() tea.Cmd {
-	return func() tea.Msg { return fileCheckedMsg{m.deps.CheckFile(m.deps.ConfigFile, m.deps.Home)} }
-}
-
-// check checks the target in the add dialog's fields against the config
-// file in the background.
-func (m Model) check() tea.Cmd {
-	f := m.add.fields
+	a := m.add
 	return func() tea.Msg {
-		block, err := m.deps.CheckTarget(m.deps.ConfigFile, m.deps.Home, f[0], f[1], f[2])
-		return checkedMsg{fields: f, block: block, err: err}
+		if a.old == nil {
+			return fileCheckedMsg{err: m.deps.CheckFile(m.deps.ConfigFile, m.deps.Home)}
+		}
+		_, _, err := m.deps.CheckTarget(m.deps.ConfigFile, m.deps.Home, a.change())
+		return fileCheckedMsg{old: a.old, err: err}
 	}
 }
 
-// write adds the target in the add dialog's fields to the config file in
-// the background.
-func (m Model) write() tea.Cmd {
-	f := m.add.fields
+// check checks the dialog's change against the config file in the
+// background.
+func (m Model) check() tea.Cmd {
+	a := m.add
 	return func() tea.Msg {
-		targets, err := m.deps.AddTarget(m.deps.ConfigFile, m.deps.Home, f[0], f[1], f[2])
-		return addedMsg{targets: targets, err: err}
+		before, block, err := m.deps.CheckTarget(m.deps.ConfigFile, m.deps.Home, a.change())
+		return checkedMsg{old: a.old, fields: a.fields, before: before, block: block, err: err}
+	}
+}
+
+// write makes the dialog's change to the config file in the background.
+func (m Model) write() tea.Cmd {
+	c := m.add.change()
+	return func() tea.Msg {
+		targets, at, err := m.deps.WriteTarget(m.deps.ConfigFile, m.deps.Home, c)
+		return changedMsg{targets: targets, at: at, err: err}
 	}
 }
 
@@ -1132,9 +1215,12 @@ func (m Model) overlayMenu(lines []string) []string {
 		rows[i] = " " + marker + pad(key, keyWidth) + "  " + t.Name + " "
 		width = max(width, ansi.StringWidth(rows[i]))
 	}
-	width = m.boxWidth(title, width) // the bar spans the menu
+	hint := " " + m.key("e") + " edit  " + m.key("d") + " remove "
+	width = m.boxWidth(title, max(width, ansi.StringWidth(hint)+2)) // the bar spans the menu
 	rows[m.choice] = m.bar(ansi.Truncate(rows[m.choice], width, "…"), width)
-	return m.overlay(lines, m.box(title, rows[m.menuTop:m.menuTop+m.menuRows()], width))
+	box := m.box(title, rows[m.menuTop:m.menuTop+m.menuRows()], width)
+	box[len(box)-1] = m.edge("╰", hint, width, "╯") // the hint in the bottom border, as the title is in the top
+	return m.overlay(lines, box)
 }
 
 // overlayFailure draws the error dialog centred over the list part of
@@ -1149,7 +1235,7 @@ func (m Model) overlayFailure(lines []string) []string {
 	return m.overlay(lines, m.box(f.title, f.rows[:min(len(f.rows), space)], f.width))
 }
 
-// overlayAdd draws the add dialog centred over the list part of lines or,
+// overlayAdd draws the dialog centred over the list part of lines or,
 // when the screen is too small for it, a notice in its place: on the middle
 // line of the list, or on the header when there is no list.
 func (m Model) overlayAdd(lines []string) []string {
@@ -1162,25 +1248,23 @@ func (m Model) overlayAdd(lines []string) []string {
 		return lines
 	}
 	rows, width := m.addRows()
-	return m.overlay(lines, m.box(addTitle, rows, width))
+	return m.overlay(lines, m.box(m.add.title(), rows, width))
 }
 
-// addTitle is the add dialog's title.
-const addTitle = " Add a target "
-
-// addFits reports whether the add dialog fits on the screen whole, with
+// addFits reports whether the dialog fits on the screen whole, with
 // room in its fields for a value.
 func (m Model) addFits() bool {
 	rows, width := m.addRows()
 	return len(rows) <= m.listHeight()-2 && width >= 14 // 14: the margins, the marker, the label and a cell of value
 }
 
-// addRows returns the add dialog's rows and its width inside the border: why
-// the config file cannot take a target, its fields, with the end of a value
-// too long for its field, or the block it will append and the file it goes
-// to. Text too long for the dialog wraps.
+// addRows returns the dialog's rows and its width inside the border: why
+// the config file cannot take the change, its fields, with the end of a
+// value too long for its field, or the lines it will write, replace or
+// remove and the file they are in. Text too long for the dialog wraps.
 func (m Model) addRows() ([]string, int) {
-	width := m.boxWidth(addTitle, 60)
+	a := m.add
+	width := m.boxWidth(a.title(), 60)
 	wrap := func(s string) []string {
 		var rows []string
 		for _, l := range strings.Split(ansi.Wrap(clean(s), max(width-2, 1), ""), "\n") {
@@ -1188,24 +1272,38 @@ func (m Model) addRows() ([]string, int) {
 		}
 		return rows
 	}
-	a := m.add
+	lines := func(block string) []string {
+		var rows []string
+		for _, l := range strings.Split(strings.TrimSuffix(block, "\n"), "\n") {
+			rows = append(rows, wrap(l)...)
+		}
+		return rows
+	}
+	file := m.shorten(m.deps.ConfigFile)
 	var rows []string
 	switch {
 	case a.refusal != "":
 		rows = append(wrap(m.shorten(a.refusal)), "", " "+m.key("esc")+" close ") // a loader message starts with the file
-	case a.block != "":
-		rows = append(wrap("Append to "+m.shorten(m.deps.ConfigFile)), "")
-		for _, l := range strings.Split(strings.TrimSuffix(a.block, "\n"), "\n") {
-			rows = append(rows, wrap(l)...)
-		}
-		rows = append(rows, "", " "+m.key("enter")+" write  "+m.key("esc")+" back ")
+	case a.confirming && a.remove:
+		rows = slices.Concat(wrap("Remove these lines from "+file+":"), lines(short(a.before)),
+			[]string{"", " " + m.key("enter") + " remove  " + m.key("esc") + " keep "})
+	case a.confirming && a.old != nil:
+		rows = slices.Concat(wrap("Replace these lines in "+file+":"), lines(short(a.before)), []string{""},
+			wrap("with these (comments inside the block are not kept):"), lines(a.block),
+			[]string{"", " " + m.key("enter") + " write  " + m.key("esc") + " back "})
+	case a.confirming:
+		rows = slices.Concat(wrap("Append to "+file), []string{""}, lines(a.block),
+			[]string{"", " " + m.key("enter") + " write  " + m.key("esc") + " back "})
+	case a.remove: // its lines are still being read
+		rows = []string{" " + m.key("esc") + " keep "}
 	default:
 		for i, label := range []string{"Name", "Key", "Command"} {
 			marker := "  "
 			if i == a.field {
 				marker = m.bold(">") + " "
 			}
-			value := a.fields[i]
+			// A command as loaded may hold a line break or a tab.
+			value := clean(a.fields[i])
 			if over := ansi.StringWidth(value) - (width - 13); over > 0 { // 13: the margins, the marker and the label
 				value = "…" + cutStart(value, over+1)
 			}
@@ -1220,6 +1318,17 @@ func (m Model) addRows() ([]string, int) {
 		rows = append(rows, "", " "+m.key("enter")+" next  "+m.key("tab")+" move  "+m.key("esc")+" cancel ")
 	}
 	return rows, width
+}
+
+// short returns block, lines as they are in the config file, cut to its
+// first two lines and its last when it is longer than the block the tool
+// writes, so a confirmation fits whenever one for such a block would.
+func short(block string) string {
+	ls := strings.Split(strings.TrimSuffix(block, "\n"), "\n")
+	if len(ls) <= 4 {
+		return block
+	}
+	return strings.Join([]string{ls[0], ls[1], fmt.Sprintf("… %d more lines", len(ls)-3), ls[len(ls)-1]}, "\n")
 }
 
 // errorDialog is the error dialog's content, worked out once when the
@@ -1260,15 +1369,21 @@ func clean(s string) string {
 // shrinks to fit the screen, cutting rows that are too long.
 func (m Model) box(title string, rows []string, width int) []string {
 	width = m.boxWidth(title, width)
-	// One stroke of the border comes before the title, if there is room.
-	stroke := min(width, 1)
-	title = ansi.Truncate(title, width-stroke, "")
-	box := []string{m.dim("╭"+strings.Repeat("─", stroke)) + title + m.dim(strings.Repeat("─", width-stroke-ansi.StringWidth(title))+"╮")}
+	box := []string{m.edge("╭", title, width, "╮")}
 	side := m.dim("│")
 	for _, r := range rows {
 		box = append(box, side+pad(ansi.Truncate(r, width, "…"), width)+side)
 	}
 	return append(box, m.dim("╰"+strings.Repeat("─", width)+"╯"))
+}
+
+// edge draws the top or bottom border of a box width wide inside, from the
+// corner left to the corner right, with text in it after one stroke of the
+// border, if there is room, and cut to fit.
+func (m Model) edge(left, text string, width int, right string) string {
+	stroke := min(width, 1)
+	text = ansi.Truncate(text, width-stroke, "")
+	return m.dim(left+strings.Repeat("─", stroke)) + text + m.dim(strings.Repeat("─", width-stroke-ansi.StringWidth(text))+right)
 }
 
 // boxWidth is the width inside the border of a box with title whose rows

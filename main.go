@@ -175,7 +175,7 @@ func startUI(home string, settings config.Settings) error {
 		RowStyle:    settings.RowStyle,
 		CheckTarget: config.CheckTarget,
 		CheckFile:   config.CheckFile,
-		AddTarget:   config.AddTarget,
+		WriteTarget: config.WriteTarget,
 	})
 	_, err := tea.NewProgram(m).Run()
 	return err

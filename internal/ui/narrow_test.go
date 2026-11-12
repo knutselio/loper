@@ -94,6 +94,18 @@ func TestNothingIsDrawnWiderOrTallerThanTheTerminalInAnyState(t *testing.T) {
 			d.press("enter")
 			return d
 		}, shows: "[[targets]]"},
+		{name: "edit confirmation", setup: func(e *env) *driver {
+			d := e.start()
+			d.press("enter", "e")
+			d.retype("a name with 日本語 in it that is far too long for the box")
+			d.press("enter", "enter", "enter")
+			return d
+		}, shows: "with these"},
+		{name: "remove confirmation", setup: func(e *env) *driver {
+			d := e.start()
+			d.press("enter", "j", "d")
+			return d
+		}, shows: "Remove these lines"},
 		{name: "add refused", setup: func(e *env) *driver {
 			d := e.start()
 			e.config("targets = []\n") // rewritten after the launch, which needs the targets
@@ -474,7 +486,7 @@ func TestWithColourTheSelectionIsMarkedAndTheRulesAndBordersAreDimmed(t *testing
 		}
 		box = append(box, strings.Join(strings.Fields(s[i:j]), " "))
 	}
-	if want := []string{"{╭─} Open alpha {─╮}", "{│} [>] [z] Zed {│}", "{╰──────────────╯}"}; !slices.Equal(box, want) {
+	if want := []string{"{╭─} Open alpha {───────╮}", "{│} [>] [z] Zed {│}", "{╰─} [e] edit [d] remove {─╯}"}; !slices.Equal(box, want) {
 		t.Errorf("menu reads %q, want %q", box, want)
 	}
 }

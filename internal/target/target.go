@@ -18,6 +18,20 @@ type Target struct {
 	Name string
 	Key  string   // the key that opens the selected repo here, or ""
 	Args []string // the command split into words, with {path} and {name} placeholders
+	// Command is the command as written in the config file, which the edit
+	// dialog shows and by which the target is found in the file again.
+	Command string
+}
+
+// Change is a change to the targets of the config file: a target added, or
+// one changed or removed.
+type Change struct {
+	Old *Target // the target to change or remove, as loaded; nil adds one
+	// Lines are Old's lines in the file as the confirmation showed them, or ""
+	// before it has; the change is refused when the file's lines differ.
+	Lines              string
+	Remove             bool   // remove Old rather than change it
+	Name, Key, Command string // the target to add, or Old's new values
 }
 
 // Failure is a target that did not open.

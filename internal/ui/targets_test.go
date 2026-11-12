@@ -56,7 +56,7 @@ func TestEnterWithNoTargetsShowsAMessageInsteadOfTheMenu(t *testing.T) {
 		t.Errorf("enter opened a menu:\n%s", d.screen())
 	}
 
-	d.press("j", "k", "down", "enter", "z", "?", "s", "/")
+	d.press("j", "k", "down", "enter", "z", "?", "s", "/", "e", "d")
 	if got, want := boxRows(d), []string{noTargets}; !slices.Equal(got, want) {
 		t.Errorf("after other keys: box reads %q, want the message %q:\n%s", got, want, d.screen())
 	}
@@ -231,12 +231,12 @@ func TestATargetRunsWithTheToolsOwnEnvironment(t *testing.T) {
 	e.config(`
 [[targets]]
 name = "Env"
-key = "e"
+key = "v"
 command = "` + e.script("env", `printf '%s\n' "$LOPER_TEST_GREETING" > "$LOPER_TEST_RECORDS"/env`) + ` {path}"
 `)
 	d := e.start()
 
-	d.press("e")
+	d.press("v")
 
 	if got, want := e.record("env"), "hello from the tool\n"; got != want {
 		t.Errorf("the target saw LOPER_TEST_GREETING=%q, want %q", got, want)

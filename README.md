@@ -63,7 +63,7 @@ command = "zed {path}"
 - Fuzzy search over name, folder and branch, with the matched letters highlighted.
 - Sort by last opened or by name.
 - Open the selected repo in a target with one key, or choose it from a menu.
-- Add a target from inside the picker, without opening the config file.
+- Add, edit and remove targets from inside the picker, without opening the config file.
 - Instant start from a cache, with a refresh in the background.
 - A branch column and a column for when you last opened each repo.
 - Choose the columns and how the name and folder are drawn.
@@ -83,6 +83,7 @@ command = "zed {path}"
 | `s`                  | Switch the sort                             |
 | `r`                  | Force a full refresh                        |
 | `a`                  | Add a target to the config file             |
+| `e` / `d`            | Edit / remove a target, in the target menu  |
 | `?`                  | Show the help overlay                       |
 | `q`, `ctrl-c`        | Quit                                        |
 | `esc`                | Close a menu or dialog, or clear the search |

@@ -43,6 +43,8 @@ func KeyList() []Section {
 			{Keys: "j / k, ↓ / ↑", Action: "Move the highlight"},
 			{Keys: "enter", Action: "Run the highlighted target"},
 			{Keys: "a target's key", Action: "Run that target"},
+			{Keys: "e", Action: "Edit the highlighted target"},
+			{Keys: "d", Action: "Remove the highlighted target"},
 			{Keys: "esc", Action: "Close the menu"},
 		}},
 		{Title: "While searching", Bindings: []Binding{

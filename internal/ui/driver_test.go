@@ -299,7 +299,7 @@ func (e *env) launch() *driver {
 		RowStyle:    settings.RowStyle,
 		CheckTarget: config.CheckTarget,
 		CheckFile:   config.CheckFile,
-		AddTarget:   config.AddTarget,
+		WriteTarget: config.WriteTarget,
 	})
 	d.run(d.model.Init())
 	d.send(tea.WindowSizeMsg{Width: 80, Height: 24})

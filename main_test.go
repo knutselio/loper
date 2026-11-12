@@ -210,7 +210,7 @@ func TestATargetKeyLongerThanOneCharacterStopsTheToolNamingTheFileAndLine(t *tes
 }
 
 func TestATargetKeyThatIsOneOfTheToolsOwnKeysStopsTheToolNamingTheFileAndLine(t *testing.T) {
-	for _, key := range []string{"j", "k", "g", "G", "/", "s", "r", "a", "?", "q"} {
+	for _, key := range []string{"j", "k", "g", "G", "/", "s", "r", "a", "?", "q", "e", "d"} {
 		startupFails(t, targetConfig("name = \"Tab\"\nkey = \""+key+"\"\ncommand = \"rex window new -c {path}\"\n"),
 			8, `target key "`+key+`" is one of loper's own keys`)
 	}
@@ -429,7 +429,8 @@ func TestTheHelpFlagPrintsTheUsageTheConfigFileAndTheKeys(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Errorf("exit code %d, stderr %q; want 0 and nothing", code, stderr)
 	}
-	want := []string{"Usage: loper [--config <file>]", "Config file: " + filepath.Join(xdgConfig, "loper", "config.toml"), "\n  a  ", "Add a target to the config file"}
+	want := []string{"Usage: loper [--config <file>]", "Config file: " + filepath.Join(xdgConfig, "loper", "config.toml"), "\n  a  ", "Add a target to the config file",
+		"\n  e  ", "Edit the highlighted target", "\n  d  ", "Remove the highlighted target"}
 	for _, s := range ui.KeyList() {
 		want = append(want, s.Title)
 		for _, b := range s.Bindings {

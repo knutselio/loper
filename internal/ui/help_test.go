@@ -18,7 +18,8 @@ func TestQuestionMarkShowsEveryKeyOfTheSpecWithItsAction(t *testing.T) {
 
 	rows := boxRows(d)
 	for _, want := range []string{
-		// The table in "Keybindings" in SPEC.md, row by row.
+		// The table in "Keybindings" in SPEC.md, row by row, but for e and d,
+		// which the help lists under the target menu.
 		"j / k, ↓ / ↑ Move the selection",
 		"g / G Jump to the top / bottom",
 		"ctrl-d / ctrl-u Move half a page down / up",
@@ -52,7 +53,7 @@ func TestTheHelpListsTheMenuAndSearchKeysAndTheTargetsWithTheirKeys(t *testing.T
 
 	rows := boxRows(d)
 	for _, want := range [][]string{
-		{"In the target menu", "j / k, ↓ / ↑ Move the highlight", "enter Run the highlighted target", "a target's key Run that target", "esc Close the menu"},
+		{"In the target menu", "j / k, ↓ / ↑ Move the highlight", "enter Run the highlighted target", "a target's key Run that target", "e Edit the highlighted target", "d Remove the highlighted target", "esc Close the menu"},
 		{"While searching", "↓ / ↑, ctrl-n / ctrl-p Move through the matches", "enter Open the target menu for the selected match", "esc Clear the search"},
 		{"Targets", "z Zed", "Menu only (through the menu)", "t Terminal tab"},
 	} {

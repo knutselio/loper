@@ -307,7 +307,7 @@ func TestAConfigWithAnInlineTargetsListIsRefusedWhenAIsPressedAndLeftAlone(t *te
 
 		d.press("a")
 
-		const want = "the file lists its targets inline, as targets = [...]; add a target there by hand"
+		const want = "the file lists its targets inline, as targets = [...]; edit them there by hand"
 		if got := dialogText(d); !strings.Contains(got, want) || strings.Contains(got, "Name") {
 			t.Errorf("%q: a shows %q, want the reason %q and no fields", inline, got, want)
 		}
