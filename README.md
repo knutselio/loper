@@ -108,7 +108,7 @@ Quitting, or any other target, leaves the shell where it was. The function keeps
 | `j` / `k`, `↓` / `↑` | Move the selection                          |
 | `g` / `G`            | Jump to the top / bottom                    |
 | `ctrl-d` / `ctrl-u`  | Move half a page down / up                  |
-| `enter`              | Open the target menu for the selected repo  |
+| `enter`, `space`     | Open the target menu for the selected repo  |
 | a target's key       | Open the selected repo in that target       |
 | `/`                  | Start the search                            |
 | `s`                  | Switch the sort                             |

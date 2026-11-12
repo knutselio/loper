@@ -29,7 +29,7 @@ func KeyList() []Section {
 			{Keys: "j / k, ↓ / ↑", Action: "Move the selection"},
 			{Keys: "g / G", Action: "Jump to the top / bottom"},
 			{Keys: "ctrl-d / ctrl-u", Action: "Move half a page down / up"},
-			{Keys: "enter", Action: "Open the target menu for the selected repo", FooterKey: "enter", FooterLabel: "open"},
+			{Keys: "enter, space", Action: "Open the target menu for the selected repo", FooterKey: "enter", FooterLabel: "open"},
 			{Keys: "a target's key", Action: "Open the selected repo in that target"},
 			{Keys: "/", Action: "Start the search", FooterKey: "/", FooterLabel: "search"},
 			{Keys: "s", Action: "Switch the sort", FooterKey: "s", FooterLabel: "sort"},
@@ -41,7 +41,7 @@ func KeyList() []Section {
 		}},
 		{Title: "In the target menu", Bindings: []Binding{
 			{Keys: "j / k, ↓ / ↑", Action: "Move the highlight"},
-			{Keys: "enter", Action: "Run the highlighted target"},
+			{Keys: "enter, space", Action: "Run the highlighted target"},
 			{Keys: "a target's key", Action: "Run that target"},
 			{Keys: "e", Action: "Edit the highlighted target"},
 			{Keys: "d", Action: "Remove the highlighted target"},

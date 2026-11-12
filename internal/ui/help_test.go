@@ -23,7 +23,7 @@ func TestQuestionMarkShowsEveryKeyOfTheSpecWithItsAction(t *testing.T) {
 		"j / k, ↓ / ↑ Move the selection",
 		"g / G Jump to the top / bottom",
 		"ctrl-d / ctrl-u Move half a page down / up",
-		"enter Open the target menu for the selected repo",
+		"enter, space Open the target menu for the selected repo",
 		"a target's key Open the selected repo in that target",
 		"/ Start the search",
 		"s Switch the sort",
@@ -53,7 +53,7 @@ func TestTheHelpListsTheMenuAndSearchKeysAndTheTargetsWithTheirKeys(t *testing.T
 
 	rows := boxRows(d)
 	for _, want := range [][]string{
-		{"In the target menu", "j / k, ↓ / ↑ Move the highlight", "enter Run the highlighted target", "a target's key Run that target", "e Edit the highlighted target", "d Remove the highlighted target", "esc Close the menu"},
+		{"In the target menu", "j / k, ↓ / ↑ Move the highlight", "enter, space Run the highlighted target", "a target's key Run that target", "e Edit the highlighted target", "d Remove the highlighted target", "esc Close the menu"},
 		{"While searching", "↓ / ↑, ctrl-n / ctrl-p Move through the matches", "enter Open the target menu for the selected match", "esc Clear the search"},
 		{"Targets", "z Zed", "Menu only (through the menu)", "t Terminal tab"},
 	} {
@@ -168,13 +168,13 @@ func TestAHelpTallerThanTheScreenScrollsWithJKAndTheArrowsInsideItsBorders(t *te
 		first string // the top row of the help shown
 		last  string // its bottom row
 	}{
-		{[]string{"?"}, "j / k, ↓ / ↑ Move the selection", "enter Open the target menu for the selected repo"},
+		{[]string{"?"}, "j / k, ↓ / ↑ Move the selection", "enter, space Open the target menu for the selected repo"},
 		{[]string{"j"}, "g / G Jump to the top / bottom", "a target's key Open the selected repo in that target"},
 		{[]string{"down", "k"}, "g / G Jump to the top / bottom", "a target's key Open the selected repo in that target"},
-		{[]string{"up", "k"}, "j / k, ↓ / ↑ Move the selection", "enter Open the target menu for the selected repo"},
+		{[]string{"up", "k"}, "j / k, ↓ / ↑ Move the selection", "enter, space Open the target menu for the selected repo"},
 		{slices.Repeat([]string{"j"}, 40), "esc, ? Close the help", "z Zed"},
 		{[]string{"k"}, "j / k, ↓ / ↑ Scroll", "Targets"},
-		{[]string{"esc", "?"}, "j / k, ↓ / ↑ Move the selection", "enter Open the target menu for the selected repo"},
+		{[]string{"esc", "?"}, "j / k, ↓ / ↑ Move the selection", "enter, space Open the target menu for the selected repo"},
 	}
 	for _, s := range steps {
 		d.press(s.keys...)

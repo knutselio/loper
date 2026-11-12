@@ -594,7 +594,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selected = min(m.selected+max(m.pageHeight()/2, 1), max(len(m.repos)-1, 0))
 		case "ctrl+u":
 			m.selected = max(m.selected-max(m.pageHeight()/2, 1), 0)
-		case "enter":
+		case "enter", "space":
 			m.menu, m.choice, m.menuTop = len(m.repos) > 0 && m.menuRows() > 0, 0, 0
 		case "/":
 			m.searching, m.before = true, ""
@@ -703,7 +703,7 @@ func (m Model) menuKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		m.choice = min(m.choice+1, len(m.deps.Targets)-1)
 	case "k", "up":
 		m.choice = max(m.choice-1, 0)
-	case "enter":
+	case "enter", "space":
 		return m.open(m.deps.Targets[m.choice])
 	case "e":
 		t := m.deps.Targets[m.choice] // a copy of its own, which tells this dialog apart
