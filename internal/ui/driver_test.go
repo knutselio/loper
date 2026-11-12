@@ -52,6 +52,9 @@ type env struct {
 	// color turns colour on, as an unset NO_COLOR does; tests leave it off
 	// unless they are about colour.
 	color bool
+	// configFile is the config file named with --config, or "" for the
+	// standard location.
+	configFile string
 }
 
 func newEnv(t *testing.T) *env {
@@ -244,7 +247,7 @@ func (e *env) start() *driver {
 // release hand them over.
 func (e *env) launch() *driver {
 	e.t.Helper()
-	settings, err := config.Load("", e.home)
+	settings, err := config.Load(e.configFile, e.home)
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -274,6 +277,8 @@ func (e *env) launch() *driver {
 		Color:       e.color,
 		Columns:     settings.Columns,
 		RowStyle:    settings.RowStyle,
+		CheckTarget: config.CheckTarget,
+		AddTarget:   config.AddTarget,
 	})
 	d.run(d.model.Init())
 	d.send(tea.WindowSizeMsg{Width: 80, Height: 24})
@@ -352,6 +357,8 @@ var namedKeys = map[string]tea.KeyPressMsg{
 	"down":      {Code: tea.KeyDown},
 	"up":        {Code: tea.KeyUp},
 	"enter":     {Code: tea.KeyEnter},
+	"tab":       {Code: tea.KeyTab},
+	"shift+tab": {Code: tea.KeyTab, Mod: tea.ModShift},
 	"esc":       {Code: tea.KeyEscape},
 	"ctrl+c":    {Code: 'c', Mod: tea.ModCtrl},
 	"ctrl+d":    {Code: 'd', Mod: tea.ModCtrl},

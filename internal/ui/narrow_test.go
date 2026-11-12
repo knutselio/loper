@@ -47,6 +47,7 @@ func TestNothingIsDrawnWiderOrTallerThanTheTerminalInAnyState(t *testing.T) {
 		// again are keys pressed after each resize, to bring back a menu or the
 		// help that a screen too small for it closed.
 		again []string
+		shows string // what the state shows at 80x24, if it is to be checked
 	}{
 		{name: "refreshing with a path warning", setup: func(e *env) *driver {
 			d := e.start()
@@ -76,6 +77,18 @@ func TestNothingIsDrawnWiderOrTallerThanTheTerminalInAnyState(t *testing.T) {
 			d.press("b")
 			return d
 		}},
+		{name: "add dialog with a reason", setup: func(e *env) *driver {
+			d := e.start()
+			d.fill("a name with 日本語 in it that is far too long for the box", "t", "a-command-with-日本語-and-no-placeholder that runs on and on")
+			d.press("enter")
+			return d
+		}, shows: "has no {path}"},
+		{name: "add confirmation", setup: func(e *env) *driver {
+			d := e.start()
+			d.fill("a name with 日本語 in it that is far too long for the box", "t", "a-command-with-日本語 {path} that runs on and on and on and on")
+			d.press("enter")
+			return d
+		}, shows: "[[targets]]"},
 		{name: "help", setup: func(e *env) *driver {
 			d := e.start()
 			d.press("?")
@@ -111,7 +124,11 @@ func TestNothingIsDrawnWiderOrTallerThanTheTerminalInAnyState(t *testing.T) {
 				e := newEnv(t)
 				e.color = color
 				sweepTree(e, s.extra)
-				sweep(t, s.setup(e), color, s.again)
+				d := s.setup(e)
+				if !strings.Contains(dialogText(d), s.shows) {
+					t.Fatalf("the state does not show %q:\n%s", s.shows, d.screen())
+				}
+				sweep(t, d, color, s.again)
 			})
 		}
 		t.Run(fmt.Sprintf("no repos found, colour %v", color), func(t *testing.T) {
@@ -302,8 +319,11 @@ func TestANarrowFooterDropsWholeItemsFromTheEndAndEndsWithAnEllipsis(t *testing.
 		width int
 		want  string
 	}{
-		{69, " enter open | / search | s sort | r refresh | ? help | q quit | z Zed"},
-		{68, " enter open | / search | s sort | r refresh | ? help | q quit | …"},
+		{80, " enter open | / search | s sort | r refresh | ? help | q quit | z Zed | a add"},
+		{77, " enter open | / search | s sort | r refresh | ? help | q quit | z Zed | a add"},
+		{76, " enter open | / search | s sort | r refresh | ? help | q quit | z Zed | …"},
+		{73, " enter open | / search | s sort | r refresh | ? help | q quit | z Zed | …"},
+		{72, " enter open | / search | s sort | r refresh | ? help | q quit | …"},
 		{65, " enter open | / search | s sort | r refresh | ? help | q quit | …"},
 		{64, " enter open | / search | s sort | r refresh | ? help | …"},
 		{15, " enter open | …"},
@@ -330,8 +350,8 @@ func TestWithColourTheFootersKeysAreBoldAndItsSeparatorsDimmed(t *testing.T) {
 		width int
 		want  string
 	}{
-		{80, " [enter] open{ | }[/] search{ | }[s] sort{ | }[r] refresh{ | }[?] help{ | }[q] quit{ | }[z] Zed"},
-		{68, " [enter] open{ | }[/] search{ | }[s] sort{ | }[r] refresh{ | }[?] help{ | }[q] quit{ | }…"},
+		{80, " [enter] open{ | }[/] search{ | }[s] sort{ | }[r] refresh{ | }[?] help{ | }[q] quit{ | }[z] Zed{ | }[a] add"},
+		{76, " [enter] open{ | }[/] search{ | }[s] sort{ | }[r] refresh{ | }[?] help{ | }[q] quit{ | }[z] Zed{ | }…"},
 	} {
 		d.send(tea.WindowSizeMsg{Width: c.width, Height: 24})
 		lines := strings.Split(d.screen(), "\n")
@@ -370,6 +390,22 @@ func TestWithColourTheKeysOfTheFooterTheHelpAndTheMenuAreBoldInTheAccentColour(t
 			t.Errorf("menu: the row %q does not have its key in the accent", line)
 		case strings.Contains(line, "Zed") && strings.Contains(line, "│") && strings.Contains(line, "36"):
 			t.Errorf("menu: the highlighted row %q has the accent, which the bar leaves out", line)
+		}
+	}
+
+	d.press("esc", "a")
+	for _, key := range []string{"enter", "tab", "esc"} {
+		if want := " " + on + key + off + " "; !strings.Contains(d.screen(), want) {
+			t.Errorf("add dialog: want the key %q in the accent, %q:\n%q", key, want, d.screen())
+		}
+	}
+	d.typeText("Tab")
+	d.press("tab", "tab")
+	d.typeText("tab {path}")
+	d.press("enter")
+	for _, key := range []string{"enter", "esc"} {
+		if want := " " + on + key + off + " "; !strings.Contains(d.screen(), want) {
+			t.Errorf("add confirmation: want the key %q in the accent, %q:\n%q", key, want, d.screen())
 		}
 	}
 }

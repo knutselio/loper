@@ -176,7 +176,7 @@ command = "zed {path}"
 	d.send(tea.WindowSizeMsg{Width: 100, Height: 24}) // room for every item
 
 	lines := strings.Split(d.screen(), "\n")
-	if got, want := lines[len(lines)-1], " enter open | / search | s sort | r refresh | ? help | q quit | z Zed | t Terminal tab"; got != want {
+	if got, want := lines[len(lines)-1], " enter open | / search | s sort | r refresh | ? help | q quit | z Zed | t Terminal tab | a add"; got != want {
 		t.Errorf("footer reads %q, want %q", got, want)
 	}
 }
@@ -193,7 +193,7 @@ func TestASuccessfulOpenIsConfirmedInTheFooterUntilTheNextKey(t *testing.T) {
 	}
 
 	d.press("k")
-	if got, want := footer(d), "enter open | / search | s sort | r refresh | ? help | q quit | z Zed"; got != want {
+	if got, want := footer(d), "enter open | / search | s sort | r refresh | ? help | q quit | z Zed | a add"; got != want {
 		t.Errorf("after the next key: footer reads %q, want %q", got, want)
 	}
 }
@@ -211,7 +211,7 @@ command = "false {path}"
 
 	d.press("b")
 
-	if got, want := footer(d), "enter open | / search | s sort | r refresh | ? help | q quit | b Broken"; got != want {
+	if got, want := footer(d), "enter open | / search | s sort | r refresh | ? help | q quit | b Broken | a add"; got != want {
 		t.Errorf("footer reads %q, want %q", got, want)
 	}
 }

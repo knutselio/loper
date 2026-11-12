@@ -27,6 +27,7 @@ func TestQuestionMarkShowsEveryKeyOfTheSpecWithItsAction(t *testing.T) {
 		"/ Start the search",
 		"s Switch the sort",
 		"r Force a full refresh",
+		"a Add a target to the config file",
 		"? Show the help overlay",
 		"q, ctrl-c Quit",
 		"esc Close a menu or dialog, or clear the search",

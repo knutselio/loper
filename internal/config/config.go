@@ -18,6 +18,7 @@ import (
 	"github.com/pelletier/go-toml/v2/unstable"
 
 	"github.com/knutselio/loper/internal/target"
+	"github.com/knutselio/loper/internal/wholefile"
 	"github.com/knutselio/loper/internal/xdg"
 )
 
@@ -48,7 +49,7 @@ type file struct {
 
 type targetFile struct {
 	Name    string `toml:"name"`
-	Key     string `toml:"key"`
+	Key     string `toml:"key,omitempty"` // omitempty for AddTarget, which leaves out a key not given
 	Command string `toml:"command"`
 }
 
@@ -161,7 +162,7 @@ func (*key) UnmarshalText(b []byte) error {
 	if r, _ := utf8.DecodeRuneInString(k); !unicode.IsGraphic(r) || unicode.IsSpace(r) {
 		return fmt.Errorf("target key %q is not a printable character", k)
 	}
-	if strings.Contains("jkgG/sr?q", k) {
+	if strings.Contains("jkgG/sr?qa", k) {
 		return fmt.Errorf("target key %q is one of loper's own keys", k)
 	}
 	return nil
@@ -174,7 +175,6 @@ func (*key) UnmarshalText(b []byte) error {
 func Load(path, home string) (Settings, error) {
 	standard := path == ""
 	path = Path(path, home)
-	var f file
 	b, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) && !standard {
 		return Settings{}, fmt.Errorf("config file %s does not exist", path)
@@ -182,6 +182,12 @@ func Load(path, home string) (Settings, error) {
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return Settings{}, err
 	}
+	return parse(path, home, b)
+}
+
+// parse is Load for b, the text of the config file at path.
+func parse(path, home string, b []byte) (Settings, error) {
+	var f file
 	for _, v := range []any{&f, &checked{}} {
 		if err := toml.NewDecoder(bytes.NewReader(b)).DisallowUnknownFields().Decode(v); err != nil {
 			return Settings{}, describe(path, err)
@@ -217,6 +223,126 @@ func Load(path, home string) (Settings, error) {
 		s.Paths = append(s.Paths, expand(p, home))
 	}
 	return s, nil
+}
+
+// CheckTarget returns the [[targets]] block that AddTarget would append to
+// the config file at path for a target with name, key k (which may be "")
+// and command, or why the target is refused: a value the loader would refuse,
+// a missing name, or a file that would not load with the block appended.
+func CheckTarget(path, home, name, k, cmd string) (string, error) {
+	_, _, block, _, err := withTarget(path, home, name, k, cmd)
+	if err != nil {
+		return "", err
+	}
+	return block, nil
+}
+
+// AddTarget appends the block CheckTarget returns to the config file at
+// path, creating the file and its folder when missing, and returns the
+// targets the file now loads to, the new one last. The file is read again
+// here, and nothing is written when the result would not load. A config file
+// that is a symlink stays one: the file it points to is rewritten.
+func AddTarget(path, home, name, k, cmd string) ([]target.Target, error) {
+	real, text, _, s, err := withTarget(path, home, name, k, cmd)
+	if err != nil {
+		return nil, err
+	}
+	if err := wholefile.Write(real, text); err != nil {
+		return nil, fmt.Errorf("could not write the config file: %w", err)
+	}
+	return s.Targets, nil
+}
+
+// withTarget returns the file to write for the config file at path, which
+// is the file it points to when it is a symlink, the text of that file with
+// a block for the target appended, the block, and the settings that text
+// loads to. A missing file counts as empty. The name is taken without the
+// spaces around it.
+func withTarget(path, home, name, k, cmd string) (string, []byte, string, Settings, error) {
+	fail := func(err error) (string, []byte, string, Settings, error) { return "", nil, "", Settings{}, err }
+	if name = strings.TrimSpace(name); name == "" {
+		return fail(errors.New("a target needs a name"))
+	}
+	if k != "" {
+		if err := (&key{}).UnmarshalText([]byte(k)); err != nil {
+			return fail(err)
+		}
+	}
+	if err := (&command{}).UnmarshalText([]byte(cmd)); err != nil {
+		return fail(err)
+	}
+	real, err := realFile(path)
+	if err != nil {
+		return fail(err)
+	}
+	text, err := os.ReadFile(real)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fail(err)
+	}
+	// The file must load as it is, so an error after the block is appended
+	// is the block's.
+	if _, err := parse(path, home, text); err != nil {
+		return fail(err)
+	}
+	if inlineTargets(text) {
+		return fail(errors.New("the file lists its targets inline, as targets = [...]; add this one there by hand"))
+	}
+	// Marshal cannot fail on a struct of strings.
+	block, _ := toml.Marshal(struct {
+		Targets []targetFile `toml:"targets"`
+	}{[]targetFile{{Name: name, Key: k, Command: cmd}}})
+	if len(text) > 0 {
+		if !bytes.HasSuffix(text, []byte("\n")) {
+			text = append(text, '\n')
+		}
+		text = append(text, '\n') // a blank line before the block
+	}
+	text = append(text, block...)
+	s, err := parse(path, home, text)
+	if err != nil {
+		// Its line is in the block, past the end of the file as it is, so
+		// only the reason is given.
+		if _, reason, ok := strings.Cut(strings.TrimPrefix(err.Error(), path+":"), ": "); ok {
+			err = errors.New(reason)
+		}
+		return fail(err)
+	}
+	return real, text, string(block), s, nil
+}
+
+// realFile returns the file to write for the config file at path: the file
+// it points to when it is a symlink, since a write renames over its path and
+// would replace a link with a plain file, or path itself. A link to nothing is
+// refused, as writing through it would do just that.
+func realFile(path string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil || info.Mode()&fs.ModeSymlink == 0 {
+		return path, nil // a missing file is created; any other error shows when it is read
+	}
+	real, err := filepath.EvalSymlinks(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		dest, _ := os.Readlink(path) // cannot fail: Lstat just found a link
+		return "", fmt.Errorf("%s is a link to %s, which does not exist", path, dest)
+	}
+	return real, err
+}
+
+// inlineTargets reports whether b, a config file that loads, lists its
+// targets inline, as targets = [...], to which a [[targets]] table cannot be
+// added.
+func inlineTargets(b []byte) bool {
+	var p unstable.Parser
+	p.Reset(b)
+	for p.NextExpression() {
+		e := p.Expression()
+		if e.Kind != unstable.KeyValue {
+			return false // the root table, where an inline list must be, has ended
+		}
+		if keyOf(e) == "targets" {
+			return true
+		}
+	}
+	return false
 }
 
 // checkTargets reports what the per-value checks cannot see: a target with

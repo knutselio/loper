@@ -111,13 +111,17 @@ Tools that list multiple repos exist (gitpane, git-scope, dirtygit), but they ar
 65. As a developer, I want a target key that clashes with one of the tool's own keys reported as an error, so that a key never does two things.
 66. As a developer, I want to run the tool against another config file with a flag, so that I can try changes without touching my real config.
 67. As a developer, I want a help flag that prints the usage, the config file location and the keys, so that I can check them without starting the picker.
+68. As a developer, I want to add a target from inside the tool by typing its name, key and command, so that a new target does not mean opening the config file.
+69. As a developer, I want a target I add that way checked by the same rules as the config file, with the reason shown when it is refused, so that the tool never writes a config it cannot load.
+70. As a developer, I want to see the exact lines that will be added and the file they go to before anything is written, and the rest of my config file left as it was, comments included, so that my hand-written file stays mine.
+71. As a developer, I want a target I add to work at once, so that I do not have to restart the tool to use it.
 
 ### Building and trusting it
 
-68. As a developer, I want to install the tool by building it from my clone, so that the first version needs no release process.
-69. As a developer, I want a version flag, so that a later update command has something to compare against.
-70. As a maintainer, I want tests that read like the features in this document, so that I can change the internals without rewriting the tests.
-71. As a maintainer, I want the tests never to touch my real config, cache or history, so that running them is always safe.
+72. As a developer, I want to install the tool by building it from my clone, so that the first version needs no release process.
+73. As a developer, I want a version flag, so that a later update command has something to compare against.
+74. As a maintainer, I want tests that read like the features in this document, so that I can change the internals without rewriting the tests.
+75. As a maintainer, I want the tests never to touch my real config, cache or history, so that running them is always safe.
 
 ## Implementation Decisions
 
@@ -131,7 +135,7 @@ Tools that list multiple repos exist (gitpane, git-scope, dirtygit), but they ar
 
 Each module hides its details behind a small interface. The UI is the only module that knows about the terminal.
 
-- **Config.** Loads and validates the config file and applies defaults. It returns either a complete settings value or an error that names the file and line. All validation happens here, so no other module checks config values.
+- **Config.** Loads and validates the config file and applies defaults. It returns either a complete settings value or an error that names the file and line. All validation happens here, so no other module checks config values. It also appends a target to the file for the add dialog, checked by the same rules.
 - **Scanner.** Given the configured paths, returns the list of repo folders found. It owns the scan rules.
 - **Repo info.** Given a repo folder, returns its current branch, or the short commit hash for a detached HEAD, and whether the repo still exists. It reads the repo's HEAD reference directly, so the tool does not need the `git` program at run time.
 - **Cache store.** Reads and writes the cached repo list with the data for every column, along with when it was scanned and from which configured paths.
@@ -211,9 +215,9 @@ A single full-width scrolling list between a one-line header and a one-line foot
 - **Header:** the title, such as `loper · 7 repos` with `loper` in bold, or `loper · 1 repo` for one; then the current sort, refresh spinner and any path warnings.
 - **Headings:** a dimmed line under the header's rule names the columns shown, `NAME`, `FOLDER`, `BRANCH` and `OPENED`, each aligned with its column. A column is at least as wide as its heading. The headings stay during a search and are not shown when the list has no rows or room for only one line.
 - **Selection:** the selected row is marked with `>`. With colour on, it is also drawn in reverse video across the full width of the screen, gaps and padding included, and the dimmed and highlighted parts inside it never end it. The highlighted target in the menu is drawn the same way across the menu's width.
-- **Accent:** with colour on, the keys in the footer, the help overlay and the target menu are bold in one palette colour, cyan. Inside the reverse-video bar the accent is not used.
-- **Footer:** the tool's own keys, then the targets with their keys, separated by ` | `. With colour on, each key is in the accent and the separators are dimmed. When the line does not fit, whole items are dropped from the end and it ends with `…`. After a successful open it briefly shows a confirmation such as "Opened aycapi in Zed".
-- **Overlays:** the target menu, the error dialog and the help screen appear on top of the list. Nothing else does.
+- **Accent:** with colour on, the keys in the footer, the help overlay, the target menu and the add dialog are bold in one palette colour, cyan. Inside the reverse-video bar the accent is not used.
+- **Footer:** the tool's own keys, then the targets with their keys, then `a add` last, separated by ` | `. `a add` comes after the targets so that it is the first item to go when the line is short. With colour on, each key is in the accent and the separators are dimmed. When the line does not fit, whole items are dropped from the end and it ends with `…`. After a successful open it briefly shows a confirmation such as "Opened aycapi in Zed", and after a target is added one such as "Added Lazygit".
+- **Overlays:** the target menu, the error dialog, the add dialog and the help screen appear on top of the list. Nothing else does.
 - **Empty states:**
   - First launch with no cache: the spinner and "scanning…".
   - No repos found: a message naming the scanned paths and the config file location.
@@ -233,11 +237,14 @@ These keys are fixed in this version. Only target keys are configurable.
 | `/`                  | Start the search                            |
 | `s`                  | Switch the sort                             |
 | `r`                  | Force a full refresh                        |
+| `a`                  | Add a target to the config file             |
 | `?`                  | Show the help overlay                       |
 | `q`, `ctrl-c`        | Quit                                        |
 | `esc`                | Close a menu or dialog, or clear the search |
 
 Inside the target menu, `j`/`k` and the arrow keys move, `enter` runs the highlighted target, a target's key runs that target, and `esc` closes the menu; `q` and `ctrl-c` quit from inside the menu, the error dialog and the help overlay, and `esc` or `?` closes the help overlay.
+
+Inside the add dialog every printable key is text, `q`, the list keys and the target keys included, and only `ctrl-c` quits. `tab` / `shift-tab` and `↓` / `↑` move between the fields, `enter` moves to the next field and from the last one to the confirmation, `backspace` removes a character, a paste goes into the current field without its line breaks and control characters, and `esc` closes the dialog without writing anything. In the confirmation, `enter` writes the target and `esc` goes back to the fields with their contents kept. `a` does nothing in the target menu, the error dialog and the help overlay, and during a search it is text.
 
 ### Open targets
 
@@ -246,15 +253,22 @@ Inside the target menu, `j`/`k` and the arrow keys move, `enter` runs the highli
 - The command must contain `{path}`, which is replaced by the repo's absolute path. `{name}` is replaced by the repo's name. There are no other placeholders.
 - The command is not run through a shell. The tool splits it into words using shell-style quoting (single quotes, double quotes and backslash), then substitutes each placeholder as part of a single argument, so a path with spaces needs no quoting. An unbalanced quote is a config error. A user who needs shell features writes `sh -c '…'` as the command.
 - The command runs in the background with the repo as its working folder and the tool's own environment. The tool waits for it to exit, for at most 2 seconds. The wait is a parameter of the target runner, not a config setting, so tests can shorten it.
-- **Success** is exit code 0 within the wait, or a command that is still running when the wait ends. A command that is still running is left running, detached from the tool, and is never stopped. The footer confirms it, the repo's last-opened time is recorded, and the tool stays open. With `close_on_open = true` the tool quits instead.
+- **Success** is exit code 0 within the wait, or a command that is still running when the wait ends. A command that is still running is left running, detached from the tool, and is never stopped. The footer confirms it, the repo's last-opened time is recorded, and the tool stays open. With `close_on_open = true` the tool quits instead, unless the add dialog is open.
 - **Failure** is a non-zero exit code within the wait, or a command that cannot be started. The error dialog shows the command line that ran and its output. Nothing is recorded and the tool never quits, whatever `close_on_open` says.
 - The only built-in target is Zed, with the key `z`. Defining any target in the config replaces the built-in one.
+- **Adding a target from the tool.** `a` opens a dialog with three fields: the name, the key and the command. When it is filled in, the target is checked by the config's own rules: a name is required, and the spaces around it are left out, the command must contain `{path}` and have balanced quotes, and the key is optional, one character, not one of the tool's own keys and not the key of another target in the file. A refused target shows the reason inside the dialog, which stays open. Otherwise the dialog shows the `[[targets]]` block it will append and the file it goes to, and `enter` writes it. The new target works at once, without a restart: it is in the footer, the target menu and the help, and its key opens the selected repo. The write follows the rules under "Config".
 - A target that takes over the terminal itself, such as a full-screen program run in place, is not supported. Such programs are opened through a target that starts them elsewhere, as in the lazygit example below.
 
 ### Config
 
 - The file is TOML at `~/.config/loper/config.toml`, honouring `XDG_CONFIG_HOME`. `--config <file>` overrides the location for one run.
 - Every setting is optional. With no file, the tool runs on the defaults.
+- The tool changes the config file in one way only: the add dialog appends one `[[targets]]` block to it.
+  - The file is the one in use: the `--config` file when given, otherwise the standard location. A missing file or folder is created, the folder private to the user.
+  - The file is read again when the target is written, and the block is appended to its text, so the rest of the file, comments and order included, is untouched. The name, key and command are encoded by the TOML library.
+  - Only the new block is written, never the built-in Zed target, so the first target added replaces the built-in one, as any configured target does.
+  - The text with the block appended is loaded with the config's own loader before it is written. If it does not load, for example because the file writes its targets as an inline `targets = [...]` list or was edited into an invalid state meanwhile, nothing is written and the dialog says why. A reason about the new block itself, such as a key already used, is given without a line number, since its line is not yet in the file.
+  - The file is written whole, through a temporary file renamed over it, so a failed write leaves it as it was and the dialog shows the error. The file keeps its mode; a new file is private to the user. A config file that is a symlink stays one: the file it points to is rewritten. A link to a file that does not exist is refused, and nothing is written.
 - These are errors that stop the tool at startup with a message naming the file and line:
   - an unknown setting or an invalid value;
   - a target without `{path}`;
@@ -342,7 +356,7 @@ The temporary trees cover the awkward cases: a repo nested inside another, a fol
 
 ### What is tested at this seam
 
-Discovery rules, cache and refresh behaviour, row rendering in each style, column selection, narrow-terminal behaviour, both sorts, search, the target menu, direct target keys, success and failure of a target, `close_on_open`, a target that keeps running past the wait (shortened for the test) and empty states.
+Discovery rules, cache and refresh behaviour, row rendering in each style, column selection, narrow-terminal behaviour, both sorts, search, the target menu, direct target keys, success and failure of a target, `close_on_open`, a target that keeps running past the wait (shortened for the test), adding a target and what it writes to the config file, and empty states.
 
 ### Other tests
 
@@ -379,7 +393,6 @@ The first version deliberately leaves these out:
 
 - **Status columns.** The uncommitted-changes marker, ahead/behind counts and branch count are the intended next columns. Measured on my 6 repos, branch count costs about 5ms per repo, while the uncommitted-changes check took 485ms for all six on a cold run, so those columns must load in the background after the list appears. Ahead/behind would reflect the last fetch, since the tool never fetches. The cache already stores data per column, so they slot in as new column names.
 - **Releases and updates.** A GitHub Actions pipeline running GoReleaser on each version tag, publishing macOS binaries for Apple Silicon and Intel. An `update` subcommand compares the running version with the latest GitHub release, downloads the matching binary, verifies its checksum and replaces the installed one; `update --check` only reports. The tool never checks for updates on its own at launch.
-- **Adding targets from the UI.** A prompt inside the tool that asks for a name, a key and a command and writes the target to the config file. In the first version, targets are added by editing the config file.
 - **GitHub targets.** Opening a repo's GitHub page or one of its pull requests, which is where a more dashboard-like view might later grow from.
 - **Worktree rows**, an **exclude list**, **key remapping**, **themes** and a **Homebrew tap**, in no particular order.
 

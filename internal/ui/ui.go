@@ -28,7 +28,7 @@ import (
 // Deps is everything the UI needs from the outside world.
 type Deps struct {
 	Home       string                              // shown as ~ in folders
-	ConfigFile string                              // named when no repos are found
+	ConfigFile string                              // named when no repos are found, and where the add dialog writes
 	Paths      []string                            // what to scan for repos
 	Scan       func(paths []string) []scanner.Repo // the repos under paths
 	Missing    func(paths []string) []string       // the paths that do not exist
@@ -60,6 +60,11 @@ type Deps struct {
 	Columns []string
 	// RowStyle draws name and folder: "name-folder", "root-path" or "name".
 	RowStyle string
+	// CheckTarget returns the block the add dialog would append to the config
+	// file for a target, or why the target is refused; AddTarget appends it
+	// and returns the targets the file then loads to, the new one last.
+	CheckTarget func(file, home, name, key, command string) (string, error)
+	AddTarget   func(file, home, name, key, command string) ([]target.Target, error)
 }
 
 // Model is the program state.
@@ -79,6 +84,7 @@ type Model struct {
 	choice   int          // the target highlighted in the menu
 	menuTop  int          // the first target shown, so the highlighted one stays in view
 	failure  *errorDialog // the error dialog for a failed open, or nil
+	add      addDialog    // the dialog that adds a target
 	help     bool         // the help overlay is open
 	helpTop  int          // the first row of the help shown, so the help scrolls when it does not fit
 	opening  bool         // an open is running, so targets do nothing until it finishes
@@ -149,6 +155,32 @@ type openedMsg struct {
 type failedMsg struct {
 	repo, target string
 	target.Failure
+}
+
+// addDialog is the dialog that adds a target to the config file: its fields,
+// then the confirmation of the block it appends.
+type addDialog struct {
+	open    bool
+	fields  [3]string // the name, the key and the command, as typed
+	field   int       // the field being typed in
+	block   string    // the block to append, while the confirmation shows it
+	writing bool      // the block is being written, so keys wait for the result
+	problem string    // why the target was refused or not written
+}
+
+// checkedMsg carries the block to append for the target in fields, or why
+// the target is refused.
+type checkedMsg struct {
+	fields [3]string
+	block  string
+	err    error
+}
+
+// addedMsg carries the targets once a target was added, the new one last, or
+// why it was not added.
+type addedMsg struct {
+	targets []target.Target
+	err     error
 }
 
 // tickMsg moves the spinner on a frame.
@@ -301,13 +333,30 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.saveErr != nil { // the footer has one line: room to name the problem, not its cause
 			m.notice += ", but the history could not be saved"
 		}
-		if m.deps.CloseOnOpen && m.failure == nil { // never quit while an error is showing
+		if m.deps.CloseOnOpen && m.failure == nil && !m.add.open { // never quit while an error or the add dialog is showing
 			return m, tea.Quit
 		}
 	case failedMsg:
 		m.opening = false
 		// The dialog replaces a menu or the help opened while the target ran.
 		m.menu, m.help, m.failure = false, false, newErrorDialog(msg)
+	case checkedMsg:
+		// A check of fields typed over since, or of a dialog closed, is stale.
+		if m.add.open && !m.add.writing && msg.fields == m.add.fields {
+			m.add.block, m.add.problem = msg.block, ""
+			if msg.err != nil {
+				m.add.problem = msg.err.Error()
+			}
+		}
+	case addedMsg:
+		if msg.err != nil { // back to the fields, to put the problem right
+			m.add.writing, m.add.block, m.add.problem = false, "", msg.err.Error()
+			break
+		}
+		m.add = addDialog{}
+		m.deps.Targets = msg.targets
+		m.helpLines, m.helpWidth = m.helpContent()
+		m.notice = "Added " + msg.targets[len(msg.targets)-1].Name
 	case tickMsg:
 		m.ticking = m.refreshing // the spinner stops with the refresh
 		if m.refreshing {
@@ -315,7 +364,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmd = m.tick()
 		}
 	case tea.PasteMsg:
-		if m.searching && !m.menu && m.failure == nil { // as typed text, which only a search takes
+		switch { // as typed text, which only a search and the add dialog's fields take
+		case m.failure != nil:
+		case m.add.open && m.add.block == "" && !m.add.writing:
+			m.add.fields[m.add.field] += clean(msg.Content)
+		case m.searching && !m.menu:
 			m = m.search(m.query + clean(msg.Content))
 		}
 	case tea.WindowSizeMsg:
@@ -338,6 +391,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.failure = nil
 			}
 			return m, nil
+		}
+		if m.add.open {
+			return m.addKey(msg)
 		}
 		if m.help {
 			return m.helpKey(msg)
@@ -377,6 +433,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.repos, m.hits = m.filter() // an empty query matches every repo, in the order shown
 		case "?":
 			m.help, m.helpTop = m.helpRows() > 0, 0
+		case "a":
+			m.add = addDialog{open: true}
 		case "s":
 			m.byName = !m.byName
 			m = m.relist(m.all)
@@ -472,6 +530,65 @@ func (m Model) menuKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// addKey handles a key press while the add dialog is open. In the fields,
+// printable characters are text, so list keys and target keys are too.
+func (m Model) addKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
+	a := &m.add
+	switch {
+	case a.writing:
+	case a.block != "": // the confirmation
+		switch msg.String() {
+		case "enter":
+			a.writing = true
+			return m, m.write()
+		case "esc":
+			a.block = ""
+		}
+	default:
+		switch msg.String() {
+		case "tab", "down":
+			a.field = min(a.field+1, len(a.fields)-1)
+		case "shift+tab", "up":
+			a.field = max(a.field-1, 0)
+		case "enter":
+			if a.field < len(a.fields)-1 {
+				a.field++
+				break
+			}
+			return m, m.check()
+		case "esc":
+			m.add = addDialog{}
+		case "backspace":
+			if f := []rune(a.fields[a.field]); len(f) > 0 {
+				a.fields[a.field] = string(f[:len(f)-1])
+			}
+		default:
+			a.fields[a.field] += msg.Text
+		}
+	}
+	return m, nil
+}
+
+// check checks the target in the add dialog's fields against the config
+// file in the background.
+func (m Model) check() tea.Cmd {
+	f := m.add.fields
+	return func() tea.Msg {
+		block, err := m.deps.CheckTarget(m.deps.ConfigFile, m.deps.Home, f[0], f[1], f[2])
+		return checkedMsg{fields: f, block: block, err: err}
+	}
+}
+
+// write adds the target in the add dialog's fields to the config file in
+// the background.
+func (m Model) write() tea.Cmd {
+	f := m.add.fields
+	return func() tea.Msg {
+		targets, err := m.deps.AddTarget(m.deps.ConfigFile, m.deps.Home, f[0], f[1], f[2])
+		return addedMsg{targets: targets, err: err}
+	}
 }
 
 // menuRows is the number of targets the menu has room to show between its
@@ -677,6 +794,8 @@ func (m Model) View() tea.View {
 	switch {
 	case m.failure != nil:
 		lines = m.overlayFailure(lines)
+	case m.add.open:
+		lines = m.overlayAdd(lines)
 	case m.menu:
 		lines = m.overlayMenu(lines)
 	case m.help:
@@ -690,13 +809,17 @@ func (m Model) View() tea.View {
 }
 
 // footer is the footer's line of keys: the tool's own keys, then the keyed
-// targets, separated by " | ". What does not fit gives way whole items at a
+// targets, then the keys that come last, separated by " | ". What does not fit gives way whole items at a
 // time from the end, and a … then ends the line.
 func (m Model) footer() string {
-	var items []string
+	var items, last []string
 	for _, s := range KeyList() {
 		for _, b := range s.Bindings {
-			if b.FooterLabel != "" {
+			switch {
+			case b.FooterLabel == "":
+			case b.FooterLast:
+				last = append(last, m.key(b.FooterKey)+" "+b.FooterLabel)
+			default:
 				items = append(items, m.key(b.FooterKey)+" "+b.FooterLabel)
 			}
 		}
@@ -706,6 +829,7 @@ func (m Model) footer() string {
 			items = append(items, m.key(t.Key)+" "+t.Name)
 		}
 	}
+	items = append(items, last...)
 	for n := len(items); n >= 0; n-- {
 		shown := items[:n]
 		if n < len(items) {
@@ -924,6 +1048,52 @@ func (m Model) overlayFailure(lines []string) []string {
 	}
 	f := m.failure
 	return m.overlay(lines, m.box(f.title, f.rows[:min(len(f.rows), space)], f.width))
+}
+
+// overlayAdd draws the add dialog centred over the list part of lines: its
+// fields, with the end of a value too long for its field, or the block it
+// will append and the file it goes to. Text too long for the dialog wraps,
+// and the rows are cut to the space there is.
+func (m Model) overlayAdd(lines []string) []string {
+	space := m.listHeight() - 2 // the rows between the borders
+	if space < 1 {
+		return lines // no room: the dialog shows again once there is
+	}
+	title := " Add a target "
+	width := m.boxWidth(title, 60)
+	wrap := func(s string) []string {
+		var rows []string
+		for _, l := range strings.Split(ansi.Wrap(clean(s), max(width-2, 1), ""), "\n") {
+			rows = append(rows, " "+l+" ")
+		}
+		return rows
+	}
+	a := m.add
+	var rows []string
+	if a.block != "" {
+		rows = append(wrap("Append to "+m.shorten(m.deps.ConfigFile)), "")
+		for _, l := range strings.Split(strings.TrimSuffix(a.block, "\n"), "\n") {
+			rows = append(rows, wrap(l)...)
+		}
+		rows = append(rows, "", " "+m.key("enter")+" write  "+m.key("esc")+" back ")
+	} else {
+		for i, label := range []string{"Name", "Key", "Command"} {
+			marker := "  "
+			if i == a.field {
+				marker = m.bold(">") + " "
+			}
+			value := a.fields[i]
+			if over := ansi.StringWidth(value) - (width - 13); over > 0 { // 13: the margins, the marker and the label
+				value = "…" + cutStart(value, over+1)
+			}
+			rows = append(rows, " "+marker+pad(label, 7)+"  "+value+" ")
+		}
+		if a.problem != "" {
+			rows = append(append(rows, ""), wrap(m.shorten(a.problem))...) // a loader message starts with the file
+		}
+		rows = append(rows, "", " "+m.key("enter")+" next  "+m.key("tab")+" move  "+m.key("esc")+" cancel ")
+	}
+	return m.overlay(lines, m.box(title, rows[:min(len(rows), space)], width))
 }
 
 // errorDialog is the error dialog's content, worked out once when the
