@@ -186,6 +186,7 @@ Each module hides its details behind a small interface. The UI is the only modul
 - `branch` shows the branch name, the short commit hash prefixed with `@` for a detached HEAD, or the pending branch name for a repo with no commits.
 - In a narrow terminal, columns are dropped in a fixed order, whatever order `columns` puts them in: last opened first, then branch, then folder. Before a column is dropped, the folder and branch columns shrink to 12 cells, with long values cut by `…`. Values that are still too long are cut with `…`; under `root-path` the dimmed path is cut at its start, so the repo's name stays whole.
 - Colours come from the terminal's own palette. The tool honours `NO_COLOR`.
+- A repo's name, folder and branch come from the file system and are drawn as display text: control characters, such as an escape, a carriage return or a line feed, and bytes that are not UTF-8 are shown escaped, as `\x1b`, `\r` or `\n`, so they never reach the terminal and two names that differ in one never look the same. A backslash is shown as `\\`, so the escaping is one to one. Other text, emoji and wide characters included, is drawn as it is. This holds wherever such text shows: the rows, the titles of the target menu and the error dialog, the error dialog's command line, the "Opened" notice, the path warnings and the "No repos found" message. Opening, the history and the cache use the real path.
 
 ### Sorting
 
@@ -196,7 +197,7 @@ Each module hides its details behind a small interface. The UI is the only modul
 ### Search
 
 - `/` starts the search. The header becomes the search line.
-- The query is matched fuzzily against name, folder and branch, also when their column is hidden. Under `root-path` the name is the path the row shows. A space separates terms, and a row matches when every term matches one of the three. Matching is case-insensitive unless the query contains a capital letter.
+- The query is matched fuzzily against name, folder and branch, also when their column is hidden. Under `root-path` the name is the path the row shows. The query is matched against the text as drawn, so a control character matches as its escape. A space separates terms, and a row matches when every term matches one of the three. Matching is case-insensitive unless the query contains a capital letter.
 - Only matching rows are shown, best match first. A match in the name ranks above a match in the folder or branch. Ties keep the current sort order.
 - The top match is selected automatically. Matched letters are highlighted.
 - While searching, letters go to the query, so target keys are inactive. `↑`/`↓` and `ctrl-p`/`ctrl-n` move through the matches, and `enter` opens the target menu for the selected match.
@@ -377,7 +378,7 @@ Almost all tests go through one seam: the UI program with real modules behind it
 - **Background refresh.** The test triggers it explicitly and can check both the cached list and the refreshed list.
 - **Assertions.** Targeted checks: "the selected row is `aycapi`", "the screen contains the error text", "the fake target was called with this path", "this repo now sorts first". There is at most one full-screen snapshot, to guard the layout.
 
-The temporary trees cover the awkward cases: a repo nested inside another, a folder name with spaces, a hidden folder, a symlink, a symlink listed in `paths`, a linked worktree, a detached HEAD, a repo deleted after it was cached, and a configured path that does not exist.
+The temporary trees cover the awkward cases: a repo nested inside another, a folder name with spaces, a hidden folder, a symlink, a symlink listed in `paths`, a linked worktree, a detached HEAD, a repo deleted after it was cached, and a configured path that does not exist, and a name, folder and branch with control characters in them.
 
 ### What is tested at this seam
 

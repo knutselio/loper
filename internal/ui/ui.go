@@ -450,7 +450,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h[msg.path] = msg.at
 		m.history = h
 		m = m.relist(m.all)
-		notice := "Opened " + filepath.Base(msg.path) + " in " + msg.target
+		notice := "Opened " + safe(filepath.Base(msg.path)) + " in " + msg.target
 		if msg.saveErr != nil { // the footer has one line: room to name the problem, not its cause
 			notice += ", but the history could not be saved"
 		}
@@ -672,7 +672,7 @@ func (m Model) filter() ([]repo, []matcher.Match) {
 	}
 	rows := make([]matcher.Row, len(m.all))
 	for i, r := range m.all {
-		rows[i] = matcher.Row{Name: m.name(r), Folder: m.shorten(filepath.Dir(r.path)), Branch: r.branch}
+		rows[i] = matcher.Row{Name: m.name(r), Folder: safe(m.shorten(filepath.Dir(r.path))), Branch: safe(r.branch)}
 	}
 	hits := matcher.Find(m.query, rows)
 	repos := make([]repo, len(hits))
@@ -947,7 +947,7 @@ func (m Model) View() tea.View {
 	}
 	count, warnings := fmt.Sprintf(" %s · %d %s", m.bold("loper"), len(m.repos), noun), ""
 	for _, path := range m.missing {
-		warnings += "  " + m.shorten(path) + " not found"
+		warnings += "  " + safe(m.shorten(path)) + " not found"
 	}
 	sort := "  sort: last opened "
 	if m.byName {
@@ -987,7 +987,7 @@ func (m Model) View() tea.View {
 	case !m.refreshing:
 		paths := make([]string, len(m.deps.Paths))
 		for i, p := range m.deps.Paths {
-			paths[i] = m.shorten(p)
+			paths[i] = safe(m.shorten(p))
 		}
 		empty = []string{"No repos found in " + strings.Join(paths, ", "), "Change paths in " + m.shorten(m.deps.ConfigFile)}
 	case m.loaded:
@@ -1154,9 +1154,9 @@ func (m Model) cell(c string, r repo, h matcher.Match, now time.Time, room int) 
 		}
 		return ansi.Truncate(base, room, "…")
 	case "folder":
-		s = m.dim(m.highlight(m.shorten(filepath.Dir(r.path)), h.Folder))
+		s = m.dim(m.highlight(safe(m.shorten(filepath.Dir(r.path))), h.Folder))
 	case "branch":
-		s = m.highlight(r.branch, h.Branch)
+		s = m.highlight(safe(r.branch), h.Branch)
 	default: // last_opened
 		s = "-"
 		if at, ok := m.history[r.path]; ok {
@@ -1177,7 +1177,7 @@ func cutStart(s string, n int) string {
 
 // name is the text of r's name column: its name or, under the root-path
 // style, its path from its root, which for a repo listed directly in paths is
-// its name.
+// its name, as display text.
 func (m Model) name(r repo) string {
 	if m.deps.RowStyle == "root-path" {
 		// The error is dropped: in a list the tool scanned or cached itself, a
@@ -1185,10 +1185,10 @@ func (m Model) name(r repo) string {
 		// edited by hand could break that; the row then shows "" or a path
 		// with "..", and the next refresh puts it right.
 		if rel, _ := filepath.Rel(r.root, r.path); rel != "." {
-			return rel
+			return safe(rel)
 		}
 	}
-	return filepath.Base(r.path)
+	return safe(filepath.Base(r.path))
 }
 
 // dim dims s, unless colour is off.
@@ -1294,7 +1294,7 @@ func (m Model) overlayMenu(lines []string) []string {
 	for _, t := range m.deps.Targets {
 		keyWidth = max(keyWidth, ansi.StringWidth(t.Key))
 	}
-	title := " Open " + filepath.Base(m.repos[m.selected].path) + " "
+	title := " Open " + safe(filepath.Base(m.repos[m.selected].path)) + " "
 	rows := make([]string, len(m.deps.Targets))
 	width := 0
 	for i, t := range m.deps.Targets {
@@ -1435,8 +1435,8 @@ type errorDialog struct {
 }
 
 func newErrorDialog(msg failedMsg) *errorDialog {
-	d := &errorDialog{title: " Could not open " + msg.repo + " in " + msg.target + " "}
-	d.rows = []string{" $ " + clean(msg.Command) + " "}
+	d := &errorDialog{title: " Could not open " + safe(msg.repo) + " in " + msg.target + " "}
+	d.rows = []string{" $ " + safe(msg.Command) + " "}
 	for _, l := range strings.Split(strings.TrimRight(msg.Output, "\n"), "\n") {
 		d.rows = append(d.rows, " "+clean(l)+" ")
 	}
@@ -1457,6 +1457,38 @@ func clean(s string) string {
 		}
 		return r
 	}, s)
+}
+
+// safe turns outside text, such as a repo's name, folder or branch, into
+// display text: control characters and bytes that are not UTF-8 are shown
+// escaped, as \n, \r, \t, \x1b or \u009b, so none reaches the terminal. A
+// backslash is shown as \\, so two different names never look the same.
+// Other printable text is kept.
+func safe(s string) string {
+	var b strings.Builder
+	for len(s) > 0 {
+		r, n := utf8.DecodeRuneInString(s)
+		switch {
+		case r == utf8.RuneError && n == 1:
+			fmt.Fprintf(&b, `\x%02x`, s[0])
+		case r == '\\':
+			b.WriteString(`\\`)
+		case r == '\n':
+			b.WriteString(`\n`)
+		case r == '\r':
+			b.WriteString(`\r`)
+		case r == '\t':
+			b.WriteString(`\t`)
+		case r < utf8.RuneSelf && unicode.IsControl(r): // C0 and DEL
+			fmt.Fprintf(&b, `\x%02x`, r)
+		case unicode.IsControl(r): // C1, told apart from a byte that is not UTF-8
+			fmt.Fprintf(&b, `\u%04x`, r)
+		default:
+			b.WriteString(s[:n])
+		}
+		s = s[n:]
+	}
+	return b.String()
 }
 
 // box draws rows in a rounded border with title in its top edge. width is
