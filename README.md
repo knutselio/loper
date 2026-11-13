@@ -112,7 +112,7 @@ Quitting, or any other target, leaves the shell where it was. The function keeps
 - A branch column and a column for when you last opened each repo.
 - Choose the columns and how the name and folder are drawn.
 - A layout that drops columns and shortens values in a narrow terminal.
-- Your terminal's own palette colours, and no colour when `NO_COLOR` is set.
+- Your terminal's own palette colours. With `NO_COLOR` set to any non-empty value there is no colour, while bold, dim, underline and the reverse-video selection stay.
 
 ## Keys
 

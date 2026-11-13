@@ -180,6 +180,7 @@ func startUI(home string, settings config.Settings) error {
 		CloseOnOpen: settings.CloseOnOpen,
 		SortByName:  settings.SortByName,
 		CacheMaxAge: settings.CacheMaxAge,
+		Styles:      true,
 		Color:       os.Getenv("NO_COLOR") == "",
 		Columns:     settings.Columns,
 		RowStyle:    settings.RowStyle,

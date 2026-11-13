@@ -56,11 +56,13 @@ type Deps struct {
 	// CacheMaxAge is how old the cache may be before a launch scans again
 	// rather than re-reading the cached repos; 0 means every launch scans.
 	CacheMaxAge time.Duration
-	// Color turns the styles on: the bold title and selection marker, the
+	// Styles turns the styles on: the bold title and selection marker, the
 	// bar of the selection, dimmed headings, folders, rules and borders,
-	// highlighted matches, and keys in the accent colour in the footer, the
-	// help and the menu. It is off when NO_COLOR is set
-	// and non-empty, and then the output has no escape codes at all.
+	// underlined matches, and bold keys in the footer, the help and the menu.
+	// Without it the output has no escape codes at all.
+	Styles bool
+	// Color, with Styles, draws the keys in the accent colour. It is off
+	// when NO_COLOR is set and non-empty, and then no colour is drawn.
 	Color bool
 	// Columns are the columns to show, in order, out of name, folder, branch
 	// and last_opened.
@@ -1004,7 +1006,7 @@ func (m Model) View() tea.View {
 		for i, p := range m.deps.Paths {
 			paths[i] = safe(m.shorten(p))
 		}
-		empty = []string{"No repos found in " + strings.Join(paths, ", "), "Change paths in " + m.shorten(m.deps.ConfigFile)}
+		empty = []string{"No repos found in " + strings.Join(paths, ", "), "Change paths in " + safe(m.shorten(m.deps.ConfigFile))}
 	case m.loaded:
 		empty = []string{spinner[m.frame] + " scanning…"}
 	}
@@ -1054,7 +1056,7 @@ func (m Model) View() tea.View {
 	}
 	keys := m.footer()
 	if m.notice != "" {
-		keys = ansi.Truncate(" "+m.notice, m.width, "…")
+		keys = ansi.Truncate(" "+message(m.notice), m.width, "…")
 	}
 	if m.quitting {
 		keys = ansi.Truncate(" Quitting when the open is done", m.width, "…")
@@ -1209,43 +1211,43 @@ func (m Model) name(r repo) string {
 	return safe(filepath.Base(r.path))
 }
 
-// dim dims s, unless colour is off.
+// dim dims s, unless the styles are off.
 func (m Model) dim(s string) string {
-	if !m.deps.Color || s == "" {
+	if !m.deps.Styles || s == "" {
 		return s
 	}
 	return dimOn + s + dimOff
 }
 
-// bold styles s as the title or the marker of what is selected, unless
-// colour is off.
+// bold styles s as the title or the marker of what is selected, unless the
+// styles are off.
 func (m Model) bold(s string) string {
-	if !m.deps.Color || s == "" {
+	if !m.deps.Styles || s == "" {
 		return s
 	}
 	return boldOn + s + boldOff
 }
 
-// bar draws s, padded to width cells, as a bar, unless colour is off.
+// bar draws s, padded to width cells, as a bar, unless the styles are off.
 func (m Model) bar(s string, width int) string {
-	if !m.deps.Color {
+	if !m.deps.Styles {
 		return s
 	}
 	return barOn + pad(s, width) + barOff
 }
 
-// key styles s as a key, unless colour is off.
+// key styles s as a key: bold, and in the accent colour unless colour is off.
 func (m Model) key(s string) string {
 	if !m.deps.Color || s == "" {
-		return s
+		return m.bold(s)
 	}
 	return keyOn + s + keyOff
 }
 
 // highlight marks the characters of s at the positions pos, which are in
-// ascending order and may go past the end of s, unless colour is off.
+// ascending order and may go past the end of s, unless the styles are off.
 func (m Model) highlight(s string, pos []int) string {
-	if !m.deps.Color || len(pos) == 0 {
+	if !m.deps.Styles || len(pos) == 0 {
 		return s
 	}
 	var b strings.Builder
@@ -1387,11 +1389,11 @@ func (m Model) addRows() ([]string, int) {
 		}
 		return rows
 	}
-	file := m.shorten(m.deps.ConfigFile)
+	file := safe(m.shorten(m.deps.ConfigFile))
 	var rows []string
 	switch {
 	case a.refusal != "":
-		rows = append(wrap(m.shorten(a.refusal)), "", " "+m.key("esc")+" close ") // a loader message starts with the file
+		rows = append(wrap(message(m.shorten(a.refusal))), "", " "+m.key("esc")+" close ") // a loader message starts with the file
 	case a.confirming && a.remove:
 		rows = slices.Concat(wrap("Remove these lines from "+file+":"), lines(short(a.before)),
 			[]string{"", " " + m.key("enter") + " remove  " + m.key("esc") + " keep "})
@@ -1420,13 +1422,13 @@ func (m Model) addRows() ([]string, int) {
 			if over := ansi.StringWidth(value) - (width - 16); over > 0 { // 16: the margins, the marker and the label
 				value = "…" + cutStart(value, over+1)
 			}
-			if value == "" && m.deps.Color { // without colour the example would read as typed
+			if value == "" && m.deps.Styles { // undimmed the example would read as typed
 				value = m.dim(examples[i])
 			}
 			rows = append(rows, " "+marker+pad(label, 10)+"  "+value+" ")
 		}
 		if a.problem != "" {
-			rows = append(append(rows, ""), wrap(m.shorten(a.problem))...) // a loader message starts with the file
+			rows = append(append(rows, ""), wrap(message(m.shorten(a.problem)))...) // a loader message starts with the file
 		}
 		rows = append(rows, "", " "+m.key("enter")+" next  "+m.key("tab")+" move  "+m.key("esc")+" cancel ")
 	}
@@ -1483,6 +1485,18 @@ func clean(s string) string {
 // backslash is shown as \\, so two different names never look the same.
 // Other printable text is kept.
 func safe(s string) string {
+	return escape(s, `\\`)
+}
+
+// message is safe for a message, such as a loader's, that names files as
+// they are but quotes other values as Go does, escaped already: a backslash
+// is kept as it is, so a quoted value is not escaped twice.
+func message(s string) string {
+	return escape(s, `\`)
+}
+
+// escape is safe, with a backslash shown as backslash.
+func escape(s, backslash string) string {
 	var b strings.Builder
 	for len(s) > 0 {
 		r, n := utf8.DecodeRuneInString(s)
@@ -1490,7 +1504,7 @@ func safe(s string) string {
 		case r == utf8.RuneError && n == 1:
 			fmt.Fprintf(&b, `\x%02x`, s[0])
 		case r == '\\':
-			b.WriteString(`\\`)
+			b.WriteString(backslash)
 		case r == '\n':
 			b.WriteString(`\n`)
 		case r == '\r':

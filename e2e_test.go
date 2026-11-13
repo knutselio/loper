@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -26,12 +27,16 @@ type session struct {
 	exited  chan struct{} // closed once the process has been reaped
 	waitErr error         // the process's exit, once exited is closed
 	drained chan struct{} // closed once the terminal has nothing more to read
+	mu      sync.Mutex    // guards out until drained is closed
 	out     []byte        // all the terminal showed, complete once drained is closed
 }
 
+// sgr matches a sequence that sets the text's style or colour.
+var sgr = regexp.MustCompile(`\x1b\[[0-9;:]*m`)
+
 // start runs the binary with args in a 24x80 pseudo-terminal and closes
-// shown once the terminal has shown awaited. The process is killed and
-// reaped when the test ends, should it still be running.
+// shown once the terminal has shown awaited, with its styles left out. The
+// process is killed and reaped when the test ends, should it still be running.
 func start(t *testing.T, awaited string, binary string, args ...string) *session {
 	t.Helper()
 	cmd := exec.Command(binary, args...)
@@ -50,8 +55,10 @@ func start(t *testing.T, awaited string, binary string, args ...string) *session
 		buf := make([]byte, 4096)
 		for {
 			n, err := f.Read(buf)
+			s.mu.Lock()
 			s.out = append(s.out, buf[:n]...)
-			if awaited != "" && bytes.Contains(s.out, []byte(awaited)) {
+			s.mu.Unlock()
+			if awaited != "" && s.shows(awaited) {
 				close(s.shown)
 				awaited = ""
 			}
@@ -85,6 +92,13 @@ func (s *session) within(what string, done <-chan struct{}) {
 	case <-time.After(30 * time.Second):
 		s.t.Fatalf("timed out waiting for %s", what)
 	}
+}
+
+// shows reports whether the terminal has shown text, with its styles left out.
+func (s *session) shows(text string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return strings.Contains(sgr.ReplaceAllString(string(s.out), ""), text)
 }
 
 // press types keys into the terminal.
@@ -174,9 +188,9 @@ func TestTheBuiltBinaryOpensTheRepoPickedWithKeysAndRecordsIt(t *testing.T) {
 	if _, ok := history[beta]; !ok || len(history) != 1 {
 		t.Errorf("the history holds %v, want only %q", history, beta)
 	}
-	// NO_COLOR is set, so no colour or text style was drawn.
-	if sgr := regexp.MustCompile(`\x1b\[[0-9;:]*m`).Find(out); sgr != nil {
-		t.Errorf("with NO_COLOR set the terminal got the style %q", sgr)
+	// NO_COLOR is set, so no colour was drawn.
+	if got := colours(out); len(got) > 0 {
+		t.Errorf("with NO_COLOR set the terminal got the colours %q", got)
 	}
 }
 

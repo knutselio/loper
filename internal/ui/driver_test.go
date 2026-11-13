@@ -59,9 +59,10 @@ type env struct {
 	// is ignored; the driver never waits for it either.
 	pause time.Duration
 	now   time.Time // the time on the program's clock
-	// color turns colour on, as an unset NO_COLOR does; tests leave it off
-	// unless they are about colour.
-	color bool
+	// color turns the styles and colour on, as an unset NO_COLOR does, and
+	// noColor the styles without colour, as a set one does; tests leave both
+	// off unless they are about styles.
+	color, noColor bool
 	// configFile is the config file named with --config, or "" for the
 	// standard location.
 	configFile string
@@ -306,6 +307,7 @@ func (e *env) launch() *driver {
 		CloseOnOpen: settings.CloseOnOpen,
 		SortByName:  settings.SortByName,
 		CacheMaxAge: settings.CacheMaxAge,
+		Styles:      e.color || e.noColor,
 		Color:       e.color,
 		Columns:     settings.Columns,
 		RowStyle:    settings.RowStyle,
