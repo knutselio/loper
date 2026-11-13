@@ -9,6 +9,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
+	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -214,6 +217,84 @@ func TestTheBuiltBinaryHandsTheWindowOverToAnInPlaceTarget(t *testing.T) {
 	}
 }
 
+func TestTheBuiltBinaryQuitDuringAnOpenWaitsOnQAndNotOnCtrlC(t *testing.T) {
+	loper := filepath.Join(t.TempDir(), "loper")
+	if out, err := exec.Command("go", "build", "-o", loper, ".").CombinedOutput(); err != nil {
+		t.Fatalf("go build: %v\n%s", err, out)
+	}
+	for _, c := range []struct {
+		name, key string
+		recorded  bool
+	}{
+		{"q", "q", true},
+		{"ctrl-c", "\x03", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			home := tempHome(t)
+			t.Setenv("TERM", "xterm-256color")
+			t.Setenv("NO_COLOR", "1")
+			t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+			t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+			alpha := filepath.Join(home, "code", "alpha")
+			if out, err := exec.Command("git", "init", "-b", "main", alpha).CombinedOutput(); err != nil {
+				t.Fatalf("git init: %v\n%s", err, out)
+			}
+			// The target records its process id and keeps running, past loper's
+			// wait, until the test ends; it gives up by itself after 20 seconds.
+			pidFile, done := filepath.Join(home, "server.pid"), filepath.Join(home, "server.done")
+			fake := filepath.Join(home, "server")
+			writeConfig(t, fake, "#!/bin/sh\necho $$ > '"+pidFile+".tmp'\nmv '"+pidFile+".tmp' '"+pidFile+"'\n"+
+				"for i in $(seq 400); do [ -e '"+done+"' ] && exit 0; sleep 0.05; done\n")
+			if err := os.Chmod(fake, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				writeConfig(t, done, "")
+				if p := readPid(pidFile); p > 0 {
+					syscall.Kill(p, syscall.SIGKILL)
+				}
+			})
+			config := filepath.Join(home, "try.toml")
+			writeConfig(t, config, fmt.Sprintf("paths = [%q]\n\n[[targets]]\nname = \"Server\"\nkey = \"v\"\ncommand = %q\n",
+				filepath.Join(home, "code"), fake+" {path}"))
+
+			s := start(t, "alpha", loper, "--config", config)
+			s.within("the list to be drawn", s.shown)
+			s.press("v")
+			s.eventually("the target to start", func() bool { return readPid(pidFile) > 0 })
+			s.press(c.key)
+			// The target has only just started and loper's wait is 2 seconds,
+			// so the key arrives during the wait: the entry, written when the
+			// wait ends, is not there yet.
+			if _, err := os.Stat(filepath.Join(home, ".local", "state", "loper", "history.json")); !os.IsNotExist(err) {
+				t.Fatalf("the open was recorded (%v) before %s was pressed", err, c.name)
+			}
+			s.within("loper to quit", s.exited)
+			s.within("the terminal to close", s.drained)
+
+			if c.recorded && s.waitErr != nil {
+				t.Errorf("loper exited with %v, want 0", s.waitErr)
+			}
+			var history map[string]time.Time
+			b, _ := os.ReadFile(filepath.Join(home, ".local", "state", "loper", "history.json"))
+			_ = json.Unmarshal(b, &history)
+			if _, ok := history[alpha]; ok != c.recorded {
+				t.Errorf("the history holds %v; want the open of alpha recorded: %v", history, c.recorded)
+			}
+			if p := readPid(pidFile); syscall.Kill(p, 0) != nil {
+				t.Errorf("the target %d is gone, want it left running", p)
+			}
+		})
+	}
+}
+
+// readPid returns the process id in file, or 0 when there is none yet.
+func readPid(file string) int {
+	b, _ := os.ReadFile(file)
+	n, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+	return n
+}
+
 func TestTheBuiltBinaryOnAFirstRunLandsInTheRepoWithOrWithoutTheWrapper(t *testing.T) {
 	loper := filepath.Join(t.TempDir(), "loper")
 	if out, err := exec.Command("go", "build", "-o", loper, ".").CombinedOutput(); err != nil {
@@ -325,7 +406,7 @@ func TestTheBuiltBinaryOnAFirstRunLandsInTheRepoWithOrWithoutTheWrapper(t *testi
 	})
 
 	t.Run("with the wrapper's file kept from the targets", func(t *testing.T) {
-		home, _, _, _ := setUp(t)
+		home, alpha, _, _ := setUp(t)
 		normal, inPlace := filepath.Join(home, "normal-env"), filepath.Join(home, "in-place-env")
 		for name, record := range map[string]string{"normal": normal, "in-place": inPlace} {
 			writeConfig(t, filepath.Join(home, "bin", name), "#!/bin/sh\nenv > '"+record+".tmp'\nmv '"+record+".tmp' '"+record+"'\n")
@@ -347,6 +428,8 @@ func TestTheBuiltBinaryOnAFirstRunLandsInTheRepoWithOrWithoutTheWrapper(t *testi
 			_, err := os.Stat(normal)
 			return err == nil
 		})
+		// Until its open is done, the in-place target's key does nothing.
+		s.eventually("the normal open to be recorded", func() bool { return recorded(home, alpha) })
 		s.press("h")
 		s.within("the in-place target to end in loper's place", s.exited)
 

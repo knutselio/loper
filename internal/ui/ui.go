@@ -102,6 +102,7 @@ type Model struct {
 	help     bool         // the help overlay is open
 	helpTop  int          // the first row of the help shown, so the help scrolls when it does not fit
 	opening  bool         // an open is running, so targets do nothing until it finishes
+	quitting bool         // q was pressed while an open was running, so the tool quits once it succeeds
 	byName   bool         // sorted by name rather than by last opened
 	// helpLines and helpWidth are the help's rows and the width of the
 	// widest, worked out once in New rather than on every render.
@@ -348,6 +349,16 @@ func (m Model) tick() tea.Cmd {
 	return m.deps.Tick(80*time.Millisecond, func(time.Time) tea.Msg { return tickMsg{} })
 }
 
+// quit ends the program, or while an open is running waits for it, so its
+// history entry is saved first.
+func (m Model) quit() (Model, tea.Cmd) {
+	if m.opening {
+		m.quitting = true
+		return m, nil
+	}
+	return m, tea.Quit
+}
+
 // showNotice shows text in the footer for a moment.
 func (m Model) showNotice(text string) (Model, tea.Cmd) {
 	m.notice = text
@@ -444,7 +455,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.history = h
 		m = m.relist(m.all)
 	case openedMsg:
-		m.opening = false
+		quit := msg.close || m.quitting
+		m.opening, m.quitting = false, false
 		h := map[string]time.Time{} // a new map: an older model may still hold the old one
 		maps.Copy(h, m.history)
 		h[msg.path] = msg.at
@@ -455,14 +467,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			notice += ", but the history could not be saved"
 		}
 		m, cmd = m.showNotice(notice)
-		if msg.close && m.failure == nil && !m.add.open { // never quit while an error or the add dialog is showing
+		if quit && m.failure == nil && !m.add.open { // never quit while an error or the add dialog is showing
 			return m, tea.Quit
 		}
 	case handOverMsg:
 		m.handOver = &msg.h
 		return m, tea.Quit
 	case failedMsg:
-		m.opening = false
+		m.opening, m.quitting = false, false
 		// The dialog replaces a menu or the help opened while the target ran.
 		m.menu, m.help, m.failure = false, false, newErrorDialog(msg)
 	case fileCheckedMsg:
@@ -557,7 +569,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.failure != nil {
 			switch msg.String() {
 			case "q":
-				return m, tea.Quit
+				return m.quit()
 			case "esc":
 				m.failure = nil
 			}
@@ -581,7 +593,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.String() {
 		case "q":
-			return m, tea.Quit
+			return m.quit()
 		case "j", "down":
 			m.selected = min(m.selected+1, max(len(m.repos)-1, 0))
 		case "k", "up":
@@ -687,7 +699,7 @@ func (m Model) menuKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	if len(m.deps.Targets) == 0 { // the menu says there are none, and a adds one
 		switch msg.String() {
 		case "q":
-			return m, tea.Quit
+			return m.quit()
 		case "a":
 			m.menu, m.add = false, addDialog{open: true}
 			return m, m.checkFile()
@@ -698,7 +710,7 @@ func (m Model) menuKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	}
 	switch msg.String() {
 	case "q":
-		return m, tea.Quit
+		return m.quit()
 	case "j", "down":
 		m.choice = min(m.choice+1, len(m.deps.Targets)-1)
 	case "k", "up":
@@ -732,7 +744,10 @@ func (m Model) addKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	case a.refusal != "":
 		switch msg.String() {
 		case "q":
-			return m, tea.Quit
+			if m.opening { // closed, so the quit goes ahead once the open is done
+				m.add = addDialog{}
+			}
+			return m.quit()
 		case "esc":
 			m.add = addDialog{}
 		}
@@ -858,7 +873,7 @@ func (m Model) scrollMenu() Model {
 func (m Model) helpKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	switch msg.String() {
 	case "q":
-		return m, tea.Quit
+		return m.quit()
 	case "j", "down":
 		m.helpTop = min(m.helpTop+1, len(m.helpLines)-m.helpRows())
 	case "k", "up":
@@ -1040,6 +1055,9 @@ func (m Model) View() tea.View {
 	keys := m.footer()
 	if m.notice != "" {
 		keys = ansi.Truncate(" "+m.notice, m.width, "…")
+	}
+	if m.quitting {
+		keys = ansi.Truncate(" Quitting when the open is done", m.width, "…")
 	}
 	switch {
 	case m.failure != nil:
