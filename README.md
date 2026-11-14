@@ -91,14 +91,15 @@ loper() {
   file=$(mktemp) || return
   LOPER_CD_FILE=$file command loper "$@"
   code=$?
-  dir=$(command cat -- "$file")
+  dir=$(command cat -- "$file"; command printf x)
   command rm -f -- "$file"
-  [ -n "$dir" ] && cd -- "$dir"
+  dir=${dir%x}
+  [ -n "$dir" ] && { cd -- "$dir" || return; }
   return $code
 }
 ```
 
-Quitting, or any other target, leaves the shell where it was. The function keeps loper's exit code.
+The `x` after the file's text, removed again, keeps line breaks at the end of a folder's name, which `$(...)` would drop. Quitting, or any other target, leaves the shell where it was. The function returns loper's exit code, or `cd`'s when loper handed over a folder the shell cannot change to.
 
 ## Features
 
