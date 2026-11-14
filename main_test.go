@@ -681,6 +681,11 @@ func TestAFirstRunCreatesTheConfigFileWithTheCdTarget(t *testing.T) {
 	if info, _ := os.Stat(file); info.Mode().Perm() != 0o600 {
 		t.Errorf("config file has mode %v, want 0600", info.Mode().Perm())
 	}
+	for _, folder := range []string{filepath.Join(home, ".config"), filepath.Dir(file)} {
+		if info, _ := os.Stat(folder); info.Mode().Perm() != 0o700 {
+			t.Errorf("%s has mode %v, want 0700", folder, info.Mode().Perm())
+		}
+	}
 	if len(s.Targets) != 1 || s.Targets[0].Name != "cd" || s.Targets[0].Key != "o" || !s.Targets[0].InPlace || s.Notice != "" {
 		t.Errorf("UI started with targets %+v and notice %q, want the cd target and none", s.Targets, s.Notice)
 	}
