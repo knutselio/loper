@@ -1,4 +1,4 @@
-package main
+package app
 
 import (
 	"os"
@@ -10,7 +10,7 @@ import (
 // readmeTOML returns the toml blocks in the README, in order.
 func readmeTOML(t *testing.T) []string {
 	t.Helper()
-	b, err := os.ReadFile("README.md")
+	b, err := os.ReadFile("../../README.md")
 	if err != nil {
 		t.Fatal(err)
 	}
