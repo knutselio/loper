@@ -45,6 +45,17 @@ func (a addDialog) change() target.Change {
 	return target.Change{Old: a.old, Lines: a.before, Remove: a.remove, Name: a.fields[0], Key: a.fields[1], Command: a.fields[2], Close: quit, InPlace: inPlace}
 }
 
+// title is the dialog's title.
+func (a addDialog) title() string {
+	switch {
+	case a.remove:
+		return " Remove a target "
+	case a.old != nil:
+		return " Edit a target "
+	}
+	return " Add a target "
+}
+
 // choiceOf returns the index in choices of what quit and inPlace, a
 // target's close and in_place, say.
 func choiceOf(quit *bool, inPlace bool) int {
@@ -57,17 +68,6 @@ func choiceOf(quit *bool, inPlace bool) int {
 		return slices.Index(choices, "close loper")
 	}
 	return slices.Index(choices, "stay open")
-}
-
-// title is the dialog's title.
-func (a addDialog) title() string {
-	switch {
-	case a.remove:
-		return " Remove a target "
-	case a.old != nil:
-		return " Edit a target "
-	}
-	return " Add a target "
 }
 
 // fileCheckedMsg carries why the config file cannot take the change of the

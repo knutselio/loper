@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"unicode"
 
 	"github.com/charmbracelet/x/ansi"
 
@@ -15,6 +14,31 @@ import (
 type failedMsg struct {
 	repo, target string
 	target.Failure
+}
+
+// errorDialog is the error dialog's content, worked out once when the
+// failure arrives rather than on every render.
+type errorDialog struct {
+	title   string
+	command string   // the command line that ran
+	output  []string // the lines it printed
+	cut     bool     // whether lines it printed before output were dropped
+	reason  string   // why it failed, without its margins
+}
+
+func newErrorDialog(msg failedMsg) *errorDialog {
+	d := &errorDialog{
+		title:   " Could not open " + safe(msg.repo) + " in " + msg.target + " ",
+		command: " $ " + safe(msg.Command) + " ",
+		cut:     msg.Cut,
+		reason:  message(msg.Reason), // a path in it shows as in the command line
+	}
+	if out := strings.TrimRight(msg.Output, "\n"); out != "" {
+		for _, l := range strings.Split(out, "\n") {
+			d.output = append(d.output, " "+clean(l)+" ")
+		}
+	}
+	return d
 }
 
 // overlayFailure draws the error dialog centred over the list part of
@@ -54,42 +78,4 @@ func (m Model) overlayFailure(lines []string) []string {
 		reason = "…" + cutStart(reason, over+1)
 	}
 	return m.overlay(lines, m.box(f.title, append(rows, " "+reason+" "), width))
-}
-
-// errorDialog is the error dialog's content, worked out once when the
-// failure arrives rather than on every render.
-type errorDialog struct {
-	title   string
-	command string   // the command line that ran
-	output  []string // the lines it printed
-	cut     bool     // whether lines it printed before output were dropped
-	reason  string   // why it failed, without its margins
-}
-
-func newErrorDialog(msg failedMsg) *errorDialog {
-	d := &errorDialog{
-		title:   " Could not open " + safe(msg.repo) + " in " + msg.target + " ",
-		command: " $ " + safe(msg.Command) + " ",
-		cut:     msg.Cut,
-		reason:  message(msg.Reason), // a path in it shows as in the command line
-	}
-	if out := strings.TrimRight(msg.Output, "\n"); out != "" {
-		for _, l := range strings.Split(out, "\n") {
-			d.output = append(d.output, " "+clean(l)+" ")
-		}
-	}
-	return d
-}
-
-// clean makes s safe to draw on one line: escape sequences and control
-// characters, which would move the cursor or change the screen, are
-// dropped, and a tab becomes spaces.
-func clean(s string) string {
-	s = strings.ReplaceAll(ansi.Strip(s), "\t", "    ")
-	return strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
-			return -1
-		}
-		return r
-	}, s)
 }

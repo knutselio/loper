@@ -132,3 +132,17 @@ func (m Model) overlay(lines, box []string) []string {
 	}
 	return lines
 }
+
+// cutStart removes the first n cells of s, and the rest of a wide character
+// the cut would split.
+func cutStart(s string, n int) string {
+	if cut := ansi.TruncateLeft(s, n, ""); ansi.StringWidth(cut) <= ansi.StringWidth(s)-n {
+		return cut
+	}
+	return ansi.TruncateLeft(s, n+1, "")
+}
+
+// pad fills s with spaces to width display cells.
+func pad(s string, width int) string {
+	return s + strings.Repeat(" ", width-ansi.StringWidth(s))
+}

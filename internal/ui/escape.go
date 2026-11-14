@@ -5,6 +5,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // safe turns outside text, such as a repo's name, folder or branch, into
@@ -49,4 +51,17 @@ func escape(s, backslash string) string {
 		s = s[n:]
 	}
 	return b.String()
+}
+
+// clean makes s safe to draw on one line: escape sequences and control
+// characters, which would move the cursor or change the screen, are
+// dropped, and a tab becomes spaces.
+func clean(s string) string {
+	s = strings.ReplaceAll(ansi.Strip(s), "\t", "    ")
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
 }

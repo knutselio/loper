@@ -262,15 +262,6 @@ func (m Model) cell(c string, r repo, h matcher.Match, now time.Time, room int) 
 	return ansi.Truncate(s, room, "…")
 }
 
-// cutStart removes the first n cells of s, and the rest of a wide character
-// the cut would split.
-func cutStart(s string, n int) string {
-	if cut := ansi.TruncateLeft(s, n, ""); ansi.StringWidth(cut) <= ansi.StringWidth(s)-n {
-		return cut
-	}
-	return ansi.TruncateLeft(s, n+1, "")
-}
-
 // name is the text of r's name column: its name or, under the root-path
 // style, its path from its root, which for a repo listed directly in paths is
 // its name, as display text.
@@ -301,11 +292,6 @@ func (m Model) pageHeight() int {
 		return m.listHeight() - 1
 	}
 	return m.listHeight()
-}
-
-// pad fills s with spaces to width display cells.
-func pad(s string, width int) string {
-	return s + strings.Repeat(" ", width-ansi.StringWidth(s))
 }
 
 // shorten replaces the home folder at the start of path with ~.
