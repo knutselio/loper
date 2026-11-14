@@ -2,9 +2,12 @@ package ui_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"syscall"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -616,31 +619,124 @@ func TestAWriteRefusedGoesBackToTheFieldsWithTheChoiceKept(t *testing.T) {
 	}
 }
 
-func TestAFailedWriteShowsTheErrorAndLeavesTheFileWhole(t *testing.T) {
-	e := newEnv(t)
-	e.repo("code/alpha")
-	e.config(zedConfig)
-	dir := filepath.Dir(configPath())
-	d := e.start()
-	d.fill("Tab", "t", "tab {path}")
-	d.press("enter", "enter")
-	d.pass()
-	if err := os.Chmod(dir, 0o500); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.Chmod(dir, 0o755) })
+// immutable is UF_IMMUTABLE from macOS's sys/stat.h, which the syscall
+// package does not name: a file with this flag cannot be changed, removed or
+// renamed over, even by its owner.
+const immutable = 0x2
 
-	d.press("enter")
+// writeFailure is a way to make the write of the config file fail.
+type writeFailure struct {
+	name string
+	why  string // the error the dialog shows
+	// set makes the write fail in the config folder dir and returns what
+	// undoes that, which it also leaves to t's cleanup.
+	set func(t *testing.T, dir string) (undo func())
+}
 
-	if got := dialogText(d); !strings.Contains(got, "permission denied") {
-		t.Errorf("dialog reads %q, want the write error", got)
+// undoing registers undo with t's cleanup and returns it, so it runs once,
+// early or at the end, whatever happens in between.
+func undoing(t *testing.T, undo func()) func() {
+	undo = sync.OnceFunc(undo)
+	t.Cleanup(undo)
+	return undo
+}
+
+var (
+	tempFileNotCreated = writeFailure{"the temporary file cannot be created", "permission denied", func(t *testing.T, dir string) func() {
+		if err := os.Chmod(dir, 0o500); err != nil {
+			t.Fatal(err)
+		}
+		return undoing(t, func() { os.Chmod(dir, 0o755) })
+	}}
+	// A process may write no more than its file size limit into a file, so
+	// the write stops partway. The limit holds for the whole process, so it
+	// is set only in a child, see the test below, and lifted right after.
+	writeCutShort = writeFailure{"the write is cut short", "file too large", func(t *testing.T, _ string) func() {
+		var was syscall.Rlimit
+		if err := syscall.Getrlimit(syscall.RLIMIT_FSIZE, &was); err != nil {
+			t.Fatal(err)
+		}
+		limit := was
+		limit.Cur = 16
+		if err := syscall.Setrlimit(syscall.RLIMIT_FSIZE, &limit); err != nil {
+			t.Fatal(err)
+		}
+		return undoing(t, func() { syscall.Setrlimit(syscall.RLIMIT_FSIZE, &was) })
+	}}
+	// The file can still be read and its folder written, so the temporary
+	// file is made and written, but it cannot be renamed over an immutable
+	// file.
+	renameRefused = writeFailure{"the rename is refused", "operation not permitted", func(t *testing.T, dir string) func() {
+		file := filepath.Join(dir, "config.toml")
+		if err := syscall.Chflags(file, immutable); err != nil {
+			t.Fatal(err)
+		}
+		return undoing(t, func() { syscall.Chflags(file, 0) })
+	}}
+)
+
+// failedWrites adds, edits and removes a target with the write failing as
+// failure makes it, and checks that the dialog shows the error and the file
+// is as it was, with its mode, and nothing is left beside it.
+func failedWrites(t *testing.T, failure writeFailure) {
+	t.Helper()
+	for _, op := range []struct {
+		name string
+		keys func(d *driver) // up to the confirmation
+	}{
+		{"add", func(d *driver) { d.fill("Vim", "v", "vim {path}"); d.press("enter", "enter") }},
+		{"edit", func(d *driver) { d.press("enter", "e"); d.retype("Zedd"); d.toLast(); d.press("enter") }},
+		{"remove", func(d *driver) { d.press("enter", "d") }},
+	} {
+		e := newEnv(t)
+		d, _ := editStart(e, editConfig)
+		if err := os.Chmod(configPath(), 0o640); err != nil {
+			t.Fatal(err)
+		}
+		dir := filepath.Dir(configPath())
+		op.keys(d)
+		d.pass()
+		undo := failure.set(t, dir)
+
+		d.press("enter")
+		undo()
+
+		if got := dialogText(d); !strings.Contains(got, failure.why) {
+			t.Errorf("%s, %s: dialog reads %q, want the error %q", failure.name, op.name, got, failure.why)
+		}
+		if got, _ := fileText(t, configPath()); got != editConfig {
+			t.Errorf("%s, %s: config is %q, want it byte for byte as it was", failure.name, op.name, got)
+		}
+		if info, err := os.Stat(configPath()); err != nil || info.Mode().Perm() != 0o640 {
+			t.Errorf("%s, %s: config has mode %v (%v), want 0640 as before", failure.name, op.name, info.Mode().Perm(), err)
+		}
+		if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+			t.Errorf("%s, %s: config folder holds %v, want only the config file", failure.name, op.name, entries)
+		}
 	}
-	if got, _ := fileText(t, configPath()); got != zedConfig {
-		t.Errorf("config is %q, want it unchanged", got)
+}
+
+func TestAnAddEditOrRemoveWhoseWriteFailsShowsTheErrorAndLeavesTheFileAndItsMode(t *testing.T) {
+	failedWrites(t, tempFileNotCreated)
+	failedWrites(t, renameRefused)
+
+	// The file size limit would also stop go test's log of what the test
+	// process opens, so the cut-short write runs in a child, which keeps no
+	// such log, as it is started without -test.testlogfile.
+	cmd := exec.Command(os.Args[0], "-test.v", "-test.run=^TestAWriteCutShortInAChild$")
+	cmd.Env = append(os.Environ(), "LOPER_TEST_CUT_SHORT=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "--- PASS: TestAWriteCutShortInAChild") {
+		t.Errorf("the cut-short write in a child: %v\n%s", err, out)
 	}
-	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
-		t.Errorf("config folder holds %d entries, want only the config file", len(entries))
+}
+
+// TestAWriteCutShortInAChild is the child process of the test above.
+func TestAWriteCutShortInAChild(t *testing.T) {
+	if os.Getenv("LOPER_TEST_CUT_SHORT") == "" {
+		t.Skip("run by the test of failed writes, in a child process")
 	}
+	failedWrites(t, writeCutShort)
 }
 
 func TestEnterAgainWhileTheWriteRunsAppendsTheBlockOnce(t *testing.T) {

@@ -155,3 +155,32 @@ func TestSpaceDoesNothingInTheNoTargetsMessageTheErrorDialogAndTheHelp(t *testin
 		}
 	}
 }
+
+func TestSpaceInTheMessageThatTheConfigCannotTakeATargetDoesNothingAsEnterDoes(t *testing.T) {
+	const inline = "targets = [{ name = \"Zed\", key = \"z\", command = \"zed {path}\" }]\n"
+	for _, keys := range [][]string{{"a"}, {"enter", "e"}, {"enter", "d"}} {
+		e := newEnv(t)
+		e.repo("code/alpha")
+		e.config(inline)
+		d := e.start()
+		d.press(keys...)
+		before := d.screen()
+		if !strings.Contains(dialogText(d), "lists its targets inline") {
+			t.Fatalf("%q: dialog reads %q, want the message", keys, dialogText(d))
+		}
+
+		d.press("space")
+		afterSpace := d.screen()
+		d.press("enter")
+
+		if afterSpace != before || d.screen() != before {
+			t.Errorf("%q: space changed the screen to\n%s\nand enter to\n%s\nwant both to leave it as\n%s", keys, afterSpace, d.screen(), before)
+		}
+		if got, _ := fileText(t, configPath()); got != inline {
+			t.Errorf("%q: config is %q, want it unchanged", keys, got)
+		}
+		if got := e.targetArgs("zed"); got != nil {
+			t.Errorf("%q: zed called with %q", keys, got)
+		}
+	}
+}

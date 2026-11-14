@@ -144,8 +144,33 @@ func theDrain(t *testing.T, loper string) int {
 	return 0
 }
 
+// inherited returns the descriptors the test process has open without
+// close-on-exec. Go opens all of its own with close-on-exec, so these are the
+// ones it inherited, such as the sockets a CI runner leaves open, and every
+// process it starts, loper and so the drain and the target included, gets
+// them as well, whatever loper does. Code that opens a descriptor and then
+// marks it close-on-exec holds ForkLock for reading in between, so holding it
+// for writing keeps out one that is opened but not yet marked.
+func inherited() map[int]bool {
+	syscall.ForkLock.Lock()
+	defer syscall.ForkLock.Unlock()
+	fds := map[int]bool{}
+	var limit syscall.Rlimit
+	syscall.Getrlimit(syscall.RLIMIT_NOFILE, &limit)
+	for fd := 3; fd < int(min(limit.Cur, 1<<16)); fd++ {
+		flags, _, errno := syscall.Syscall(syscall.SYS_FCNTL, uintptr(fd), syscall.F_GETFD, 0)
+		if errno == 0 && flags&syscall.FD_CLOEXEC == 0 {
+			fds[fd] = true
+		}
+	}
+	return fds
+}
+
 // checkWriter checks that the writer's output is a pipe and that it got no
-// descriptor beyond its stdout and stderr.
+// descriptor beyond its stdout and stderr but those the test process
+// inherited, see inherited. The writer records only their numbers, so one
+// loper passed on at the very number of an inherited one would go unseen;
+// outside CI there are none in its range, 3 to 63.
 func checkWriter(t *testing.T, r string) {
 	t.Helper()
 	poll(t, "the target to record its descriptors", func() bool {
@@ -155,20 +180,31 @@ func checkWriter(t *testing.T, r string) {
 	if b, _ := os.ReadFile(r + ".kind"); string(b) != "pipe\n" {
 		t.Errorf("the target's stdout and stderr are %q, want pipe: a file would keep what it writes", b)
 	}
-	if b, _ := os.ReadFile(r + ".fds"); string(b) != "\n" {
-		t.Errorf("the target has the descriptors %q open, want only stdin, stdout and stderr", b)
+	b, _ := os.ReadFile(r + ".fds")
+	own := inherited()
+	var extra []string
+	for _, fd := range strings.Fields(string(b)) {
+		if n, _ := strconv.Atoi(fd); !own[n] {
+			extra = append(extra, fd)
+		}
+	}
+	if len(extra) > 0 {
+		t.Errorf("the target has the descriptors %q open, want only stdin, stdout, stderr and those the test inherited", extra)
 	}
 }
 
-// checkDrainFiles checks that the drain d has only pipes, the null device
-// and its kqueue open, so no file of any kind, also not a removed one, can
-// keep what it reads, and that it keeps no folder busy but the root.
-func checkDrainFiles(t *testing.T, d int) {
+// openFile is a descriptor as lsof names it: its type and its name.
+type openFile struct{ kind, name string }
+
+// openFiles returns the descriptors that the process pid has open, by
+// number, and its working folder.
+func openFiles(t *testing.T, pid int) (files map[int]openFile, cwd string) {
 	t.Helper()
-	out, err := exec.Command("lsof", "-n", "-P", "-p", strconv.Itoa(d), "-F", "ftn").Output()
+	out, err := exec.Command("lsof", "-n", "-P", "-p", strconv.Itoa(pid), "-F", "ftn").Output()
 	if err != nil {
 		t.Fatalf("lsof: %v", err)
 	}
+	files = map[int]openFile{}
 	var fd, kind string
 	for _, line := range strings.Split(string(out), "\n") {
 		if line == "" {
@@ -180,15 +216,37 @@ func checkDrainFiles(t *testing.T, d int) {
 		case 't':
 			kind = v
 		case 'n':
-			if _, err := strconv.Atoi(fd); err != nil {
-				if fd == "cwd" && v != "/" {
-					t.Errorf("the drain works in %s, want the root folder", v)
-				}
-				continue
+			if n, err := strconv.Atoi(fd); err == nil {
+				files[n] = openFile{kind, v}
+			} else if fd == "cwd" {
+				cwd = v
 			}
-			if !(kind == "PIPE" || kind == "KQUEUE" || kind == "CHR" && v == os.DevNull) {
-				t.Errorf("the drain has %s open on descriptor %s, a %s; want only pipes, %s and its kqueue", v, fd, kind, os.DevNull)
-			}
+		}
+	}
+	return files, cwd
+}
+
+// checkDrainFiles checks that the drain d has only pipes, the null device
+// and its kqueue open, so no file of any kind, also not a removed one, can
+// keep what it reads, and that it keeps no folder busy but the root. A
+// descriptor the test process inherited, see inherited, is left out when the
+// drain has it as the test process has it, with the same number, type and
+// name: it came down from the test's own parent, through loper. A file the
+// drain opened itself is never one of those, so it still fails the check.
+func checkDrainFiles(t *testing.T, d int) {
+	t.Helper()
+	files, cwd := openFiles(t, d)
+	if cwd != "/" {
+		t.Errorf("the drain works in %s, want the root folder", cwd)
+	}
+	own, _ := openFiles(t, os.Getpid())
+	passedDown := inherited()
+	for fd, f := range files {
+		if passedDown[fd] && own[fd] == f {
+			continue
+		}
+		if !(f.kind == "PIPE" || f.kind == "KQUEUE" || f.kind == "CHR" && f.name == os.DevNull) {
+			t.Errorf("the drain has %s open on descriptor %d, a %s; want only pipes, %s and its kqueue", f.name, fd, f.kind, os.DevNull)
 		}
 	}
 }
