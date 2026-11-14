@@ -133,7 +133,7 @@ The `x` after the file's text, removed again, keeps line breaks at the end of a 
 | `q`, `ctrl-c`        | Quit                                        |
 | `esc`                | Close a menu or dialog, or clear the search |
 
-The keys inside the target menu and while searching are in the help overlay and in `loper --help`.
+`q` pressed while a repo is opening quits once the open is done; `ctrl-c` quits at once. The keys inside the target menu and while searching are in the help overlay and in `loper --help`.
 
 ## Configuration
 
@@ -161,6 +161,8 @@ in_place = true                    # optional; loper ends and the command runs i
 ```
 
 A target's command must contain `{path}`, which becomes the repo's absolute path, and may contain `{name}`, which becomes the repo's name. The command is not run through a shell, so a path with spaces needs no quoting. A `cd` command needs `in_place = true` and one folder. A mistake in the file stops loper at startup with the line it is on.
+
+While a program started by a target runs, a second `loper` process runs beside it and throws its output away. It ends when the program does, and `killall loper` leaves it running so the program is not cut off. A target with `in_place = true` has none.
 
 [SPEC.md](SPEC.md) has the details: the scan rules, the cache, the row styles and how targets are run.
 
