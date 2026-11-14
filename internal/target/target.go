@@ -55,11 +55,13 @@ type HandOver struct {
 // Failure is a target that did not open.
 type Failure struct {
 	Command string // the command line that ran, quoted as a shell would need it
-	Output  string // what the command printed, then why it failed
+	Output  string // the end of what the command printed, or ""
+	Cut     bool   // whether output before Output was dropped
+	Reason  string // why it failed: its exit status, or why it could not start
 }
 
 func (f *Failure) Error() string {
-	return f.Command + ": " + f.Output
+	return f.Command + ": " + f.Reason
 }
 
 // Run opens the repo at path in t, with the repo as the working folder and
@@ -81,15 +83,12 @@ func (f *Failure) Error() string {
 // waits on a full pipe for longer than the drain takes to wake.
 func Run(t Target, path string, wait time.Duration, drain []string) error {
 	words := substitute(t, path)
-	fail := func(why string, output []byte) error {
-		if len(output) > 0 && output[len(output)-1] != '\n' {
-			output = append(output, '\n')
-		}
-		return &Failure{Command: commandLine(words), Output: string(output) + why}
+	fail := func(why string) error {
+		return &Failure{Command: commandLine(words), Reason: why}
 	}
 	out, w, err := os.Pipe()
 	if err != nil {
-		return fail(err.Error(), nil)
+		return fail(err.Error())
 	}
 	// The drain reads out from when hold ends: when letGo is closed, here
 	// or by the system as the tool dies.
@@ -97,7 +96,7 @@ func Run(t Target, path string, wait time.Duration, drain []string) error {
 	if err != nil {
 		out.Close()
 		w.Close()
-		return fail(err.Error(), nil)
+		return fail(err.Error())
 	}
 	defer func() {
 		letGo.Close() // first, so that there is always a reader
@@ -109,11 +108,12 @@ func Run(t Target, path string, wait time.Duration, drain []string) error {
 		w.Close()
 		// The drain is the tool's own program, so it fails to start when
 		// that has been moved or removed since the tool started.
+		// The advice comes last, as the dialog cuts a long reason at its start.
 		var path *fs.PathError
 		if errors.As(err, &path) {
-			err = fmt.Errorf("%w: %s", path.Err, path.Path)
+			err = fmt.Errorf("%s: %w", path.Path, path.Err)
 		}
-		return fail("loper's own program is gone, restart loper ("+err.Error()+")", nil)
+		return fail(err.Error() + "; loper's own program is gone, restart loper")
 	}
 	cmd := exec.Command(words[0], words[1:]...)
 	cmd.Dir = path
@@ -124,7 +124,7 @@ func Run(t Target, path string, wait time.Duration, drain []string) error {
 	err = cmd.Start()
 	w.Close() // the command's own copies are the only writers
 	if err != nil {
-		return fail(err.Error(), nil)
+		return fail(err.Error())
 	}
 	var output tail
 	read := make(chan struct{})
@@ -154,7 +154,8 @@ func Run(t Target, path string, wait time.Duration, drain []string) error {
 		<-read
 		out.SetReadDeadline(time.Time{})
 		output.sweep(out)
-		return fail(err.Error(), output.end())
+		end, cut := output.end()
+		return &Failure{Command: commandLine(words), Output: string(end), Cut: cut, Reason: err.Error()}
 	case <-time.After(wait):
 		return nil
 	}
@@ -229,7 +230,7 @@ func Prepare(t Target, path string) (HandOver, error) {
 			err = errors.New(words[1] + " is not a folder")
 		}
 		if err != nil {
-			return HandOver{}, &Failure{Command: commandLine(words), Output: err.Error()}
+			return HandOver{}, &Failure{Command: commandLine(words), Reason: err.Error()}
 		}
 		shell := cmp.Or(os.Getenv("SHELL"), "/bin/sh")
 		return HandOver{Program: shell, Args: []string{shell}, Dir: words[1], Cd: true}, nil
@@ -240,7 +241,7 @@ func Prepare(t Target, path string) (HandOver, error) {
 	}
 	program, err := exec.LookPath(program)
 	if err != nil {
-		return HandOver{}, &Failure{Command: commandLine(words), Output: err.Error()}
+		return HandOver{}, &Failure{Command: commandLine(words), Reason: err.Error()}
 	}
 	return HandOver{Program: program, Args: words, Dir: path}, nil
 }
@@ -295,18 +296,20 @@ func (t *tail) sweep(out *os.File) {
 	})
 }
 
-// end returns the last keep bytes, from the first whole line in them.
-func (t *tail) end() []byte {
+// end returns the last keep bytes, from the first whole line in them, and
+// whether output before them was dropped.
+func (t *tail) end() ([]byte, bool) {
 	output := t.b
 	if len(output) > keep {
 		output = output[len(output)-keep:]
 	}
-	if len(output) < len(t.b) || t.cut {
+	cut := len(output) < len(t.b) || t.cut
+	if cut {
 		if _, rest, ok := bytes.Cut(output, []byte("\n")); ok {
 			output = rest
 		}
 	}
-	return output
+	return output, cut
 }
 
 // safeWord is a word a shell reads as itself without quotes.

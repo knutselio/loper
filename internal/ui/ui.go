@@ -1291,7 +1291,7 @@ func (m Model) open(t target.Target) (Model, tea.Cmd) {
 	}
 	return m, func() tea.Msg {
 		if err := m.deps.Open(t, path); err != nil {
-			f := &target.Failure{Output: err.Error()} // in case the error is not a Failure
+			f := &target.Failure{Reason: err.Error()} // in case the error is not a Failure
 			errors.As(err, &f)
 			return failedMsg{repo: filepath.Base(path), target: t.Name, Failure: *f}
 		}
@@ -1334,15 +1334,42 @@ func (m Model) overlayMenu(lines []string) []string {
 }
 
 // overlayFailure draws the error dialog centred over the list part of
-// lines: the command line that ran, then what it printed and why it failed,
-// cut to the space there is.
+// lines: the command line that ran, then the last lines of what it printed
+// that fit, then why it failed, cut at its start so its cause shows. When
+// lines are left out, a dim line above the rest says how many, if there is
+// room for it.
 func (m Model) overlayFailure(lines []string) []string {
 	space := m.listHeight() - 2 // the rows between the borders
-	if space < 1 {
-		return lines // no room: the dialog shows again once there is
+	if space < 2 {
+		return lines // no room for the command and why it failed: the dialog shows again once there is
 	}
 	f := m.failure
-	return m.overlay(lines, m.box(f.title, f.rows[:min(len(f.rows), space)], f.width))
+	output := f.output
+	var notice []string
+	if len(output) > space-2 || f.cut && space > 2 {
+		output = output[len(output)-min(len(output), max(space-3, 0)):]
+		n := len(f.output) - len(output)
+		switch {
+		case space == 2:
+		case f.cut && n == 0:
+			notice = []string{m.dim(" … earlier output left out ")}
+		case f.cut:
+			notice = []string{m.dim(fmt.Sprintf(" … more than %d earlier lines left out ", n))}
+		default:
+			notice = []string{m.dim(fmt.Sprintf(" … %d earlier lines left out ", n))} // at least 2
+		}
+	}
+	rows := slices.Concat([]string{f.command}, notice, output)
+	width := ansi.StringWidth(" " + f.reason + " ")
+	for _, r := range rows {
+		width = max(width, ansi.StringWidth(r))
+	}
+	width = m.boxWidth(f.title, width)
+	reason := f.reason
+	if over := ansi.StringWidth(reason) - (width - 2); over > 0 { // 2: the margins
+		reason = "…" + cutStart(reason, over+1)
+	}
+	return m.overlay(lines, m.box(f.title, append(rows, " "+reason+" "), width))
 }
 
 // overlayAdd draws the dialog centred over the list part of lines or,
@@ -1449,19 +1476,24 @@ func short(block string) string {
 // errorDialog is the error dialog's content, worked out once when the
 // failure arrives rather than on every render.
 type errorDialog struct {
-	title string
-	rows  []string // the command line that ran, then its output and why it failed
-	width int      // of the widest row
+	title   string
+	command string   // the command line that ran
+	output  []string // the lines it printed
+	cut     bool     // whether lines it printed before output were dropped
+	reason  string   // why it failed, without its margins
 }
 
 func newErrorDialog(msg failedMsg) *errorDialog {
-	d := &errorDialog{title: " Could not open " + safe(msg.repo) + " in " + msg.target + " "}
-	d.rows = []string{" $ " + safe(msg.Command) + " "}
-	for _, l := range strings.Split(strings.TrimRight(msg.Output, "\n"), "\n") {
-		d.rows = append(d.rows, " "+clean(l)+" ")
+	d := &errorDialog{
+		title:   " Could not open " + safe(msg.repo) + " in " + msg.target + " ",
+		command: " $ " + safe(msg.Command) + " ",
+		cut:     msg.Cut,
+		reason:  message(msg.Reason), // a path in it shows as in the command line
 	}
-	for _, r := range d.rows {
-		d.width = max(d.width, ansi.StringWidth(r))
+	if out := strings.TrimRight(msg.Output, "\n"); out != "" {
+		for _, l := range strings.Split(out, "\n") {
+			d.output = append(d.output, " "+clean(l)+" ")
+		}
 	}
 	return d
 }

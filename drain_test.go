@@ -505,7 +505,7 @@ func TestAnOpenFailsSayingToRestartLoperWhenItsProgramIsGone(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.press("w")
-	s.eventually("the failure to be shown", func() bool { return s.shows("loper's own program is gone, restart loper (no such file") })
+	s.eventually("the failure to be shown", func() bool { return s.shows("no such file or directory; loper's own program is gone, restart loper") })
 	s.quit()
 
 	if _, err := os.Stat(r + ".pid"); !os.IsNotExist(err) {

@@ -2,6 +2,7 @@ package ui_test
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -118,14 +119,14 @@ func TestQAndCtrlCQuitFromInsideTheDialog(t *testing.T) {
 	}
 }
 
-func TestADialogBiggerThanTheScreenKeepsItsBordersAndCutsItsContent(t *testing.T) {
+func TestADialogBiggerThanTheScreenKeepsItsBordersAndShowsTheEndCut(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	// Twenty long lines, with a tab and colour codes that must not reach the
 	// screen as they are.
 	brokenTarget(e, "for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do printf '\\033[31mline\\t%s of a long error message\\033[0m\\n' $i; done\nexit 1\n")
 	d := e.start()
-	d.send(tea.WindowSizeMsg{Width: 30, Height: 8}) // 4 list lines: room for 2 rows
+	d.send(tea.WindowSizeMsg{Width: 36, Height: 10}) // 6 list lines: room for 4 rows
 
 	d.press("b")
 
@@ -133,16 +134,72 @@ func TestADialogBiggerThanTheScreenKeepsItsBordersAndCutsItsContent(t *testing.T
 	if strings.ContainsAny(screen, "\x1b\t") {
 		t.Errorf("the output's escape codes or tabs reached the screen: %q", screen)
 	}
-	if got := boxRows(d); len(got) != 2 || !strings.HasPrefix(got[0], "$ ") || !strings.HasSuffix(got[0], "…") || !strings.HasPrefix(got[1], "line 1 of a long") || !strings.HasSuffix(got[1], "…") {
-		t.Errorf("dialog reads %q, want the command line and the first line of output, both cut:\n%s", got, screen)
+	got := boxRows(d)
+	if len(got) != 4 || !strings.HasPrefix(got[0], "$ ") || !strings.HasSuffix(got[0], "…") ||
+		got[1] != "… 19 earlier lines left out" ||
+		!strings.HasPrefix(got[2], "line 20 of a long") || !strings.HasSuffix(got[2], "…") || got[3] != "exit status 1" {
+		t.Errorf("dialog reads %q, want the command line, how many lines were left out, the last line of output, both cut, and the exit status:\n%s", got, screen)
 	}
 	if strings.Count(screen, "╭") != 1 || strings.Count(screen, "╰") != 1 {
 		t.Errorf("dialog does not have one top and one bottom border:\n%s", screen)
 	}
 	for i, line := range strings.Split(screen, "\n") {
-		if w := ansi.StringWidth(line); w > 30 {
+		if w := ansi.StringWidth(line); w > 36 {
 			t.Errorf("line %d is %d cells wide, wider than the screen: %q", i+1, w, line)
 		}
+	}
+}
+
+func TestADialogShowsTheCommandHowItEndedAndTheLastLinesOfOutput(t *testing.T) {
+	e := newEnv(t)
+	alpha := e.repo("code/alpha")
+	script := brokenTarget(e, "seq -f 'progress %g' 30\necho FINAL_REASON\nexit 3\n")
+	d := e.start() // 80×24: 20 list lines, room for 18 rows
+
+	d.press("b")
+
+	command := "$ " + script + " --flag '" + alpha + "'"
+	want := []string{"… 16 earlier lines left out"}
+	for i := 17; i <= 30; i++ {
+		want = append(want, "progress "+strconv.Itoa(i))
+	}
+	want = append(want, "FINAL_REASON", "exit status 3")
+	got := boxRows(d)
+	if len(got) == 0 || !(got[0] == command || strings.HasSuffix(got[0], "…") && strings.HasPrefix(command, strings.TrimSuffix(got[0], "…"))) {
+		t.Errorf("dialog starts with %q, want the command line %q:\n%s", got, command, d.screen())
+	} else if !slices.Equal(got[1:], want) {
+		t.Errorf("dialog reads %q after the command line, want %q:\n%s", got[1:], want, d.screen())
+	}
+
+	e.noColor = true // the styles on, to see the line that says so dimmed
+	d = e.start()
+	d.press("b")
+	if screen := d.screen(); !strings.Contains(screen, "\x1b[2m … 16 earlier lines left out \x1b[22m") || strings.Contains(screen, "\x1b[2m progress") {
+		t.Errorf("only the line that says lines were left out should be dimmed: %q", screen)
+	}
+}
+
+func TestAtTheSmallestHeightTheDialogDrawsItShowsTheCommandAndHowItEnded(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	brokenTarget(e, "seq 30\necho FINAL_REASON\nexit 3\n")
+	d := e.start()
+	d.press("b")
+
+	h := 0
+	for ; h < 24; h++ {
+		d.send(tea.WindowSizeMsg{Width: 80, Height: h})
+		if boxRows(d) != nil {
+			break
+		}
+	}
+
+	if got := boxRows(d); len(got) != 2 || !strings.HasPrefix(got[0], "$ ") || got[1] != "exit status 3" {
+		t.Errorf("at height %d the dialog reads %q, want the command line and the exit status:\n%s", h, got, d.screen())
+	}
+	d.send(tea.WindowSizeMsg{Width: 80, Height: h + 1})
+	if got := boxRows(d); len(got) != 3 || got[1] != "… 31 earlier lines left out" || got[2] != "exit status 3" {
+		t.Errorf("at height %d the dialog reads %q, want how many lines were left out above the exit status:\n%s", h+1, got, d.screen())
 	}
 }
 
@@ -277,9 +334,9 @@ func TestAFailedTargetIsReportedAtOnceEvenIfWhatItStartedWritesWithoutEnd(t *tes
 	if took := time.Since(began); took > 2*time.Second {
 		t.Errorf("the open took %v, reading what was left running", took)
 	}
-	// The output is longer than the dialog, so the exit status is cut off.
-	if got := boxRows(d); len(got) < 2 || got[1] != "y" {
-		t.Errorf("dialog reads %q, want the command line and its output:\n%s", got, d.screen())
+	// The output is longer than the dialog, so its end shows above the exit status.
+	if got := boxRows(d); len(got) < 4 || !strings.HasPrefix(got[1], "… ") || got[len(got)-2] != "y" || got[len(got)-1] != "exit status 1" {
+		t.Errorf("dialog reads %q, want the command line, the end of its output and the exit status:\n%s", got, d.screen())
 	}
 }
 
@@ -418,7 +475,119 @@ func TestAFailedTargetsOutputIsCutToItsLast64KB(t *testing.T) {
 
 	d.press("b")
 
-	if got := boxRows(d); len(got) < 3 || got[1] != "line 14044" || got[2] != "line 14045" {
-		t.Errorf("dialog reads %q, want the output from line 14044 on:\n%s", got, d.screen())
+	// 5957 lines are kept, from 14044 to 20000; those that do not fit are
+	// counted as left out, and the lines before them make it more.
+	got := boxRows(d)
+	if len(got) < 4 || got[len(got)-2] != "line 20000" || got[len(got)-1] != "exit status 1" ||
+		got[1] != fmt.Sprintf("… more than %d earlier lines left out", 5957-(len(got)-3)) {
+		t.Errorf("dialog reads %q, want the end of the output from line 14044 on:\n%s", got, d.screen())
+	}
+}
+
+func TestOutputThatExactlyFillsTheDialogShowsWholeAndOneLineMoreIsCounted(t *testing.T) {
+	for _, c := range []struct {
+		lines int
+		want  []string // the rows between the command line and the exit status
+	}{
+		{16, nil}, // 80×24: 18 rows, all for the command, 16 lines and the ending
+		{17, []string{"… 2 earlier lines left out"}}, // one more: the count line and the last 15
+	} {
+		e := newEnv(t)
+		e.repo("code/alpha")
+		brokenTarget(e, "seq "+strconv.Itoa(c.lines)+"\nexit 1\n")
+		d := e.start()
+
+		d.press("b")
+
+		want := c.want
+		for i := c.lines - (16 - len(c.want)) + 1; i <= c.lines; i++ {
+			want = append(want, strconv.Itoa(i))
+		}
+		want = append(want, "exit status 1")
+		if got := boxRows(d); len(got) == 0 || !slices.Equal(got[1:], want) {
+			t.Errorf("%d lines: dialog reads %q after the command line, want %q:\n%s", c.lines, got, want, d.screen())
+		}
+	}
+}
+
+func TestTrailingBlankLinesOfOutputDoNotShow(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	brokenTarget(e, "echo only\necho\necho\nexit 1\n")
+	d := e.start()
+	d.send(tea.WindowSizeMsg{Width: 400, Height: 24})
+
+	d.press("b")
+
+	if got := boxRows(d); len(got) != 3 || got[1] != "only" || got[2] != "exit status 1" {
+		t.Errorf("dialog reads %q, want the command line, the one line of output and the exit status:\n%s", got, d.screen())
+	}
+}
+
+func TestTheDialogIsAsWideAsTheLinesItShows(t *testing.T) {
+	e := newEnv(t)
+	alpha := e.repo("code/alpha")
+	// An early line far wider than the command line, then more lines than fit.
+	script := brokenTarget(e, "printf '%0390d\\n' 0\nseq 30\nexit 1\n")
+	d := e.start()
+	d.send(tea.WindowSizeMsg{Width: 400, Height: 24})
+
+	d.press("b")
+
+	command := " $ " + script + " --flag '" + alpha + "' "
+	for _, line := range strings.Split(d.screen(), "\n") {
+		if i, j := strings.Index(line, "╭"), strings.Index(line, "╮"); i >= 0 && j > i {
+			if got, want := ansi.StringWidth(line[i:j+len("╮")]), ansi.StringWidth(command)+2; got != want {
+				t.Errorf("the dialog is %d cells wide, want %d, as wide as the command line:\n%s", got, want, d.screen())
+			}
+		}
+	}
+}
+
+func TestALongStartErrorKeepsItsCauseInANarrowWindow(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	missing := filepath.Join(e.root, "a-folder-with-a-rather-long-name-for-a-program", "missing")
+	e.config("[[targets]]\nname = \"Broken\"\nkey = \"b\"\ncommand = \"'" + missing + "' {path}\"\n")
+	d := e.start()
+	d.send(tea.WindowSizeMsg{Width: 40, Height: 24})
+
+	d.press("b")
+
+	got := boxRows(d)
+	if len(got) != 2 || !strings.HasPrefix(got[0], "$ ") || !strings.HasSuffix(got[0], "…") ||
+		!strings.HasPrefix(got[1], "…") || !strings.HasSuffix(got[1], "missing: no such file or directory") {
+		t.Errorf("dialog reads %q, want the command line cut at its end and the reason cut at its start:\n%s", got, d.screen())
+	}
+}
+
+func TestAPathInTheReasonIsEscapedAsInTheCommandLine(t *testing.T) {
+	e := newEnv(t)
+	odd := e.repo("code/a\x01b")
+	e.writeFile(filepath.Join(odd, "notes"), "")
+	e.config("[[targets]]\nname = \"Go there\"\nkey = \"c\"\ncommand = \"cd {path}/notes\"\nin_place = true\n")
+	d := e.start()
+	d.send(tea.WindowSizeMsg{Width: 400, Height: 24})
+
+	d.press("c")
+
+	got := boxRows(d)
+	if len(got) != 2 || !strings.Contains(got[0], `/code/a\x01b/notes`) || !strings.HasSuffix(got[1], `/code/a\x01b/notes is not a folder`) {
+		t.Errorf("dialog reads %q, want the path escaped the same way in the command line and the reason:\n%s", got, d.screen())
+	}
+}
+
+func TestOutputCutBeforeItsLast64KBIsCountedAsMore(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	// Seven lines of 20000 bytes: the last 64 KB start inside the fourth, so
+	// three whole lines are kept, and all of them fit.
+	brokenTarget(e, "for i in 1 2 3 4 5 6 7; do printf \"%019999d\\n\" $i; done\nexit 1\n")
+	d := e.start()
+
+	d.press("b")
+
+	if got := boxRows(d); len(got) != 6 || got[1] != "… earlier output left out" || got[len(got)-1] != "exit status 1" {
+		t.Errorf("dialog reads %q, want a line saying earlier output was left out above the three lines kept:\n%s", got, d.screen())
 	}
 }
