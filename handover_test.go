@@ -22,7 +22,7 @@ func TestHandOverInAChild(t *testing.T) {
 		t.Skip("run by the hand-over tests, in a child process")
 	}
 	h := target.HandOver{Program: os.Getenv("LOPER_TEST_PROGRAM"), Args: []string{"fake", "a b", "{path}"}, Dir: dir}
-	os.Exit(run(nil, os.Stdout, os.Stderr, func(string, config.Settings) error { return handOver(h, takeCdFile()) }))
+	os.Exit(run(nil, os.Stdout, os.Stderr, aTerminal, func(string, config.Settings) error { return handOver(h, takeCdFile()) }))
 }
 
 // handOverChild runs TestHandOverInAChild with the fake program body in a

@@ -27,12 +27,16 @@ func startup(t *testing.T, args ...string) (int, string) {
 func withoutUI(t *testing.T, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
 	var out, errs strings.Builder
-	code = run(args, &out, &errs, func(string, config.Settings) error {
+	code = run(args, &out, &errs, aTerminal, func(string, config.Settings) error {
 		t.Fatal("the UI started")
 		return nil
 	})
 	return code, out.String(), errs.String()
 }
+
+// aTerminal stands in for the terminal check in the tests of run, which have
+// no terminal. The built binary's check is tested without one in e2e_test.go.
+func aTerminal() bool { return true }
 
 // tempHome points the home and XDG folders at a temporary tree and returns
 // the home folder.
@@ -144,7 +148,7 @@ func TestAValidConfigStartsTheUIWithTheConfiguredPaths(t *testing.T) {
 	var stderr strings.Builder
 	var got []string
 
-	code := run(nil, &strings.Builder{}, &stderr, func(_ string, s config.Settings) error {
+	code := run(nil, &strings.Builder{}, &stderr, aTerminal, func(_ string, s config.Settings) error {
 		got = s.Paths
 		return nil
 	})
@@ -335,7 +339,7 @@ func TestTheUIIsToldWhichConfigFileWasUsedSoItCanNameIt(t *testing.T) {
 		{[]string{"--config", file}, file},
 	} {
 		var got string
-		code := run(c.args, &strings.Builder{}, &strings.Builder{}, func(_ string, s config.Settings) error {
+		code := run(c.args, &strings.Builder{}, &strings.Builder{}, aTerminal, func(_ string, s config.Settings) error {
 			got = s.File
 			return nil
 		})
@@ -363,7 +367,7 @@ func TestACacheMaxAgeIsHandedToTheUI(t *testing.T) {
 		writeConfig(t, filepath.Join(home, ".config", "loper", "config.toml"), body+"\n")
 		var got time.Duration
 
-		code := run(nil, &strings.Builder{}, &strings.Builder{}, func(_ string, s config.Settings) error {
+		code := run(nil, &strings.Builder{}, &strings.Builder{}, aTerminal, func(_ string, s config.Settings) error {
 			got = s.CacheMaxAge
 			return nil
 		})
@@ -413,7 +417,7 @@ func TestColumnsAndRowStyleAreHandedToTheUIWithTheirDefaults(t *testing.T) {
 		writeConfig(t, filepath.Join(home, ".config", "loper", "config.toml"), c.body+"\n")
 		var got config.Settings
 
-		code := run(nil, &strings.Builder{}, &strings.Builder{}, func(_ string, s config.Settings) error {
+		code := run(nil, &strings.Builder{}, &strings.Builder{}, aTerminal, func(_ string, s config.Settings) error {
 			got = s
 			return nil
 		})
@@ -555,6 +559,73 @@ func TestTheHelpFlagWinsOverTheOtherFlagsWhateverTheConfigFile(t *testing.T) {
 	}
 }
 
+func TestTheHelpFlagWinsOverABadArgumentAndHonoursConfigWhereverItStands(t *testing.T) {
+	home := tempHome(t)
+	writeConfig(t, filepath.Join(home, ".config", "loper", "config.toml"),
+		"[[targets]]\nname = \"Zed\"\nkey = \"z\"\ncommand = \"zed {path}\"\n")
+	other := filepath.Join(home, "other.toml")
+	writeConfig(t, other, "[[targets]]\nname = \"Other\"\nkey = \"x\"\ncommand = \"other {path}\"\n")
+	_, standardHelp, _ := withoutUI(t, "--help")
+	_, otherHelp, _ := withoutUI(t, "--help", "--config", other)
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--typo", "--help"}, standardHelp},
+		{[]string{"--help=x", "--help"}, standardHelp},
+		{[]string{"unexpected", "--help"}, standardHelp},
+		{[]string{"--typo", "-h"}, standardHelp},
+		{[]string{"-colour", "-help"}, standardHelp},
+		{[]string{"--help", "--typo"}, standardHelp},
+		{[]string{"---x", "--help"}, standardHelp},
+		{[]string{"--typo", "--help=true"}, standardHelp},
+		{[]string{"--help", "--config"}, standardHelp},
+		{[]string{"--config=", "--typo", "--help"}, standardHelp},
+		{[]string{"--config", "", "--help"}, standardHelp},
+		{[]string{"--config", other, "--typo", "--help"}, otherHelp},
+		{[]string{"unexpected", "--config", other, "--help"}, otherHelp},
+		{[]string{"--typo", "-config=" + other, "-h"}, otherHelp},
+		{[]string{"--typo", "--config", "--", "--config", other, "--help"}, otherHelp},
+	} {
+		code, stdout, stderr := withoutUI(t, c.args...)
+
+		if code != 0 || stderr != "" || stdout != c.want {
+			t.Errorf("%q: exit code %d, stderr %q, stdout:\n%s\nwant 0, nothing and:\n%s", c.args, code, stderr, stdout, c.want)
+		}
+	}
+}
+
+func TestAHelpFlagAfterADoubleDashOrTakenAsAFileIsNoHelpRequest(t *testing.T) {
+	home := tempHome(t)
+	for _, c := range []struct {
+		args []string
+		code int
+		want string
+	}{
+		{[]string{"--", "--help"}, 2, "loper: unexpected argument \"--help\"\n\nUsage: loper [--config <file>]\n"},
+		{[]string{"--typo", "--", "--help"}, 2, "loper: unknown flag --typo\n\nUsage: loper [--config <file>]\n"},
+		{[]string{"--typo", "--help=false"}, 2, "loper: unknown flag --typo\n\nUsage: loper [--config <file>]\n"},
+		{[]string{"--typo", "--help", "--help=false"}, 2, "loper: unknown flag --typo\n\nUsage: loper [--config <file>]\n"},
+		{[]string{"--help=x"}, 2, "loper: invalid boolean value \"x\" for -help: parse error\n\nUsage: loper [--config <file>]\n"},
+		{[]string{"xhelp"}, 2, "loper: unexpected argument \"xhelp\"\n\nUsage: loper [--config <file>]\n"},
+		{[]string{"", "--typo"}, 2, "loper: unexpected argument \"\"\n\nUsage: loper [--config <file>]\n"},
+		{[]string{"--typo", ""}, 2, "loper: unknown flag --typo\n\nUsage: loper [--config <file>]\n"},
+		// The word after a separate --config is its file, as the flag
+		// package reads it, so this is the picker with a file named --help.
+		{[]string{"--config", "--help"}, 1, "loper: config file --help does not exist\n"},
+		{[]string{"--config", "--help", "--typo"}, 2, "loper: unknown flag --typo\n\nUsage: loper [--config <file>]\n"},
+	} {
+		code, stdout, stderr := withoutUI(t, c.args...)
+
+		if code != c.code || stdout != "" || !strings.HasPrefix(stderr, c.want) {
+			t.Errorf("%q: exit code %d, stdout %q, stderr %q; want %d, nothing and %q", c.args, code, stdout, stderr, c.code, c.want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config")); !os.IsNotExist(err) {
+		t.Errorf("a config folder was created (%v)", err)
+	}
+}
+
 // notYet follows the config file in --help when it does not exist.
 const notYet = " (does not exist yet)"
 
@@ -658,7 +729,7 @@ func picker(t *testing.T, args ...string) (int, string, config.Settings) {
 	t.Helper()
 	var errs strings.Builder
 	var got config.Settings
-	code := run(args, &strings.Builder{}, &errs, func(_ string, s config.Settings) error {
+	code := run(args, &strings.Builder{}, &errs, aTerminal, func(_ string, s config.Settings) error {
 		got = s
 		return nil
 	})

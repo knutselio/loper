@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -40,8 +41,15 @@ var sgr = regexp.MustCompile(`\x1b\[[0-9;:]*m`)
 // process is killed and reaped when the test ends, should it still be running.
 func start(t *testing.T, awaited string, binary string, args ...string) *session {
 	t.Helper()
+	return startWith(t, &syscall.SysProcAttr{Setsid: true, Setctty: true}, awaited, binary, args...)
+}
+
+// startWith is start with the process attributes attrs, which say whether
+// the pseudo-terminal becomes the process's controlling terminal.
+func startWith(t *testing.T, attrs *syscall.SysProcAttr, awaited string, binary string, args ...string) *session {
+	t.Helper()
 	cmd := exec.Command(binary, args...)
-	f, err := pty.StartWithSize(cmd, &pty.Winsize{Rows: 24, Cols: 80})
+	f, err := pty.StartWithAttrs(cmd, &pty.Winsize{Rows: 24, Cols: 80}, attrs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -501,4 +509,105 @@ func TestTheBuiltBinaryOnAFirstRunLandsInTheRepoWithOrWithoutTheWrapper(t *testi
 			t.Errorf("the shell ran, recording %q; want nothing handed over", b)
 		}
 	})
+}
+
+// detached runs the binary with args in a session of its own, so without a
+// controlling terminal, with stdin on the null device and stdout and stderr
+// on pipes, and returns its exit code and what it wrote.
+func detached(t *testing.T, binary string, args ...string) (code int, stdout, stderr string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, binary, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	var out, errs strings.Builder
+	cmd.Stdout, cmd.Stderr = &out, &errs
+	var exit *exec.ExitError
+	if err := cmd.Run(); err != nil && !errors.As(err, &exit) || ctx.Err() != nil {
+		t.Fatalf("%q: %v, %v", args, err, ctx.Err())
+	}
+	return cmd.ProcessState.ExitCode(), out.String(), errs.String()
+}
+
+func TestTheBuiltBinaryWithoutATerminalSaysSoAndWritesNothing(t *testing.T) {
+	loper := buildLoper(t)
+	home := tempHome(t)
+
+	code, stdout, stderr := detached(t, loper)
+
+	if want := "loper: the picker needs an interactive terminal\n"; code != 1 || stdout != "" || stderr != want {
+		t.Errorf("exit code %d, stdout %q, stderr %q; want 1, nothing and %q", code, stdout, stderr, want)
+	}
+	if names, err := os.ReadDir(home); err != nil || len(names) > 0 {
+		t.Errorf("it left %v (%v) in the home, want nothing: no config, cache or state", names, err)
+	}
+}
+
+func TestTheBuiltBinaryPrintsTheHelpAndTheVersionWithoutATerminalAsInOne(t *testing.T) {
+	loper := buildLoper(t)
+	home := tempHome(t)
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--help"}, "Usage: loper [--config <file>]\n"},
+		{[]string{"--version"}, "loper "},
+		{[]string{"-v"}, "loper "},
+	} {
+		code, stdout, stderr := detached(t, loper, c.args...)
+		s := start(t, "", loper, c.args...)
+		s.within("loper to end", s.exited)
+		s.within("the terminal to close", s.drained)
+		inTerminal := strings.ReplaceAll(string(s.out), "\r\n", "\n")
+
+		if code != 0 || stderr != "" || !strings.Contains(stdout, c.want) {
+			t.Errorf("%q without a terminal: exit code %d, stderr %q, stdout %q; want 0, nothing and %q", c.args, code, stderr, stdout, c.want)
+		}
+		if s.waitErr != nil || stdout != inTerminal {
+			t.Errorf("%q in a terminal: %v and\n%q\nwant 0 and what it printed without one:\n%q", c.args, s.waitErr, inTerminal, stdout)
+		}
+	}
+	if names, err := os.ReadDir(home); err != nil || len(names) > 0 {
+		t.Errorf("it left %v (%v) in the home, want nothing", names, err)
+	}
+}
+
+func TestTheBuiltBinaryStartsWithStdinNotATerminalWhenItHasOne(t *testing.T) {
+	loper := buildLoper(t)
+	home := tempHome(t)
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("NO_COLOR", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	if out, err := exec.Command("git", "init", "-b", "main", filepath.Join(home, "code", "alpha")).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+
+	// The shell has the terminal as its controlling one and starts loper
+	// with stdin on the null device, so loper reads the keys from /dev/tty.
+	s := start(t, "o cd", "/bin/sh", "-c", `exec "$0" </dev/null`, loper)
+	s.within("the list and the cd target to be drawn", s.shown)
+	s.quit()
+
+	if b, _ := os.ReadFile(filepath.Join(home, ".config", "loper", "config.toml")); string(b) != firstRun {
+		t.Errorf("config file is %q, want %q", b, firstRun)
+	}
+}
+
+func TestTheBuiltBinaryStartsWithATerminalOnStdinThatIsNotItsControllingOne(t *testing.T) {
+	loper := buildLoper(t)
+	home := tempHome(t)
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("NO_COLOR", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	if out, err := exec.Command("git", "init", "-b", "main", filepath.Join(home, "code", "alpha")).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+
+	// A session of its own without a controlling terminal, so /dev/tty
+	// cannot be opened, and the pseudo-terminal on stdin, stdout and stderr.
+	s := startWith(t, &syscall.SysProcAttr{Setsid: true}, "alpha", loper)
+	s.within("the list to be drawn", s.shown)
+	s.quit()
 }

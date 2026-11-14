@@ -10,12 +10,14 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/term"
 
 	"github.com/knutselio/loper/internal/cache"
 	"github.com/knutselio/loper/internal/config"
@@ -45,13 +47,14 @@ func main() {
 		}
 		return
 	}
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, startUI))
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, interactive, startUI))
 }
 
-// run prints the help or the version to stdout, or loads the config named by
-// the command-line args and hands it to start, and returns the exit code.
-// Errors are written to stderr.
-func run(args []string, stdout, stderr io.Writer, start func(home string, s config.Settings) error) int {
+// run prints the help or the version to stdout, or, when hasTerminal reports
+// a terminal for the picker, loads the config named by the command-line args
+// and hands it to start, and returns the exit code. Errors are written to
+// stderr.
+func run(args []string, stdout, stderr io.Writer, hasTerminal func() bool, start func(home string, s config.Settings) error) int {
 	// The flag package's own messages and usage are replaced by usage.
 	flags := flag.NewFlagSet("loper", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
@@ -78,8 +81,12 @@ func run(args []string, stdout, stderr io.Writer, start func(home string, s conf
 		err = fmt.Errorf("unexpected argument %q", flags.Arg(0))
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "loper: %v\n\n%s", err, usage)
-		return 2
+		help, file := helpRequest(args)
+		if !help {
+			fmt.Fprintf(stderr, "loper: %v\n\n%s", err, usage)
+			return 2
+		}
+		*showHelp, *configFile = true, file
 	}
 	if *showHelp {
 		home := ""
@@ -104,6 +111,10 @@ func run(args []string, stdout, stderr io.Writer, start func(home string, s conf
 		fmt.Fprintln(stdout, "loper", version())
 		return 0
 	}
+	if !hasTerminal() {
+		fmt.Fprintln(stderr, "loper: the picker needs an interactive terminal")
+		return 1
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		fmt.Fprintln(stderr, "loper:", err)
@@ -119,6 +130,49 @@ func run(args []string, stdout, stderr io.Writer, start func(home string, s conf
 		return 1
 	}
 	return 0
+}
+
+// helpRequest reports whether args ask for help before a "--", reading on
+// past the arguments the flag package refuses, and returns the file the last
+// --config names. It reads the flags as the flag package does: with one dash
+// or two, a value after "=" or, for --config, in the next argument.
+func helpRequest(args []string) (help bool, file string) {
+	for i := 0; i < len(args) && args[i] != "--"; i++ {
+		if !strings.HasPrefix(args[i], "-") {
+			continue
+		}
+		name, value, hasValue := strings.Cut(strings.TrimPrefix(args[i][1:], "-"), "=")
+		switch {
+		case name == "config" && hasValue:
+			file = value
+		case name == "config" && i+1 < len(args):
+			i++
+			file = args[i]
+		case name == "h" || name == "help":
+			if !hasValue {
+				value = "true"
+			}
+			if b, err := strconv.ParseBool(value); err == nil {
+				help = b
+			}
+		}
+	}
+	return help, file
+}
+
+// interactive reports whether the picker can have a terminal, by the test
+// Bubble Tea makes: stdin is one, or the process has a controlling terminal
+// to read the keys from instead. Its output may go anywhere.
+func interactive() bool {
+	if term.IsTerminal(os.Stdin.Fd()) {
+		return true
+	}
+	tty, _, err := tea.OpenTTY()
+	if err != nil {
+		return false
+	}
+	tty.Close()
+	return true
 }
 
 // usage is the synopsis and the flags, for --help and for a usage error.
