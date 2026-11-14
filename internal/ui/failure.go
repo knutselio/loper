@@ -1,0 +1,95 @@
+package ui
+
+import (
+	"fmt"
+	"slices"
+	"strings"
+	"unicode"
+
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/knutselio/loper/internal/target"
+)
+
+// failedMsg reports that a repo did not open in a target.
+type failedMsg struct {
+	repo, target string
+	target.Failure
+}
+
+// overlayFailure draws the error dialog centred over the list part of
+// lines: the command line that ran, then the last lines of what it printed
+// that fit, then why it failed, cut at its start so its cause shows. When
+// lines are left out, a dim line above the rest says how many, if there is
+// room for it.
+func (m Model) overlayFailure(lines []string) []string {
+	space := m.listHeight() - 2 // the rows between the borders
+	if space < 2 {
+		return lines // no room for the command and why it failed: the dialog shows again once there is
+	}
+	f := m.failure
+	output := f.output
+	var notice []string
+	if len(output) > space-2 || f.cut && space > 2 {
+		output = output[len(output)-min(len(output), max(space-3, 0)):]
+		n := len(f.output) - len(output)
+		switch {
+		case space == 2:
+		case f.cut && n == 0:
+			notice = []string{m.dim(" … earlier output left out ")}
+		case f.cut:
+			notice = []string{m.dim(fmt.Sprintf(" … more than %d earlier lines left out ", n))}
+		default:
+			notice = []string{m.dim(fmt.Sprintf(" … %d earlier lines left out ", n))} // at least 2
+		}
+	}
+	rows := slices.Concat([]string{f.command}, notice, output)
+	width := ansi.StringWidth(" " + f.reason + " ")
+	for _, r := range rows {
+		width = max(width, ansi.StringWidth(r))
+	}
+	width = m.boxWidth(f.title, width)
+	reason := f.reason
+	if over := ansi.StringWidth(reason) - (width - 2); over > 0 { // 2: the margins
+		reason = "…" + cutStart(reason, over+1)
+	}
+	return m.overlay(lines, m.box(f.title, append(rows, " "+reason+" "), width))
+}
+
+// errorDialog is the error dialog's content, worked out once when the
+// failure arrives rather than on every render.
+type errorDialog struct {
+	title   string
+	command string   // the command line that ran
+	output  []string // the lines it printed
+	cut     bool     // whether lines it printed before output were dropped
+	reason  string   // why it failed, without its margins
+}
+
+func newErrorDialog(msg failedMsg) *errorDialog {
+	d := &errorDialog{
+		title:   " Could not open " + safe(msg.repo) + " in " + msg.target + " ",
+		command: " $ " + safe(msg.Command) + " ",
+		cut:     msg.Cut,
+		reason:  message(msg.Reason), // a path in it shows as in the command line
+	}
+	if out := strings.TrimRight(msg.Output, "\n"); out != "" {
+		for _, l := range strings.Split(out, "\n") {
+			d.output = append(d.output, " "+clean(l)+" ")
+		}
+	}
+	return d
+}
+
+// clean makes s safe to draw on one line: escape sequences and control
+// characters, which would move the cursor or change the screen, are
+// dropped, and a tab becomes spaces.
+func clean(s string) string {
+	s = strings.ReplaceAll(ansi.Strip(s), "\t", "    ")
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
