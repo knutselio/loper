@@ -1,6 +1,7 @@
 # loper
 
 [![test](https://github.com/knutselio/loper/actions/workflows/test.yml/badge.svg)](https://github.com/knutselio/loper/actions/workflows/test.yml)
+![GitHub Release](https://img.shields.io/github/v/release/knutselio/loper)
 
 A keyboard-driven terminal picker that lists the git repos in the folders you choose and opens the one you select with a command you define, such as your editor or a new terminal tab.
 
