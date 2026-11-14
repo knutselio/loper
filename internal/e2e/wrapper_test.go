@@ -1,4 +1,4 @@
-package main
+package e2e
 
 import (
 	"bytes"
@@ -14,7 +14,7 @@ import (
 // section.
 func readmeWrapper(t *testing.T) string {
 	t.Helper()
-	b, err := os.ReadFile("README.md")
+	b, err := os.ReadFile("../../README.md")
 	if err != nil {
 		t.Fatal(err)
 	}

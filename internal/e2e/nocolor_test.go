@@ -1,4 +1,4 @@
-package main
+package e2e
 
 import (
 	"bytes"
@@ -38,7 +38,7 @@ var (
 
 func TestTheBuiltBinaryWithNoColorSetDrawsTheStylesWithoutColour(t *testing.T) {
 	loper := filepath.Join(t.TempDir(), "loper")
-	if out, err := exec.Command("go", "build", "-o", loper, ".").CombinedOutput(); err != nil {
+	if out, err := exec.Command("go", "build", "-o", loper, "github.com/knutselio/loper").CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
 	// run runs loper with NO_COLOR set to value, searches for "a", widens
@@ -111,7 +111,7 @@ func TestTheBuiltBinaryWithNoColorSetDrawsTheStylesWithoutColour(t *testing.T) {
 
 func TestTheBuiltBinaryDrawsAConfigFileNamedWithAColourEscapedAndWithoutColour(t *testing.T) {
 	loper := filepath.Join(t.TempDir(), "loper")
-	if out, err := exec.Command("go", "build", "-o", loper, ".").CombinedOutput(); err != nil {
+	if out, err := exec.Command("go", "build", "-o", loper, "github.com/knutselio/loper").CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
 	for _, value := range []string{"yes", "1"} {

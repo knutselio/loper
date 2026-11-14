@@ -1,4 +1,4 @@
-package main
+package e2e
 
 import (
 	"errors"
@@ -14,12 +14,16 @@ import (
 	"time"
 )
 
+// drainArg is the hidden mode in which loper drains a target's output; see
+// target.Run.
+const drainArg = "--drain-target-output"
+
 // buildLoper builds the binary into a temporary folder and returns its path.
 // It runs before HOME moves, as go build keeps its caches under the home.
 func buildLoper(t *testing.T) string {
 	t.Helper()
 	loper := filepath.Join(t.TempDir(), "loper")
-	if out, err := exec.Command("go", "build", "-o", loper, ".").CombinedOutput(); err != nil {
+	if out, err := exec.Command("go", "build", "-o", loper, "github.com/knutselio/loper").CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
 	return loper

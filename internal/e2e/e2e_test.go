@@ -1,4 +1,4 @@
-package main
+package e2e
 
 import (
 	"bytes"
@@ -19,6 +19,36 @@ import (
 
 	"github.com/creack/pty"
 )
+
+// tempHome points the home and XDG folders at a temporary tree and returns
+// the home folder.
+func tempHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
+	// A cd target hands over to $SHELL without the wrapper's file: never to
+	// a real shell, and never to the developer's own file.
+	t.Setenv("SHELL", filepath.Join(home, "no-shell"))
+	t.Setenv("LOPER_CD_FILE", "")
+	return home
+}
+
+// writeConfig writes body to path, creating its folders.
+func writeConfig(t *testing.T, path, body string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// firstRun is the config file a first run creates.
+const firstRun = "[[targets]]\nname = \"cd\"\nkey = \"o\"\ncommand = \"cd {path}\"\nin_place = true\n"
 
 // session is the built binary running in a pseudo-terminal.
 type session struct {
@@ -151,7 +181,7 @@ func (s *session) quit() []byte {
 func TestTheBuiltBinaryOpensTheRepoPickedWithKeysAndRecordsIt(t *testing.T) {
 	// Built before HOME moves, as go build keeps its caches under the home.
 	loper := filepath.Join(t.TempDir(), "loper")
-	if out, err := exec.Command("go", "build", "-o", loper, ".").CombinedOutput(); err != nil {
+	if out, err := exec.Command("go", "build", "-o", loper, "github.com/knutselio/loper").CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
 	home := tempHome(t)
@@ -205,7 +235,7 @@ func TestTheBuiltBinaryOpensTheRepoPickedWithKeysAndRecordsIt(t *testing.T) {
 
 func TestTheBuiltBinaryHandsTheWindowOverToAnInPlaceTarget(t *testing.T) {
 	loper := filepath.Join(t.TempDir(), "loper")
-	if out, err := exec.Command("go", "build", "-o", loper, ".").CombinedOutput(); err != nil {
+	if out, err := exec.Command("go", "build", "-o", loper, "github.com/knutselio/loper").CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
 	home := tempHome(t)
@@ -242,7 +272,7 @@ func TestTheBuiltBinaryHandsTheWindowOverToAnInPlaceTarget(t *testing.T) {
 
 func TestTheBuiltBinaryQuitDuringAnOpenWaitsOnQAndNotOnCtrlC(t *testing.T) {
 	loper := filepath.Join(t.TempDir(), "loper")
-	if out, err := exec.Command("go", "build", "-o", loper, ".").CombinedOutput(); err != nil {
+	if out, err := exec.Command("go", "build", "-o", loper, "github.com/knutselio/loper").CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
 	for _, c := range []struct {
@@ -320,7 +350,7 @@ func readPid(file string) int {
 
 func TestTheBuiltBinaryOnAFirstRunLandsInTheRepoWithOrWithoutTheWrapper(t *testing.T) {
 	loper := filepath.Join(t.TempDir(), "loper")
-	if out, err := exec.Command("go", "build", "-o", loper, ".").CombinedOutput(); err != nil {
+	if out, err := exec.Command("go", "build", "-o", loper, "github.com/knutselio/loper").CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
 	// setUp makes a first run's home with one repo, alpha, and a fake shell

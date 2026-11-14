@@ -35,7 +35,7 @@ func withoutUI(t *testing.T, args ...string) (code int, stdout, stderr string) {
 }
 
 // aTerminal stands in for the terminal check in the tests of run, which have
-// no terminal. The built binary's check is tested without one in e2e_test.go.
+// no terminal. The built binary's check is tested without one in internal/e2e.
 func aTerminal() bool { return true }
 
 // tempHome points the home and XDG folders at a temporary tree and returns
