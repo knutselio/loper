@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/signal"
 	"runtime/debug"
 	"strings"
 	"syscall"
@@ -26,7 +27,24 @@ import (
 	"github.com/knutselio/loper/internal/xdg"
 )
 
+// drainArg is the hidden mode in which loper drains a target's output; see
+// target.Run.
+const drainArg = "--drain-target-output"
+
 func main() {
+	// Before anything else: the drain has no terminal, and must not read or
+	// create the config.
+	if len(os.Args) == 2 && os.Args[1] == drainArg {
+		// A target dies of SIGPIPE on its next write once the drain is gone,
+		// so the drain ends only with the last writer, or by SIGKILL, and
+		// not when killall loper or a closing terminal asks loper to.
+		signal.Ignore(syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+		if err := target.Drain(); err != nil {
+			fmt.Fprintf(os.Stderr, "loper: %s: %v\n", drainArg, err)
+			os.Exit(2)
+		}
+		return
+	}
 	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr, startUI))
 }
 
@@ -160,6 +178,11 @@ func version() string {
 // in-place target it ended on, if any.
 func startUI(home string, settings config.Settings) error {
 	cdFile := takeCdFile()
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	drain := []string{self, drainArg}
 	m := ui.New(ui.Deps{
 		Home:        home,
 		ConfigFile:  settings.File,
@@ -168,7 +191,7 @@ func startUI(home string, settings config.Settings) error {
 		Missing:     scanner.Missing,
 		Branch:      repoinfo.Branch,
 		Exists:      repoinfo.Exists,
-		Open:        func(t target.Target, path string) error { return target.Run(t, path, 2*time.Second) },
+		Open:        func(t target.Target, path string) error { return target.Run(t, path, 2*time.Second, drain) },
 		Targets:     settings.Targets,
 		History:     history.New(home),
 		Cache:       cache.New(home),

@@ -254,6 +254,35 @@ func TestAFailedTargetIsReportedAtOnceEvenIfWhatItStartedKeepsItsOutputOpen(t *t
 	}
 }
 
+func TestAFailedTargetIsReportedAtOnceEvenIfWhatItStartedWritesWithoutEnd(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	// It starts four copies of yes, which write as fast as they can, and
+	// fails once they are about to run.
+	r := e.root + "/yes"
+	brokenTarget(e, "for i in 1 2 3 4; do\n\tsh -c \": > '"+r+".$i'; exec yes\" &\n\techo $! >> '"+r+".pids'\ndone\n"+
+		"until [ -e '"+r+".1' ] && [ -e '"+r+".2' ] && [ -e '"+r+".3' ] && [ -e '"+r+".4' ]; do sleep 0.01; done\nexit 1\n")
+	t.Cleanup(func() {
+		for _, line := range strings.Fields(e.record("yes.pids")) {
+			if p, _ := strconv.Atoi(line); p > 0 {
+				syscall.Kill(p, syscall.SIGKILL)
+			}
+		}
+	})
+	d := e.start() // the wait is several seconds
+
+	began := time.Now()
+	d.press("b")
+
+	if took := time.Since(began); took > 2*time.Second {
+		t.Errorf("the open took %v, reading what was left running", took)
+	}
+	// The output is longer than the dialog, so the exit status is cut off.
+	if got := boxRows(d); len(got) < 2 || got[1] != "y" {
+		t.Errorf("dialog reads %q, want the command line and its output:\n%s", got, d.screen())
+	}
+}
+
 func TestWithCloseOnOpenTheToolQuitsAfterASuccessfulOpen(t *testing.T) {
 	e := newEnv(t)
 	alpha := e.repo("code/alpha")

@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"cmp"
 	"errors"
+	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -68,7 +70,16 @@ func (f *Failure) Error() string {
 // it, or is still running when it ends, has opened the repo; one still
 // running is left to run on its own and never stopped. Otherwise Run returns
 // a *Failure.
-func Run(t Target, path string, wait time.Duration) error {
+//
+// The command's stdout and stderr are one pipe. During the wait Run reads it,
+// keeping the end for a failure to show. Whatever is written to it after
+// that, also by what the command started and after the tool has gone, is
+// read and thrown away by the drain: a process of its own that Run starts
+// with the command drain before the command, as Drain describes. It holds the
+// pipe until the last writer closes it, so a writer never gets SIGPIPE, and
+// reads from when Run lets go of the pipe or the tool dies, so a writer never
+// waits on a full pipe for longer than the drain takes to wake.
+func Run(t Target, path string, wait time.Duration, drain []string) error {
 	words := substitute(t, path)
 	fail := func(why string, output []byte) error {
 		if len(output) > 0 && output[len(output)-1] != '\n' {
@@ -76,26 +87,58 @@ func Run(t Target, path string, wait time.Duration) error {
 		}
 		return &Failure{Command: commandLine(words), Output: string(output) + why}
 	}
-	// The output goes to a file rather than a pipe: a command still running
-	// after the wait keeps writing to it without anyone reading, and never
-	// gets SIGPIPE once the tool has gone. The file is removed straight away,
-	// so it disappears when the last writer closes it; until then, a chatty
-	// command left running keeps growing it.
-	out, err := os.CreateTemp("", "loper-target-")
+	out, w, err := os.Pipe()
 	if err != nil {
 		return fail(err.Error(), nil)
 	}
-	defer out.Close()
-	os.Remove(out.Name()) // best effort: a leftover temporary file harms nothing
+	// The drain reads out from when hold ends: when letGo is closed, here
+	// or by the system as the tool dies.
+	hold, letGo, err := os.Pipe()
+	if err != nil {
+		out.Close()
+		w.Close()
+		return fail(err.Error(), nil)
+	}
+	defer func() {
+		letGo.Close() // first, so that there is always a reader
+		out.Close()
+	}()
+	err = startDrain(drain, out, hold)
+	hold.Close()
+	if err != nil {
+		w.Close()
+		// The drain is the tool's own program, so it fails to start when
+		// that has been moved or removed since the tool started.
+		var path *fs.PathError
+		if errors.As(err, &path) {
+			err = fmt.Errorf("%w: %s", path.Err, path.Path)
+		}
+		return fail("loper's own program is gone, restart loper ("+err.Error()+")", nil)
+	}
 	cmd := exec.Command(words[0], words[1:]...)
 	cmd.Dir = path
-	cmd.Stdout, cmd.Stderr = out, out // stdin stays nil: the null device, never the tool's terminal
+	cmd.Stdout, cmd.Stderr = w, w // stdin stays nil: the null device, never the tool's terminal
 	// A session of its own detaches the command from the tool's terminal, so
 	// it gets none of the terminal's signals and lives on when the tool quits.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if err := cmd.Start(); err != nil {
+	err = cmd.Start()
+	w.Close() // the command's own copies are the only writers
+	if err != nil {
 		return fail(err.Error(), nil)
 	}
+	var output tail
+	read := make(chan struct{})
+	go func() {
+		defer close(read)
+		buf := make([]byte, 32<<10)
+		for {
+			n, err := out.Read(buf)
+			output.add(buf[:n])
+			if err != nil { // the end, or Run has stopped reading
+				return
+			}
+		}
+	}()
 	done := make(chan error, 1)
 	// The goroutine outlives a command that is still running after the wait,
 	// so that its exit is collected and it never lingers as a zombie.
@@ -105,10 +148,73 @@ func Run(t Target, path string, wait time.Duration) error {
 		if err == nil {
 			return nil
 		}
-		return fail(err.Error(), tail(out))
+		// What the command started may keep the pipe open, so its end may
+		// never come: stop reading, then take what the command left in it.
+		out.SetReadDeadline(time.Now())
+		<-read
+		out.SetReadDeadline(time.Time{})
+		output.sweep(out)
+		return fail(err.Error(), output.end())
 	case <-time.After(wait):
 		return nil
 	}
+}
+
+// startDrain starts drain with out as its stdin and hold as its descriptor 3,
+// in the root folder and a session of its own, away from the tool's terminal
+// and its signals.
+func startDrain(drain []string, out, hold *os.File) error {
+	// The drain gets a copy of out rather than out itself: handing out to a
+	// command would make the tool treat it as blocking, and then it could
+	// not stop reading out when it wants to. The copy shares out's
+	// non-blocking state, which starting the drain leaves as it is.
+	raw, err := out.SyscallConn()
+	if err != nil {
+		return err
+	}
+	var fd int
+	var dupErr error
+	syscall.ForkLock.RLock() // so that no other command gets the copy
+	err = raw.Control(func(f uintptr) {
+		if fd, dupErr = syscall.Dup(int(f)); dupErr == nil {
+			syscall.CloseOnExec(fd)
+		}
+	})
+	syscall.ForkLock.RUnlock()
+	if err = cmp.Or(err, dupErr); err != nil {
+		return err
+	}
+	copied := os.NewFile(uintptr(fd), "output")
+	defer copied.Close()
+	cmd := exec.Command(drain[0], drain[1:]...)
+	cmd.Stdin = copied
+	cmd.ExtraFiles = []*os.File{hold}
+	cmd.Dir = "/" // so that it keeps no folder busy
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go cmd.Wait() // collects its exit while the tool runs
+	return nil
+}
+
+// Drain is the drain Run starts: it waits for the end of descriptor 3, then
+// reads its stdin to the end, throwing it away. Its stdin is a target's
+// output, and descriptor 3 ends when Run lets go of it or the tool dies. It
+// returns an error at once when either is not a pipe, as when a person runs
+// it, and never changes them before that.
+func Drain() error {
+	for _, fd := range []int{0, 3} {
+		var st syscall.Stat_t
+		if syscall.Fstat(fd, &st) != nil || st.Mode&syscall.S_IFMT != syscall.S_IFIFO {
+			return errors.New("only loper itself starts this")
+		}
+	}
+	if _, err := io.Copy(io.Discard, os.NewFile(3, "hold")); err != nil {
+		return err
+	}
+	_, err := io.Copy(io.Discard, os.NewFile(0, "output"))
+	return err
 }
 
 // Prepare returns t's command for the repo at path, to run in the tool's
@@ -154,16 +260,48 @@ func substitute(t Target, path string) []string {
 // is where a program usually says what went wrong.
 const keep = 64 << 10
 
-// tail returns the last keep bytes of out, from the first whole line in
-// them. It reads without moving the file's offset, which a program the
-// command left running in the background still writes at.
-func tail(out *os.File) []byte {
-	var start int64
-	if info, err := out.Stat(); err == nil {
-		start = max(info.Size()-keep, 0)
+// tail is the end of a command's output: never more than twice keep bytes.
+type tail struct {
+	b   []byte
+	cut bool // whether output before b was dropped
+}
+
+func (t *tail) add(p []byte) {
+	t.b = append(t.b, p...)
+	if len(t.b) > 2*keep {
+		t.b = append(t.b[:0], t.b[len(t.b)-keep:]...)
+		t.cut = true
 	}
-	output, _ := io.ReadAll(io.NewSectionReader(out, start, keep)) // what was read is still worth showing
-	if start > 0 {
+}
+
+// sweep adds what is in out now, without waiting for more, and at most keep
+// bytes of it, as a program the command left running may write on and on.
+func (t *tail) sweep(out *os.File) {
+	raw, err := out.SyscallConn()
+	if err != nil {
+		return
+	}
+	buf := make([]byte, 32<<10)
+	raw.Read(func(fd uintptr) bool {
+		for swept := 0; swept < keep; {
+			n, err := syscall.Read(int(fd), buf)
+			if n <= 0 || err != nil { // empty for now, or the end
+				break
+			}
+			t.add(buf[:n])
+			swept += n
+		}
+		return true
+	})
+}
+
+// end returns the last keep bytes, from the first whole line in them.
+func (t *tail) end() []byte {
+	output := t.b
+	if len(output) > keep {
+		output = output[len(output)-keep:]
+	}
+	if len(output) < len(t.b) || t.cut {
 		if _, rest, ok := bytes.Cut(output, []byte("\n")); ok {
 			output = rest
 		}

@@ -28,7 +28,18 @@ import (
 // test links them into its own bin folder.
 var scripts string
 
+// drain is the command that drains a target's output: this test binary,
+// which TestMain then runs as loper's hidden drain mode.
+var drain = []string{os.Args[0], "drain"}
+
 func TestMain(m *testing.M) {
+	if len(os.Args) == 2 && os.Args[1] == "drain" {
+		if err := target.Drain(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(2)
+		}
+		os.Exit(0)
+	}
 	dir, err := os.MkdirTemp("", "loper-scripts")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -290,7 +301,7 @@ func (e *env) launch() *driver {
 		Missing:    scanner.Missing,
 		Branch:     repoinfo.Branch,
 		Exists:     repoinfo.Exists,
-		Open:       func(t target.Target, path string) error { return target.Run(t, path, e.wait) },
+		Open:       func(t target.Target, path string) error { return target.Run(t, path, e.wait, drain) },
 		Targets:    settings.Targets,
 		History:    history.New(e.home),
 		Cache:      cache.New(e.home),

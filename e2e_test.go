@@ -22,6 +22,7 @@ import (
 // session is the built binary running in a pseudo-terminal.
 type session struct {
 	t       *testing.T
+	pid     int // the process's id
 	pty     *os.File
 	shown   chan struct{} // closed once the terminal has shown the awaited text
 	exited  chan struct{} // closed once the process has been reaped
@@ -44,7 +45,7 @@ func start(t *testing.T, awaited string, binary string, args ...string) *session
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := &session{t: t, pty: f, shown: make(chan struct{}), exited: make(chan struct{}), drained: make(chan struct{})}
+	s := &session{t: t, pid: cmd.Process.Pid, pty: f, shown: make(chan struct{}), exited: make(chan struct{}), drained: make(chan struct{})}
 	go func() {
 		s.waitErr = cmd.Wait()
 		close(s.exited)
