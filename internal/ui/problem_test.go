@@ -126,7 +126,7 @@ func TestATooSmallWindowIsAProblemTopRightAndEveryRowStaysARepo(t *testing.T) {
 			e.repo("code/" + name)
 			repos = append(repos, name+" ~/code main -")
 		}
-		d := e.start()
+		d := startQuiet(e)
 		d.press("j", "j") // the selection on the middle row
 		d.press("a")
 
@@ -188,6 +188,7 @@ func TestANoticeAndTheRefreshSpinnerGoBeforeATooSmallWindow(t *testing.T) {
 		t.Errorf("while refreshing: top right reads %q, want %q", got, want)
 	}
 	d.release()
+	d.quiet() // the spinner's least time and the notice that follows it pass
 	if got := topRight(d); got != tooSmall {
 		t.Errorf("after the refresh: top right reads %q, want %q", got, tooSmall)
 	}
@@ -213,7 +214,7 @@ func TestTheErrorDialogOverATooSmallAddDialogHidesItsProblem(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.config("[[targets]]\nname = \"Broken\"\nkey = \"b\"\ncommand = \"false {path}\"\n")
-	d := e.start()
+	d := startQuiet(e)
 	d.send(tea.WindowSizeMsg{Width: 80, Height: 10}) // room for the error dialog, not the add dialog
 
 	d.hold = true

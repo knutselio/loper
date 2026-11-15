@@ -32,6 +32,8 @@ type Settings struct {
 	// Notice says why the config file could not be created on a first run,
 	// as a notice, or is "".
 	Notice string
+	// Created is true when the picker created the config file on this run.
+	Created bool
 }
 
 // file is the config file as written; a nil field was left out.

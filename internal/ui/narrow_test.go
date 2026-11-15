@@ -56,95 +56,95 @@ func TestNothingIsDrawnWiderOrTallerThanTheTerminalInAnyState(t *testing.T) {
 			return d
 		}},
 		{name: "search", setup: func(e *env) *driver {
-			d := e.start()
+			d := startQuiet(e)
 			d.press("/")
 			d.typeText("back")
 			return d
 		}},
 		{name: "search with no matches", setup: func(e *env) *driver {
-			d := e.start()
+			d := startQuiet(e)
 			d.press("/")
 			d.typeText("zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz")
 			return d
 		}},
 		{name: "menu", setup: func(e *env) *driver {
-			d := e.start()
+			d := startQuiet(e)
 			d.press("enter")
 			return d
 		}, again: []string{"esc", "enter"}},
 		{name: "dialog", setup: func(e *env) *driver {
-			d := e.start()
+			d := startQuiet(e)
 			d.press("b")
 			return d
 		}},
 		{name: "add dialog with its examples", setup: func(e *env) *driver {
-			d := e.start()
+			d := startQuiet(e)
 			d.press("a")
 			return d
 		}, shows: "Command"},
 		{name: "add dialog with a reason", setup: func(e *env) *driver {
-			d := e.start()
+			d := startQuiet(e)
 			d.fill("a name with 日本語 in it that is far too long for the box", "t", "a-command-with-日本語-and-no-placeholder that runs on and on")
 			d.press("enter", "enter")
 			return d
 		}, shows: "has no {path}"},
 		{name: "add confirmation", setup: func(e *env) *driver {
-			d := e.start()
+			d := startQuiet(e)
 			d.fill("a name with 日本語 in it that is far too long for the box", "t", "a-command-with-日本語 {path} that runs on and on and on and on")
 			d.press("enter", "enter")
 			return d
 		}, shows: "[[targets]]"},
 		{name: "edit confirmation", setup: func(e *env) *driver {
-			d := e.start()
+			d := startQuiet(e)
 			d.press("enter", "e")
 			d.retype("a name with 日本語 in it that is far too long for the box")
 			d.press("enter", "enter", "enter", "enter")
 			return d
 		}, shows: "with these"},
 		{name: "add dialog on After open", setup: func(e *env) *driver {
-			d := e.start()
+			d := startQuiet(e)
 			d.fill("a name with 日本語 in it that is far too long for the box", "t", "a-command-with-日本語 {path}")
 			d.press("tab", "right", "right")
 			return d
 		}, shows: "After open ‹ close loper ›"},
 		{name: "add dialog on take over this window", setup: func(e *env) *driver {
-			d := e.start()
+			d := startQuiet(e)
 			d.fill("a name with 日本語 in it that is far too long for the box", "t", "a-command-with-日本語 {path}")
 			d.press("tab", "left")
 			return d
 		}, shows: "After open ‹ take over this window ›"},
 		{name: "edit confirmation with close lines", setup: func(e *env) *driver {
 			e.config("paths = [\"~/code\", \"~/dotfiles\", \"~/a-folder-that-does-not-exist\"]\n\n[[targets]]\nname = \"Zed\"\nkey = \"z\"\ncommand = \"zed {path}\"\nclose = true\n")
-			d := e.start()
+			d := startQuiet(e)
 			d.press("enter", "e")
 			d.retype("a name with 日本語 in it that is far too long for the box")
 			d.press("enter", "enter", "enter", "enter")
 			return d
 		}, shows: "close = true"},
 		{name: "remove confirmation", setup: func(e *env) *driver {
-			d := e.start()
+			d := startQuiet(e)
 			d.press("enter", "j", "d")
 			return d
 		}, shows: "Remove these lines"},
 		{name: "add refused", setup: func(e *env) *driver {
-			d := e.start()
+			d := startQuiet(e)
 			e.config("targets = []\n") // rewritten after the launch, which needs the targets
 			d.press("a")
 			return d
 		}, shows: "lists its targets inline"},
 		{name: "help", setup: func(e *env) *driver {
-			d := e.start()
+			d := startQuiet(e)
 			d.press("?")
 			return d
 		}, again: []string{"esc", "?"}},
 		{name: "help scrolled to its end", setup: func(e *env) *driver {
-			d := e.start()
+			d := startQuiet(e)
 			d.press("?")
 			d.press(slices.Repeat([]string{"j"}, 40)...)
 			return d
 		}, again: append([]string{"esc", "?"}, slices.Repeat([]string{"j"}, 40)...)},
 		{name: "opened", setup: func(e *env) *driver {
-			d := e.start()
+			d := startQuiet(e)
 			d.press("z")
 			return d
 		}},
@@ -335,7 +335,7 @@ func TestANarrowTopRowCutsItsRightSideAndKeepsTheLeftWhole(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.config(`paths = ["~/code", "~/nope"]`)
-	d := e.start()
+	d := startQuiet(e)
 
 	// The hint takes 8 cells and the problem 18.
 	for _, c := range []struct {
@@ -359,7 +359,7 @@ func TestANarrowTopRowCutsItsRightSideAndKeepsTheLeftWhole(t *testing.T) {
 func TestTheCountIsCutBeforeALongQueryWhichKeepsAtLeastTenCells(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
-	d := e.start()
+	d := startQuiet(e)
 	d.press("/")
 	d.typeText("alphaalphaalpha") // 15 cells, and no match
 

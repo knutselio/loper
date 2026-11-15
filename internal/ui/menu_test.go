@@ -194,7 +194,7 @@ func TestTheMenuSitsOverTheListWhichStaysVisibleAroundIt(t *testing.T) {
 	}
 	e.repo("code/a/folder/deep/enough/to/push/the/branch/past/the/menu/alpha")
 	threeTargets(e)
-	d := e.start()
+	d := startQuiet(e)
 
 	d.press("enter")
 	screen := d.screen()

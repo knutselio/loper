@@ -125,6 +125,7 @@ func TestARepoDeletedAfterTheCacheWasWrittenIsGoneOnceTheRefreshFinishes(t *test
 		t.Errorf("cached list: want beta still there:\n%s", screen)
 	}
 	d.release()
+	d.quiet()
 	if screen := d.screen(); hasRow(screen, "beta") || header(d) != "/ search 1 repo" {
 		t.Errorf("refreshed list: want beta gone and one repo:\n%s", screen)
 	}
@@ -145,13 +146,10 @@ func TestTheHeaderShowsTheSpinnerAndRefreshingWhileTheRefreshRunsAndNotAfter(t *
 		t.Errorf("after a tick: header reads %q, want %q", got, want)
 	}
 	d.release()
+	d.quiet() // the spinner's least time and the notice that follows it pass
 	lines := strings.Split(d.screen(), "\n")
 	if !strings.HasSuffix(lines[0], " 1 repo ") {
 		t.Errorf("after the refresh: header reads %q, want it to end with the count", lines[0])
-	}
-	d.tick() // the tick that was on its way when the refresh finished
-	if d.tick() {
-		t.Error("the spinner still ticks after the refresh finished")
 	}
 }
 
@@ -202,7 +200,7 @@ func TestWithNoReposFoundTheScreenNamesTheScannedPathsAndTheConfigFile(t *testin
 	}
 	e.config(`paths = ["~/code", "~/projects"]`)
 
-	screen := e.start().screen()
+	screen := startQuiet(e).screen()
 
 	for _, want := range []string{"No repos found in ~/code, ~/projects", "~/.config/loper/config.toml"} {
 		if !strings.Contains(screen, want) {
@@ -320,6 +318,7 @@ func TestTheTargetMenuClosesWhenItsRepoDisappearsAndStaysWhenAnotherDoes(t *test
 		d.press("j", "enter") // the menu for beta
 
 		d.release()
+		d.quiet()
 
 		screen := d.screen()
 		if c.menu == "" && boxRows(d) != nil || c.menu != "" && !strings.Contains(screen, c.menu) {
@@ -427,7 +426,7 @@ func TestACacheThatCannotBeWrittenLeavesTheRefreshedListOnScreen(t *testing.T) {
 	e.config(zedTarget)
 	e.writeFile(filepath.Join(e.home, ".cache", "loper"), "a file where the folder should be")
 
-	d := e.start()
+	d := startQuiet(e)
 
 	if screen := d.screen(); !hasExactRow(screen, "alpha ~/code main -") || header(d) != "/ search 1 repo" {
 		t.Errorf("want the refreshed list:\n%s", screen)

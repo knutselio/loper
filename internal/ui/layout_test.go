@@ -16,7 +16,7 @@ func TestTheTopRowShowsTheSearchHintOnTheLeftAndTheCountOnTheRight(t *testing.T)
 	e.repo("code/beta")
 	e.repo("code/gamma")
 
-	d := e.start()
+	d := startQuiet(e)
 	lines := strings.Split(d.screen(), "\n") // the screen is 80 wide
 
 	if got, want := header(d), "/ search 3 repos"; got != want {
@@ -33,12 +33,12 @@ func TestTheTopRowShowsTheSearchHintOnTheLeftAndTheCountOnTheRight(t *testing.T)
 func TestTheCountSaysOneRepoAndWithColourTheHintsKeyIsInTheAccentAndTheRestDimmed(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
-	if got, want := header(e.start()), "/ search 1 repo"; got != want {
+	if got, want := header(startQuiet(e)), "/ search 1 repo"; got != want {
 		t.Errorf("one repo: top row reads %q, want %q", got, want)
 	}
 
 	e.color = true
-	if got, want := styled(strings.Split(e.start().screen(), "\n")[0]), " [/] {search}"; !strings.HasPrefix(got, want) || !strings.HasSuffix(got, " {1 repo} ") {
+	if got, want := styled(strings.Split(startQuiet(e).screen(), "\n")[0]), " [/] {search}"; !strings.HasPrefix(got, want) || !strings.HasSuffix(got, " {1 repo} ") {
 		t.Errorf("with colour: top row is %q, want it to start with %q and end with the count dimmed", got, want)
 	}
 }

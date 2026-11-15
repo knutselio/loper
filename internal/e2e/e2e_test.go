@@ -497,6 +497,14 @@ func TestTheBuiltBinaryOnAFirstRunLandsInTheRepoWithOrWithoutTheWrapper(t *testi
 		}
 	})
 
+	t.Run("saying it created the config file", func(t *testing.T) {
+		setUp(t)
+
+		s := start(t, "Created ~/.config/loper/config.toml with a cd target on o", loper)
+		s.within("the notice to be drawn", s.shown)
+		s.quit()
+	})
+
 	t.Run("with a config folder that cannot be written", func(t *testing.T) {
 		home, _, _, _ := setUp(t)
 		folder := filepath.Join(home, ".config", "loper")

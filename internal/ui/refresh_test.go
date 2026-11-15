@@ -85,36 +85,51 @@ func TestRBeforeTheCachedListArrivesDoesNotStartASecondRefresh(t *testing.T) {
 func TestRWhileTheLastSpinnerTickIsOnItsWayKeepsOneSpinner(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
-	d := e.start() // the refresh has finished, with a tick on its way
+	d := e.start()
+	d.after(e.spin) // the refresh and its spinner's least time are done, with a spinner tick on its way
 
 	d.hold = true
 	d.press("r")
-	d.tick()
+	d.after(frame)
 
 	if got, want := header(d), "/ search ⠙ refreshing"; got != want {
 		t.Errorf("after a tick: header reads %q, want %q", got, want)
 	}
-	d.release()
-	d.tick() // the tick that was on its way when the refresh finished
-	if d.tick() {
-		t.Error("the spinner still ticks after the refresh finished: two spinners ran")
+	if n := frames(d); n != 1 {
+		t.Errorf("%d spinner ticks on their way, want one: two spinners ran", n)
 	}
+}
+
+// frame is how long the spinner shows each of its frames.
+// It mirrors the interval of the UI's spinner tick.
+const frame = 80 * time.Millisecond
+
+// frames returns how many of the spinner's ticks are on their way.
+func frames(d *driver) int {
+	n := 0
+	for _, p := range d.ticks {
+		if p.after == frame {
+			n++
+		}
+	}
+	return n
 }
 
 func TestRAfterTheSpinnerStoppedStartsItAgain(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
-	d := e.start()
-	d.tick() // the last tick of the launch refresh's spinner
+	d := startQuiet(e) // the launch refresh's spinner has stopped
 
 	d.hold = true
 	d.press("r")
 
-	if !d.tick() {
+	if frames(d) == 0 {
 		t.Fatal("the spinner does not tick while r's refresh runs")
 	}
-	if got, want := header(d), "/ search ⠙ refreshing"; got != want {
-		t.Errorf("after a tick: header reads %q, want %q", got, want)
+	before := header(d)
+	d.after(frame)
+	if got := header(d); got == before || !strings.HasSuffix(got, " refreshing") {
+		t.Errorf("after a tick: header reads %q, want the next frame after %q", got, before)
 	}
 }
 
@@ -261,7 +276,7 @@ func TestAMissingPathIsReportedOnEveryLaunchWithoutScanning(t *testing.T) {
 	e.repo("code/gamma")
 	e.now = e.now.Add(time.Hour)
 
-	d := e.start()
+	d := startQuiet(e)
 
 	if screen := d.screen(); hasRow(screen, "gamma") {
 		t.Errorf("want a launch without a scan, so no gamma:\n%s", screen)

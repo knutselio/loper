@@ -498,7 +498,7 @@ func TestTheMomentOfAnEarlierConfirmationDoesNotCountForALaterOne(t *testing.T) 
 func TestTheFieldsNeedRoomForTheLongestLabelAndACellOfValue(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
-	d := e.start()
+	d := startQuiet(e)
 	d.fill("Tab", "t", "tab {path}")
 
 	d.send(tea.WindowSizeMsg{Width: 18, Height: 24}) // 16 cells inside the border: no cell for a value after After open
@@ -538,7 +538,7 @@ func TestOnAScreenTooSmallForTheDialogAProblemShowsAndTheTextIsKept(t *testing.T
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.config(zedConfig)
-	d := e.start()
+	d := startQuiet(e)
 	d.fill("Tab", "t", "tab {path}")
 	d.press("enter")
 

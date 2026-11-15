@@ -379,7 +379,7 @@ func TestTheHeadingsStayDuringASearchAndAreNotShownWithoutRows(t *testing.T) {
 		t.Errorf("scanning: line 3 is %q, want scanning in place of the headings", got)
 	}
 
-	if got := strings.Split(newEnv(t).start().screen(), "\n")[2]; !strings.HasPrefix(got, "   No repos found in ") {
+	if got := strings.Split(startQuiet(newEnv(t)).screen(), "\n")[2]; !strings.HasPrefix(got, "   No repos found in ") {
 		t.Errorf("no repos: line 3 is %q, want the no-repos message in place of the headings", got)
 	}
 }
@@ -459,7 +459,7 @@ func TestTheLastCellOfEveryRowIsBlankAtEveryWidth(t *testing.T) {
 func TestTheLastCellOfTheNoReposMessageIsBlankAtEveryWidth(t *testing.T) {
 	e := newEnv(t)
 	e.config(`paths = ["~/a-folder-with-a-rather-long-name-that-runs-on"]`)
-	d := e.start()
+	d := startQuiet(e)
 	if screen := d.screen(); !strings.Contains(screen, "No repos found in") || !strings.Contains(screen, "Change paths in") {
 		t.Fatalf("no message:\n%s", screen)
 	}

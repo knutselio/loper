@@ -191,7 +191,7 @@ func TestNoReposFoundShowsAPathWithControlCharactersEscaped(t *testing.T) {
 	e := newEnv(t)
 	e.config(`paths = ["~/no\u001b[31mpe"]`)
 
-	screen := e.start().screen()
+	screen := startQuiet(e).screen()
 
 	if !strings.Contains(screen, `No repos found in ~/no\x1b[31mpe`) {
 		t.Errorf("no escaped path:\n%s", screen)

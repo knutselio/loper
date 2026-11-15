@@ -69,7 +69,7 @@ func TestAPathsEntryThatIsARepoAppearsAsOneRow(t *testing.T) {
 	e.repo("dotfiles")
 	e.config(`paths = ["~/code", "~/dotfiles"]`)
 
-	screen := e.start().screen()
+	screen := startQuiet(e).screen()
 
 	for _, row := range []string{"alpha ~/code main", "dotfiles ~ main", "/ search 2 repos"} {
 		if !hasRow(screen, row) {
@@ -103,7 +103,7 @@ func TestASymlinkListedDirectlyIsFollowedAndShowsThePathAsWritten(t *testing.T) 
 	e.symlink(filepath.Join(e.home, "elsewhere", "work"), "work")
 	e.symlink(filepath.Join(e.home, "elsewhere", "hidden-behind-link"), "elsewhere/work/inner-link")
 	e.config(`paths = ["~/dots", "~/work"]` + zedTarget)
-	d := e.start()
+	d := startQuiet(e)
 	screen := d.screen()
 
 	for _, row := range []string{"dots ~ main", "backend ~/work main", "/ search 2 repos"} {
@@ -122,7 +122,7 @@ func TestAListedPathThatDoesNotExistIsAProblemTopRightAndTheRestStillLoads(t *te
 	e.repo("code/alpha")
 	e.config(`paths = ["~/code", "~/typo", "~/nope"]`)
 
-	d := e.start()
+	d := startQuiet(e)
 
 	if got, want := topRight(d), "! ~/typo not found, ~/nope not found"; got != want {
 		t.Errorf("top right reads %q, want %q", got, want)
@@ -145,7 +145,7 @@ func TestAProblemIsRedWithColourAndKeepsItsMarkWithout(t *testing.T) {
 		e.repo("code/alpha")
 		e.config(`paths = ["~/code", "~/typo"]`)
 
-		if top := strings.SplitN(e.start().screen(), "\n", 2)[0]; !strings.HasSuffix(top, c.want) {
+		if top := strings.SplitN(startQuiet(e).screen(), "\n", 2)[0]; !strings.HasSuffix(top, c.want) {
 			t.Errorf("colour %v: top row is %q, want it to end with %q", c.color, top, c.want)
 		}
 	}
@@ -169,7 +169,7 @@ func TestOverlappingPathsListARepoOnce(t *testing.T) {
 	e.repo("code/beta")
 	e.config(`paths = ["~/code/beta", "~/code", "~/code/beta"]`)
 
-	d := e.start()
+	d := startQuiet(e)
 
 	if !hasRow(d.screen(), "/ search 2 repos") {
 		t.Errorf("header does not count 2 repos:\n%s", d.screen())

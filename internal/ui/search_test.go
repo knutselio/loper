@@ -23,7 +23,7 @@ func TestSlashShowsTheSearchLineAndOnlyMatchingRowsWithTheTopOneSelected(t *test
 	e.repo("code/alpha")
 	e.repo("code/beta")
 	e.repo("code/gamma")
-	d := e.start()
+	d := startQuiet(e)
 	d.press("j", "j") // gamma
 
 	d.press("/")
@@ -113,7 +113,7 @@ func TestWhileSearchingTargetKeysAndListKeysAreTextAndTriggerNothing(t *testing.
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.config(zedTarget)
-	d := e.start()
+	d := startQuiet(e)
 	e.repo("code/beta") // a refresh would find it
 
 	d.press("/")
@@ -198,7 +198,7 @@ func TestEscRestoresTheFullListAndTheSelectionFromBeforeTheSearch(t *testing.T) 
 	for _, name := range []string{"alpha", "beta", "gamma"} {
 		e.repo("code/" + name)
 	}
-	d := e.start()
+	d := startQuiet(e)
 	d.press("j") // beta
 
 	d.press("/")
@@ -221,7 +221,7 @@ func TestEscClosesTheMenuFirstAndASecondEscClearsTheSearch(t *testing.T) {
 	e.repo("code/alpha")
 	e.repo("code/beta")
 	e.config(zedTarget)
-	d := e.start()
+	d := startQuiet(e)
 	d.press("/")
 	d.typeText("bet")
 	d.press("enter")
@@ -286,7 +286,7 @@ func TestTheNoMatchesLineShowsTheQueryEscapedAndCutWhenTooLong(t *testing.T) {
 }
 
 func TestASearchWithNoReposStillShowsNoReposFound(t *testing.T) {
-	d := newEnv(t).start()
+	d := startQuiet(newEnv(t))
 
 	d.press("/")
 	d.typeText("xyz")
@@ -306,6 +306,7 @@ func TestARefreshWhileSearchingUpdatesTheMatchesAndKeepsTheSelectedMatch(t *test
 	d.typeText("et") // beta, until the refresh adds abet and zeta
 
 	d.release()
+	d.quiet()
 
 	if got, want := order(d), []string{"abet ~/code", "beta ~/code", "zeta ~/code"}; !slices.Equal(got, want) {
 		t.Errorf("rows %q, want %q", got, want)
@@ -369,7 +370,7 @@ func TestTheQueryIsInTheTopRowWithItsControlCharactersEscapedAndStaysOnceConfirm
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.repo("code/beta")
-	d := e.start()
+	d := startQuiet(e)
 
 	d.press("/", "b", "\x07", "\\")
 	if got, want := header(d), `/b\x07\█ 0 of 2`; got != want {
@@ -429,22 +430,24 @@ func TestWhileSearchingTheTopRightShowsTheSpinnerOverTheMatchesAndTheMatchesOver
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.config(`paths = ["~/code", "~/nope"]`)
-	d := e.start()
+	d := startQuiet(e)
 	d.hold = true
 	d.press("r")
+	spinner := topRight(d) // the frame the launch's spinner stopped on
 
 	d.press("/")
-	if got, want := header(d), "/█ ⠋ refreshing"; got != want {
+	if got, want := header(d), "/█ "+spinner; got != want || !strings.HasSuffix(got, " refreshing") {
 		t.Errorf("while refreshing: header reads %q, want %q", got, want)
 	}
 	d.typeText("xyz")
-	if got, want := header(d), "/xyz█ ⠋ refreshing"; got != want {
+	if got, want := header(d), "/xyz█ "+spinner; got != want {
 		t.Errorf("no matches while refreshing: header reads %q, want %q", got, want)
 	}
 	if screen := d.screen(); !strings.Contains(screen, "No matches") {
 		t.Errorf("no matches while refreshing: want No matches:\n%s", screen)
 	}
 	d.release()
+	d.after(e.spin) // the refresh found a problem, so no notice follows
 	if got, want := header(d), "/xyz█ 0 of 1"; got != want {
 		t.Errorf("after the refresh: header reads %q, want %q", got, want)
 	}
@@ -503,7 +506,7 @@ func TestAPasteWhileSearchingGoesToTheQueryWithoutLineBreaksOrControlCharacters(
 	for _, name := range []string{"alpha", "beta", "gamma"} {
 		e.repo("code/" + name)
 	}
-	d := e.start()
+	d := startQuiet(e)
 	d.press("j", "j", "/") // gamma
 
 	d.paste("be\r\nt\x07")

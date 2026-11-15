@@ -85,7 +85,7 @@ func TestWhileTheHelpIsOpenListKeysAndTargetKeysDoNothing(t *testing.T) {
 	e.repo("code/alpha")
 	e.repo("code/beta")
 	threeTargets(e)
-	d := e.start()
+	d := startQuiet(e)
 	d.hold = true // a refresh would show in the header until released
 
 	d.press("?")
@@ -134,7 +134,7 @@ name = "Broken"
 key = "b"
 command = "false {path}"
 `)
-	d := e.start()
+	d := startQuiet(e)
 
 	d.press("enter")
 	menu := boxRows(d)

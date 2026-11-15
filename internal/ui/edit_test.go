@@ -22,7 +22,7 @@ func editStart(e *env, body string) (*driver, string) {
 	alpha := e.repo("code/alpha")
 	e.fakeTarget("tab")
 	e.config(body)
-	return e.start(), alpha
+	return startQuiet(e), alpha
 }
 
 // retype replaces what is in the dialog's current field with text.
@@ -512,7 +512,7 @@ func TestAnEditOrRemoveKeepsASymlinkTheFilesModeAndWritesOnlyTheConfigFlagsFile(
 	}
 }
 
-func TestEAndDDoNothingOnTheListInASearchTheErrorDialogOrTheHelp(t *testing.T) {
+func TestEAndDDoNothingInASearchTheErrorDialogOrTheHelp(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	const body = "\n[[targets]]\nname = \"Broken\"\nkey = \"b\"\ncommand = \"false {path}\"\n"
@@ -522,16 +522,20 @@ func TestEAndDDoNothingOnTheListInASearchTheErrorDialogOrTheHelp(t *testing.T) {
 		keys  []string
 		title string // of what stays on screen
 	}{
-		{"list", nil, " / search"},
 		{"error dialog", []string{"b"}, "╭─ Could not open alpha in Broken ─"},
 		{"help", []string{"?"}, "╭─ Help ─"},
 		{"search", []string{"/"}, " /ed"},
 	} {
-		d := e.start()
+		d := startQuiet(e)
 		d.press(c.keys...)
 		before := boxRows(d)
 
-		d.press("e", "d")
+		for _, key := range []string{"e", "d"} {
+			d.press(key)
+			if got := topRight(d); strings.Contains(got, "target menu") {
+				t.Errorf("%s: after %s the top right reads %q, want no notice", c.name, key, got)
+			}
+		}
 
 		if screen := d.screen(); !strings.Contains(screen, c.title) || strings.Contains(screen, "a target ─") || !slices.Equal(boxRows(d), before) {
 			t.Errorf("%s: e and d changed the screen:\n%s", c.name, screen)

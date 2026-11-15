@@ -32,7 +32,7 @@ func redConfig(e *env, body string) (file, drawn string) {
 func TestTheConfigFileIsDrawnEscapedWhereNoReposAreFound(t *testing.T) {
 	e := newEnv(t)
 	_, drawn := redConfig(e, "paths = []\n")
-	d := e.start()
+	d := startQuiet(e)
 
 	if want := "Change paths in " + drawn; !shown(d, want) {
 		t.Errorf("want %q and no escape code:\n%q", want, d.screen())

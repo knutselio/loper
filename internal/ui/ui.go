@@ -3,6 +3,7 @@ package ui
 
 import (
 	"errors"
+	"fmt"
 	"maps"
 	"path/filepath"
 	"time"
@@ -35,8 +36,14 @@ type Deps struct {
 	Tick func(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd
 	// Notice is shown at the top right at launch, as a notice, or is "".
 	Notice string
+	// Created says the config file was created at launch, which a notice
+	// then says.
+	Created bool
 	// NoticeFor is how long a notice shows.
 	NoticeFor time.Duration
+	// SpinFor is how long the refresh spinner shows at least, so a refresh
+	// that ends at once is still seen.
+	SpinFor time.Duration
 	// EnterPause is how long after the dialog's confirmation appears an
 	// enter is ignored, so a quick second enter cannot write unseen.
 	EnterPause time.Duration
@@ -89,6 +96,7 @@ type Model struct {
 	height   int
 	notice   string       // shown at the top right for a moment, or until the next key press
 	notices  int          // how many notices have shown, so the end of an earlier one's moment leaves a later one
+	next     string       // a notice that shows once the moment of the one showing ends, or ""
 	menu     bool         // the target menu is open
 	choice   int          // the target highlighted in the menu
 	menuTop  int          // the first target shown, so the highlighted one stays in view
@@ -108,7 +116,12 @@ type Model struct {
 	// and again while a refresh started with r runs. Only one refresh runs at
 	// a time, as each one rewrites the cache file.
 	refreshing bool
-	loaded     bool // the cache has been read
+	// holding is true while the spinner of the latest refresh has not yet
+	// shown for SpinFor, and holds counts the refreshes, so the end of an
+	// earlier one's hold leaves a later one.
+	holding bool
+	holds   int
+	loaded  bool // the cache has been read
 	// follow is set by the first key pressed with a list on screen. From then
 	// on a change to the list keeps the selection on the selected repo;
 	// before it the top row stays selected, so the list opens on the repo
@@ -160,11 +173,14 @@ type tickMsg struct{}
 // noticeEndMsg ends the moment of the notice it counts.
 type noticeEndMsg int
 
+// holdEndMsg ends the hold of the spinner of the refresh it counts.
+type holdEndMsg int
+
 // spinner is the frames of the refresh spinner.
 var spinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 func New(deps Deps) Model {
-	m := Model{deps: deps, order: byRecent, refreshing: true, ticking: true}
+	m := Model{deps: deps, order: byRecent, refreshing: true, ticking: true, holding: true, holds: 1}
 	if deps.SortByName {
 		m.order = byName
 	}
@@ -174,8 +190,12 @@ func New(deps Deps) Model {
 		}
 	}
 	m.helpLines, m.helpWidth = m.helpContent()
-	if deps.Notice != "" {
-		m.notice, m.notices = deps.Notice, 1
+	notice := deps.Notice
+	if deps.Created {
+		notice = "Created " + safe(m.shorten(deps.ConfigFile)) + " with a cd target on o"
+	}
+	if notice != "" {
+		m.notice, m.notices = notice, 1
 	}
 	return m
 }
@@ -190,12 +210,37 @@ func (m Model) Init() tea.Cmd {
 			c.repos = append(c.repos, repo{path: r.Path, root: r.Root, branch: r.Branch})
 		}
 		return c
-	}, func() tea.Msg { return historyMsg(m.deps.History.Load()) }, m.tick(), m.endNotice())
+	}, func() tea.Msg { return historyMsg(m.deps.History.Load()) }, m.tick(), m.endHold(), m.endNotice())
 }
 
 // tick moves the spinner on after a while.
 func (m Model) tick() tea.Cmd {
 	return m.deps.Tick(80*time.Millisecond, func(time.Time) tea.Msg { return tickMsg{} })
+}
+
+// endHold ends the hold of the latest refresh's spinner.
+func (m Model) endHold() tea.Cmd {
+	n := holdEndMsg(m.holds)
+	return m.deps.Tick(m.deps.SpinFor, func(time.Time) tea.Msg { return n })
+}
+
+// refreshed says how many repos the refresh loaded, once its scan is done
+// and its spinner has shown long enough, unless it found a problem, which
+// then shows as it is, or no repos, which the list then says. A notice
+// showing at that moment keeps it, and this one follows.
+func (m Model) refreshed() (Model, tea.Cmd) {
+	if m.refreshing || m.holding || len(m.missing) > 0 || len(m.all) == 0 {
+		return m, nil
+	}
+	text := fmt.Sprintf("%d repos loaded", len(m.all))
+	if len(m.all) == 1 {
+		text = "1 repo loaded"
+	}
+	if m.notice != "" {
+		m.next = text
+		return m, nil
+	}
+	return m.showNotice(text)
 }
 
 // quit ends the program, or while an open is running waits for it, so its
@@ -239,6 +284,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.refreshing = false
 		m.missing = msg.missing
 		m = m.relist(msg.repos)
+		m, cmd = m.refreshed()
+	case holdEndMsg:
+		if int(msg) == m.holds {
+			m.holding = false
+			m, cmd = m.refreshed()
+		}
 	case historyMsg:
 		// An open recorded before the history arrived is newer than the file
 		// that was read, so it stays.
@@ -326,10 +377,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case noticeEndMsg:
 		if int(msg) == m.notices {
 			m.notice = ""
+			if m.next != "" {
+				m, cmd = m.showNotice(m.next)
+				m.next = ""
+			}
 		}
 	case tickMsg:
-		m.ticking = m.refreshing // the spinner stops with the refresh
-		if m.refreshing {
+		m.ticking = m.refreshing || m.holding // the spinner stops with the refresh and its hold
+		if m.ticking {
 			m.frame = (m.frame + 1) % len(spinner)
 			cmd = m.tick()
 		}
@@ -354,7 +409,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.help = m.help && m.helpRows() > 0
 		m.helpTop = min(m.helpTop, len(m.helpLines)-m.helpRows())
 	case tea.KeyPressMsg:
-		m.notice = ""
+		m.notice, m.next = "", ""
 		m.follow = m.follow || len(m.repos) > 0
 		if msg.String() == "ctrl+c" {
 			return m, tea.Quit
@@ -411,13 +466,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.help, m.helpTop = m.helpRows() > 0, 0
 		case "a":
 			m.add, cmd = addDialog{open: true}, m.checkFile()
+		case "e":
+			m, cmd = m.showNotice("e edits a target from the target menu: press enter first")
+		case "d":
+			m, cmd = m.showNotice("d removes a target from the target menu: press enter first")
 		case "s":
 			m.order = (m.order + 1) % len(sorts)
 			m = m.relist(m.all)
 		case "r":
 			if !m.refreshing {
-				m.refreshing = true
-				cmd = m.refresh()
+				m.refreshing, m.holding = true, true
+				m.holds++
+				cmd = tea.Batch(m.refresh(), m.endHold())
 				if !m.ticking {
 					m.ticking = true
 					cmd = tea.Batch(cmd, m.tick())

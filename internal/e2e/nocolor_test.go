@@ -3,6 +3,7 @@ package e2e
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/vt"
 	"github.com/creack/pty"
 )
 
@@ -29,6 +31,18 @@ func colours(out []byte) []string {
 	return found
 }
 
+// emulate returns what a terminal of width by height shows after out, up to
+// the end of the alternate screen if out has it.
+func emulate(out []byte, width, height int) *vt.Emulator {
+	if i := bytes.Index(out, []byte("\x1b[?1049l")); i >= 0 {
+		out = out[:i]
+	}
+	em := vt.NewEmulator(width, height)
+	go io.Copy(io.Discard, em) // the replies to the program's queries
+	em.Write(out)
+	return em
+}
+
 var (
 	// erase is how the renderer starts drawing the whole screen.
 	erase = regexp.MustCompile(`\x1b\[2J`)
@@ -43,8 +57,11 @@ func TestTheBuiltBinaryWithNoColorSetDrawsTheStylesWithoutColour(t *testing.T) {
 	}
 	// run runs loper with NO_COLOR set to value, searches for "a", widens
 	// the terminal so the screen is drawn again in full, and returns all the
-	// terminal showed and that last full screen.
-	run := func(value string) (out, screen []byte) {
+	// terminal showed, what it showed from that last full drawing on, and
+	// the screen it then held, with its styles. After the erase the renderer
+	// may first draw the view it had before the resize and then change it,
+	// so only the screen held is the same from run to run.
+	run := func(value string) (out, screen []byte, held string) {
 		home := tempHome(t)
 		t.Setenv("TERM", "xterm-256color")
 		t.Setenv("NO_COLOR", value)
@@ -61,6 +78,8 @@ func TestTheBuiltBinaryWithNoColorSetDrawsTheStylesWithoutColour(t *testing.T) {
 
 		s := start(t, "alps", loper, "--config", config)
 		s.within("the list to be drawn", s.shown)
+		// The spinner shows for its least time; the problem follows it.
+		s.eventually("the problem to show", func() bool { return s.shows("! ~/missing not found") })
 		// count returns how often the terminal has shown what pattern matches.
 		count := func(pattern *regexp.Regexp) int {
 			s.mu.Lock()
@@ -74,14 +93,24 @@ func TestTheBuiltBinaryWithNoColorSetDrawsTheStylesWithoutColour(t *testing.T) {
 			t.Fatal(err)
 		}
 		s.eventually("the screen to be drawn again in full", func() bool { return count(erase) > erased })
+		// The last line drawn at the new width is the rule above the footer.
+		s.eventually("the screen to be drawn at the new width", func() bool {
+			s.mu.Lock()
+			all := erase.FindAllIndex(s.out, -1)
+			since := bytes.Clone(s.out[all[len(all)-1][0]:])
+			s.mu.Unlock()
+			lines := strings.Split(emulate(since, 100, 24).String(), "\n")
+			return len(lines) > 22 && strings.Contains(lines[22], strings.Repeat("─", 98))
+		})
 		s.press("\x03")
 		s.within("loper to quit", s.exited)
 		s.within("the terminal to close", s.drained)
 		all := erase.FindAllIndex(s.out, -1)
-		return s.out, s.out[all[len(all)-1][0]:]
+		screen = s.out[all[len(all)-1][0]:]
+		return s.out, screen, emulate(screen, 100, 24).Render()
 	}
 
-	out, screen := run("1")
+	out, screen, held := run("1")
 	if got := colours(out); len(got) > 0 {
 		t.Errorf("with NO_COLOR=1 the terminal got the colours %q", got)
 	}
@@ -99,15 +128,15 @@ func TestTheBuiltBinaryWithNoColorSetDrawsTheStylesWithoutColour(t *testing.T) {
 		}
 	}
 	for _, value := range []string{"yes", "false"} {
-		got, gotScreen := run(value)
+		got, _, gotHeld := run(value)
 		if colours := colours(got); len(colours) > 0 {
 			t.Errorf("with NO_COLOR=%s the terminal got the colours %q", value, colours)
 		}
-		if !bytes.Equal(gotScreen, screen) {
-			t.Errorf("with NO_COLOR=%s the screen is\n%q\nwant the one of NO_COLOR=1\n%q", value, gotScreen, screen)
+		if gotHeld != held {
+			t.Errorf("with NO_COLOR=%s the screen is\n%q\nwant the one of NO_COLOR=1\n%q", value, gotHeld, held)
 		}
 	}
-	out, screen = run("")
+	out, screen, _ = run("")
 	if len(colours(screen)) == 0 {
 		t.Errorf("with NO_COLOR empty the screen has no colour:\n%q", screen)
 	}

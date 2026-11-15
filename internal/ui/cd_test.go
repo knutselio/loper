@@ -208,8 +208,7 @@ func TestAConfigFileThatCannotBeCreatedShowsWhyAndTheCdTarget(t *testing.T) {
 	if got, want := topRight(d), "The config file could not be written: permission denied"; got != want {
 		t.Errorf("top right reads %q, want %q", got, want)
 	}
-	for d.tick() {
-	}
+	d.quiet()
 	if got, want := topRight(d), "1 repo"; got != want {
 		t.Errorf("once the notice has gone the top right reads %q, want %q", got, want)
 	}

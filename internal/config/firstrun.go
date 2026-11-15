@@ -14,17 +14,22 @@ const firstRun = "[[targets]]\nname = \"cd\"\nkey = \"o\"\ncommand = \"cd {path}
 
 // Open is Load for the picker. When path is "" and the standard location
 // has no file, it first creates one holding firstRun, its folder included,
-// private to the user. When that fails, the settings are firstRun's for this
-// run and Notice says why. An existing file is never written.
+// private to the user, and Created says so. When that fails, the settings
+// are firstRun's for this run and Notice says why. An existing file is never
+// written.
 func Open(path, home string) (Settings, error) {
+	var created bool
 	if path == "" {
-		if err := create(Path("", home)); err != nil {
+		var err error
+		if created, err = create(Path("", home)); err != nil {
 			s := FirstRun(home)
 			s.Notice = "The config file could not be written: " + err.Error()
 			return s, nil
 		}
 	}
-	return Load(path, home)
+	s, err := Load(path, home)
+	s.Created = created
+	return s, err
 }
 
 // FirstRun returns the settings of the config file Open creates.
@@ -42,30 +47,30 @@ var step = func(string) error { return nil }
 // goes to a temporary file in the same folder, which is then linked to path.
 // A link fails when anything is at path, so the file appears whole or not at
 // all, and whatever appeared there meanwhile is neither replaced nor written
-// through. A link to nothing at path counts as a failure. The error is the
-// reason only, without the path.
-func create(path string) error {
+// through. A link to nothing at path counts as a failure. It reports whether
+// it made the file; the error is the reason only, without the path.
+func create(path string) (bool, error) {
 	dir, temp := filepath.Dir(path), filepath.Base(path)+".first-run."
 	err := step("make the folder")
 	if err == nil {
 		err = os.MkdirAll(dir, 0o700)
 	}
 	if err != nil {
-		return reason(err)
+		return false, reason(err)
 	}
 	removeTemps(dir, temp)
 	if err := step("look"); err != nil {
-		return err
+		return false, err
 	}
 	if _, err := os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {
-		return there(path, err)
+		return false, there(path, err)
 	}
 	var f *os.File
 	if err = step("create the temporary file"); err == nil {
 		f, err = os.CreateTemp(dir, temp+"*") // private to the user
 	}
 	if err != nil {
-		return reason(err)
+		return false, reason(err)
 	}
 	if err = step("write"); err == nil {
 		_, err = f.WriteString(firstRun)
@@ -83,9 +88,9 @@ func create(path string) error {
 		os.Remove(f.Name()) // one left behind goes on the next start
 	}
 	if errors.Is(err, fs.ErrExist) {
-		return there(path, nil)
+		return false, there(path, nil)
 	}
-	return reason(err)
+	return err == nil, reason(err)
 }
 
 // there is create's result when something is at path, or err when looking

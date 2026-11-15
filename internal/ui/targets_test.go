@@ -46,7 +46,7 @@ func TestEnterWithNoTargetsShowsAMessageInsteadOfTheMenu(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.repo("code/beta")
-	d := e.start()
+	d := startQuiet(e)
 
 	d.press("enter")
 	if got, want := boxRows(d), []string{noTargets}; !slices.Equal(got, want) {
@@ -295,7 +295,7 @@ func TestASuccessfulOpenIsConfirmedTopRightAndTheNextKeyClearsItAtOnce(t *testin
 	e.repo("code/alpha")
 	e.repo("code/aycapi")
 	e.config(zedTarget)
-	d := e.start()
+	d := startQuiet(e)
 
 	d.press("j", "z")
 	if got, want := topRight(d), "Opened aycapi in Zed"; got != want {
@@ -320,7 +320,7 @@ name = "Broken"
 key = "b"
 command = "false {path}"
 `)
-	d := e.start()
+	d := startQuiet(e)
 
 	d.press("b")
 

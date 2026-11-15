@@ -760,6 +760,9 @@ func TestAFirstRunCreatesTheConfigFileWithTheCdTarget(t *testing.T) {
 	if len(s.Targets) != 1 || s.Targets[0].Name != "cd" || s.Targets[0].Key != "o" || !s.Targets[0].InPlace || s.Notice != "" {
 		t.Errorf("UI started with targets %+v and notice %q, want the cd target and none", s.Targets, s.Notice)
 	}
+	if !s.Created {
+		t.Error("UI started without being told the config file was created")
+	}
 }
 
 func TestAnExistingConfigFileIsNeverChangedAtStartup(t *testing.T) {
@@ -789,8 +792,11 @@ func TestASecondRunLeavesTheCreatedFileAsItIs(t *testing.T) {
 		t.Fatalf("the first run created no config file: %v", err)
 	}
 
-	picker(t)
+	_, _, s := picker(t)
 
+	if s.Created {
+		t.Error("the second run told the UI the config file was created")
+	}
 	after, _ := os.Stat(file)
 	if b, _ := os.ReadFile(file); string(b) != firstRun || !after.ModTime().Equal(before.ModTime()) {
 		t.Errorf("config file is %q, modified %v then %v; want it untouched", b, before.ModTime(), after.ModTime())

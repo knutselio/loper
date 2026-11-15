@@ -16,13 +16,20 @@ const keysFooter = "enter open • z Zed • ? help • q quit"
 func startQuiet(e *env) *driver {
 	e.t.Helper()
 	d := e.start()
+	d.quiet()
+	return d
+}
+
+// quiet delivers the pending ticks, and those they set off, until none is
+// left: the spinner stops and every notice ends.
+func (d *driver) quiet() {
+	d.t.Helper()
 	for range 100 {
 		if !d.tick() {
-			return d
+			return
 		}
 	}
-	e.t.Fatal("the launch spinner still ticks after 100 ticks")
-	return nil
+	d.t.Fatal("the spinner still ticks after 100 ticks")
 }
 
 func TestTheConfirmationOfAnOpenClearsByItselfAfterAMoment(t *testing.T) {
@@ -159,12 +166,13 @@ func TestTheTopRowAndTheFooterLeaveTheLastCellBlankAtEveryWidth(t *testing.T) {
 		keys []string
 	}{
 		{"a problem", nil},
+		{"the spinner", []string{"r"}},
 		{"a notice", []string{"z"}},
 		{"a long query", []string{"/", "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n"}},
 	} {
 		e := newEnv(t)
 		sweepTree(e, "")
-		d := e.start()
+		d := startQuiet(e)
 		d.press(s.keys...)
 		for w := 0; w <= 120; w++ {
 			d.send(tea.WindowSizeMsg{Width: w, Height: 24})

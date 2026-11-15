@@ -67,9 +67,10 @@ type env struct {
 	// it, but records it with the notice's tick.
 	notice time.Duration
 	// pause is how long after the add dialog's confirmation appears an enter
-	// is ignored; the driver never waits for it either.
-	pause time.Duration
-	now   time.Time // the time on the program's clock
+	// is ignored, and spin how long the refresh spinner shows at least; the
+	// driver never waits for either.
+	pause, spin time.Duration
+	now         time.Time // the time on the program's clock
 	// color turns the styles and colour on, as an unset NO_COLOR does, and
 	// noColor the styles without colour, as a set one does; tests leave both
 	// off unless they are about styles.
@@ -89,7 +90,7 @@ func newEnv(t *testing.T) *env {
 	// start never turns a failure into a success; tests of targets that keep
 	// running shorten it.
 	e := &env{t: t, root: root, home: filepath.Join(root, "home"), wait: 10 * time.Second, notice: 3 * time.Second,
-		pause: 300 * time.Millisecond, now: time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)}
+		pause: 300 * time.Millisecond, spin: 400 * time.Millisecond, now: time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)}
 	t.Setenv("PATH", filepath.Join(root, "bin")+string(filepath.ListSeparator)+os.Getenv("PATH"))
 	t.Setenv("LOPER_TEST_RECORDS", root) // where fake targets write their records
 	t.Setenv("HOME", e.home)
@@ -313,7 +314,9 @@ func (e *env) launch() *driver {
 			}
 		},
 		Notice:      settings.Notice,
+		Created:     settings.Created,
 		NoticeFor:   e.notice,
+		SpinFor:     e.spin,
 		EnterPause:  e.pause,
 		CloseOnOpen: settings.CloseOnOpen,
 		SortByName:  settings.SortByName,
@@ -397,6 +400,19 @@ func (d *driver) tick() bool {
 	d.ticks = d.ticks[1:]
 	d.send(next.fn(d.now))
 	return true
+}
+
+// after delivers the oldest pending tick asked for after wait, as if that
+// time had passed.
+func (d *driver) after(wait time.Duration) {
+	d.t.Helper()
+	i := slices.IndexFunc(d.ticks, func(p pendingTick) bool { return p.after == wait })
+	if i < 0 {
+		d.t.Fatalf("no tick of %v is pending", wait)
+	}
+	next := d.ticks[i]
+	d.ticks = slices.Delete(d.ticks, i, i+1)
+	d.send(next.fn(d.now))
 }
 
 // pass delivers the oldest pending tick that ends the moment in which the

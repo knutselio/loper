@@ -43,7 +43,7 @@ func (m Model) View() tea.View {
 	case len(m.repos) > 0:
 	case m.searching && len(m.all) > 0:
 		empty = []string{`No matches for "` + message(m.query) + `"`}
-	case !m.refreshing:
+	case !m.refreshing && !m.holding: // with no repos, scanning… stays while the spinner is held
 		paths := make([]string, len(m.deps.Paths))
 		for i, p := range m.deps.Paths {
 			paths[i] = safe(m.shorten(p))
@@ -146,7 +146,7 @@ func (m Model) top() string {
 		right = "Quitting when the open is done"
 	case m.notice != "":
 		right = message(m.notice)
-	case m.refreshing && len(m.all) > 0: // with no list yet, the spinner is in the list
+	case (m.refreshing || m.holding) && len(m.all) > 0: // with no list yet, the spinner is in the list
 		right = m.dim(spinner[m.frame] + " refreshing")
 	case m.failure == nil && m.add.open && !m.addFits(): // the error dialog is drawn over the add dialog
 		right = m.problem("Window too small for the dialog")
