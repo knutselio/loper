@@ -26,6 +26,9 @@ func (m Model) View() tea.View {
 	full := make([]int, len(m.columns))
 	for i, c := range m.columns {
 		full[i] = ansi.StringWidth(headings[c])
+		if c == "name" || c == "last_opened" { // room for the arrow of a sort on it
+			full[i] += 2
+		}
 	}
 	for _, r := range m.all {
 		for i, c := range m.columns {
@@ -34,44 +37,7 @@ func (m Model) View() tea.View {
 	}
 	shown, widths := m.fit(full)
 	rule := ansi.Truncate(" "+m.dim(strings.Repeat("─", max(m.width-2, 0)))+" ", m.width, "")
-	noun := "repos"
-	if len(m.repos) == 1 {
-		noun = "repo"
-	}
-	count, warnings := fmt.Sprintf(" %s · %d %s", m.bold("loper"), len(m.repos), noun), ""
-	for _, path := range m.missing {
-		warnings += "  " + safe(m.shorten(path)) + " not found"
-	}
-	sort := "  sort: last opened "
-	if m.byName {
-		sort = "  sort: name "
-	}
-	if m.searching { // the search line replaces the count, the warnings and the sort
-		count, warnings, sort = " /"+m.query, "", ""
-	}
-	spin := ""
-	if m.refreshing && len(m.all) > 0 { // with no list yet, the spinner is in the list
-		spin = "  " + spinner[m.frame] + " refreshing "
-	}
-	// The sort and the spinner keep their place on the right. What does not
-	// fit gives way: the warnings first, then the sort, then the spinner; the
-	// count, or the search line, is cut last.
-	right := sort + spin
-	if ansi.StringWidth(count+right) > m.width {
-		warnings, right = "", spin
-	}
-	if ansi.StringWidth(count+right) > m.width {
-		right = ""
-	}
-	room := m.width - ansi.StringWidth(right)
-	if over := ansi.StringWidth(count) - room; m.searching && over > 0 && room >= ansi.StringWidth(" /…") {
-		count = " /…" + cutStart(m.query, over+1) // the end of the query, where the typing is
-	}
-	left := ansi.Truncate(count, room, "…")
-	if rest := room - ansi.StringWidth(left); rest >= ansi.StringWidth("  …") { // less would not read as a cut warning
-		left += ansi.Truncate(warnings, rest, "…")
-	}
-	lines := []string{pad(left, room) + right, rule}
+	lines := []string{m.top(), rule}
 	var empty []string // what an empty list says instead
 	switch {
 	case len(m.repos) > 0:
@@ -106,8 +72,13 @@ func (m Model) View() tea.View {
 		return strings.Join(cells, "  ")
 	}
 	if m.pageHeight() < m.listHeight() {
-		line := join(func(c string, room int) string { return headings[c] })
-		lines = append(lines, ansi.Truncate("   "+m.dim(line), max(m.width-1, 0), "…"))
+		line := join(func(c string, room int) string {
+			if sorts[m.order].column == c { // the sorted column's heading, at full strength
+				return headings[c] + " " + sorts[m.order].arrow
+			}
+			return m.dim(headings[c])
+		})
+		lines = append(lines, ansi.Truncate("   "+line, max(m.width-1, 0), "…"))
 	}
 	for i := m.offset; i < m.offset+m.pageHeight(); i++ {
 		if i >= len(m.repos) {
@@ -134,13 +105,6 @@ func (m Model) View() tea.View {
 		}
 		lines = append(lines, line)
 	}
-	keys := m.footer()
-	if m.notice != "" {
-		keys = ansi.Truncate(" "+message(m.notice), m.width, "…")
-	}
-	if m.quitting {
-		keys = ansi.Truncate(" Quitting when the open is done", m.width, "…")
-	}
 	switch {
 	case m.failure != nil:
 		lines = m.overlayFailure(lines)
@@ -151,18 +115,71 @@ func (m Model) View() tea.View {
 	case m.help:
 		lines = m.overlay(lines, m.box(" Help ", m.helpLines[m.helpTop:m.helpTop+m.helpRows()], m.helpWidth))
 	}
-	lines = append(lines, rule, keys)
+	lines = append(lines, rule, m.footer())
 	lines = lines[:min(len(lines), m.height)] // never taller than the terminal
 	v := tea.NewView(strings.Join(lines, "\n"))
 	v.AltScreen = true
 	return v
 }
 
-// footer is the footer's line of keys: the tool's own keys, then the keyed
-// targets, then the keys that come last, separated by " | ". What does not fit gives way whole items at a
-// time from the end, and a … then ends the line.
+// top is the top row: on the left the search hint, or while searching the
+// query; on the right one message, the first there is of the line q shows
+// while an open is in its wait, a notice, the refresh spinner, the count of
+// matches while searching, the paths that do not exist, as a problem, and
+// the count. When the two do not fit, the right side is cut and the left
+// stays whole, unless it alone does not fit: then the query is cut from its
+// start, so its end, where the typing is, shows, keeping at least 10 cells.
+// The last cell stays blank.
+func (m Model) top() string {
+	noun := "repos"
+	if len(m.repos) == 1 {
+		noun = "repo"
+	}
+	var missing []string
+	for _, path := range m.missing {
+		missing = append(missing, safe(m.shorten(path))+" not found")
+	}
+	var right string
+	switch {
+	case m.quitting:
+		right = "Quitting when the open is done"
+	case m.notice != "":
+		right = message(m.notice)
+	case m.refreshing && len(m.all) > 0: // with no list yet, the spinner is in the list
+		right = m.dim(spinner[m.frame] + " refreshing")
+	case m.searching:
+		right = m.dim(fmt.Sprintf("%d of %d", len(m.repos), len(m.all)))
+	case len(missing) > 0:
+		right = m.problem(strings.Join(missing, ", "))
+	default:
+		right = m.dim(fmt.Sprintf("%d %s", len(m.repos), noun))
+	}
+	left := m.key("/") + " " + m.dim("search")
+	if m.searching {
+		query := message(m.query)
+		// The query has the row but its margins, the / and the cursor.
+		if over := ansi.StringWidth(query) - max(m.width-4, 10); over > 0 {
+			query = "…" + cutStart(query, over+1)
+		}
+		cursor := "█"
+		if m.failure != nil || m.add.open || m.menu || m.help { // the keys go to what is open
+			cursor = ""
+		}
+		left = m.key("/") + query + cursor
+	}
+	// The right side has what is left after the margins and a gap of two.
+	right = ansi.Truncate(right, max(m.width-ansi.StringWidth(left)-4, 0), "…")
+	gap := max(m.width-2-ansi.StringWidth(left)-ansi.StringWidth(right), 0)
+	return pad(ansi.Truncate(" "+left+strings.Repeat(" ", gap)+right, max(m.width-1, 0), ""), m.width)
+}
+
+// footer is the footer's line of keys: the tool's own keys, with the
+// keyed targets before the keys that come last, separated by " • ". When it
+// does not fit, targets give way from the last one, and a … takes their
+// place while there is room for it; when it does not fit without them, it
+// is cut. The last cell stays blank.
 func (m Model) footer() string {
-	var items, last []string
+	var items, last, targets []string
 	for _, s := range KeyList() {
 		for _, b := range s.Bindings {
 			switch {
@@ -176,20 +193,19 @@ func (m Model) footer() string {
 	}
 	for _, t := range m.deps.Targets {
 		if t.Key != "" {
-			items = append(items, m.key(t.Key)+" "+t.Name)
+			targets = append(targets, m.key(t.Key)+" "+t.Name)
 		}
 	}
-	items = append(items, last...)
-	for n := len(items); n >= 0; n-- {
-		shown := items[:n]
-		if n < len(items) {
-			shown = append(slices.Clone(shown), "…")
+	for n := len(targets); n >= 0; n-- {
+		shown := slices.Concat(items, targets[:n])
+		if n < len(targets) {
+			shown = append(shown, "…")
 		}
-		if line := " " + strings.Join(shown, m.dim(" | ")); ansi.StringWidth(line) <= m.width {
+		if line := " " + strings.Join(append(shown, last...), m.dim(" • ")); ansi.StringWidth(line) < m.width {
 			return line
 		}
 	}
-	return ansi.Truncate(" …", m.width, "")
+	return ansi.Truncate(" "+strings.Join(append(items, last...), m.dim(" • ")), max(m.width-1, 0), "…")
 }
 
 // fit returns the indexes of the columns shown and the width of each column,
@@ -218,7 +234,7 @@ func (m Model) fit(full []int) (shown, widths []int) {
 			}
 			if width <= m.width-1 { // the last cell stays blank
 				// A last_opened column shown last takes the room left, so it
-				// ends one cell before the edge, as the header line and the
+				// ends one cell before the edge, as the top row and the
 				// footer do.
 				if last := shown[len(shown)-1]; m.columns[last] == "last_opened" {
 					widths[last] += m.width - 1 - width
@@ -290,7 +306,7 @@ func (m Model) name(r repo) string {
 }
 
 // listHeight is the number of screen lines left for the list between the
-// header, the footer and their rules.
+// top row, the footer and their rules.
 func (m Model) listHeight() int {
 	return max(m.height-4, 0)
 }

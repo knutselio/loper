@@ -190,13 +190,34 @@ func nearest(old []repo, at int, repos []repo) int {
 	return -1
 }
 
+// The sorts, in the order s goes through them.
+const (
+	byRecent       = iota // most recently opened first
+	byName                // by name, A to Z
+	byNameReversed        // by name, Z to A
+	byOldest              // least recently opened first
+)
+
+// sorts are the column each sort is on and the arrow its heading shows, by
+// sort.
+var sorts = []struct{ column, arrow string }{
+	byRecent:       {"last_opened", "↓"},
+	byName:         {"name", "↑"},
+	byNameReversed: {"name", "↓"},
+	byOldest:       {"last_opened", "↑"},
+}
+
 // sorted returns repos in a new slice, as an older model may still hold
-// the old one, in the current sort: by name, or most recently opened first
-// and then the repos never opened by name.
+// the old one, in the current sort: by name either way, or by when they
+// were last opened either way, with the repos never opened last by name.
 func (m Model) sorted(repos []repo) []repo {
 	repos = slices.Clone(repos)
-	if m.byName {
+	switch m.order {
+	case byName:
 		slices.SortFunc(repos, m.compareNames)
+		return repos
+	case byNameReversed:
+		slices.SortFunc(repos, func(a, b repo) int { return m.compareNames(b, a) })
 		return repos
 	}
 	slices.SortFunc(repos, func(a, b repo) int {
@@ -204,7 +225,11 @@ func (m Model) sorted(repos []repo) []repo {
 		bt, bOpened := m.history[b.path]
 		switch {
 		case aOpened && bOpened:
-			if c := bt.Compare(at); c != 0 {
+			c := bt.Compare(at)
+			if m.order == byOldest {
+				c = -c
+			}
+			if c != 0 {
 				return c
 			}
 		case aOpened:

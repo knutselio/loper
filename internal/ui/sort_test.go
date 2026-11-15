@@ -7,6 +7,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // openedBefore writes the history file with each repo opened that long
@@ -95,8 +98,14 @@ func header(d *driver) string {
 	return strings.Join(strings.Fields(strings.SplitN(d.screen(), "\n", 2)[0]), " ")
 }
 
+// headings returns the headings line, the third of the screen, with its
+// spacing collapsed.
+func headings(d *driver) string {
+	return strings.Join(strings.Fields(strings.Split(d.screen(), "\n")[2]), " ")
+}
+
 // recentAndAlphabetical makes three repos whose order by last opened is
-// gamma, alpha, beta and by name alpha, beta, gamma.
+// gamma, alpha, beta and by name alpha, beta, gamma; beta was never opened.
 func recentAndAlphabetical(e *env) {
 	alpha := e.repo("code/alpha")
 	e.repo("code/beta")
@@ -109,27 +118,87 @@ var (
 	byName       = []string{"alpha ~/code", "beta ~/code", "gamma ~/code"}
 )
 
-func TestSSwitchesToAlphabeticalOrderAndBackAndTheHeaderShowsTheSort(t *testing.T) {
+func TestSCyclesThroughTheFourSortsAndTheArrowIsOnTheSortedHeading(t *testing.T) {
 	e := newEnv(t)
 	recentAndAlphabetical(e)
 	d := e.start()
 
 	steps := []struct {
-		keys   []string
-		order  []string
-		header string
+		order    []string
+		headings string
 	}{
-		{nil, byLastOpened, "loper · 3 repos sort: last opened"},
-		{[]string{"s"}, byName, "loper · 3 repos sort: name"},
-		{[]string{"s"}, byLastOpened, "loper · 3 repos sort: last opened"},
+		{byLastOpened, "NAME FOLDER BRANCH OPENED ↓"},
+		{byName, "NAME ↑ FOLDER BRANCH OPENED"},
+		{[]string{"gamma ~/code", "beta ~/code", "alpha ~/code"}, "NAME ↓ FOLDER BRANCH OPENED"},
+		{[]string{"alpha ~/code", "gamma ~/code", "beta ~/code"}, "NAME FOLDER BRANCH OPENED ↑"}, // beta, never opened, stays last
+		{byLastOpened, "NAME FOLDER BRANCH OPENED ↓"},
 	}
-	for _, s := range steps {
-		d.press(s.keys...)
-		if got := order(d); !slices.Equal(got, s.order) {
-			t.Errorf("after %v: rows %q, want %q", s.keys, got, s.order)
+	for i, s := range steps {
+		if i > 0 {
+			d.press("s")
 		}
-		if got := header(d); got != s.header {
-			t.Errorf("after %v: header reads %q, want %q", s.keys, got, s.header)
+		if got := order(d); !slices.Equal(got, s.order) {
+			t.Errorf("after %d presses of s: rows %q, want %q", i, got, s.order)
+		}
+		if got := headings(d); got != s.headings {
+			t.Errorf("after %d presses of s: headings read %q, want %q", i, got, s.headings)
+		}
+	}
+}
+
+func TestWithColourTheSortedHeadingIsAtFullStrengthAndTheOthersDimmed(t *testing.T) {
+	e := newEnv(t)
+	e.color = true
+	recentAndAlphabetical(e)
+	d := e.start()
+
+	got := strings.Join(strings.Fields(styled(strings.Split(d.screen(), "\n")[2])), " ")
+	if want := "{NAME} {FOLDER} {BRANCH} OPENED ↓"; got != want {
+		t.Errorf("headings read %q, want %q", got, want)
+	}
+}
+
+func TestNoArrowShowsWhenTheSortedColumnIsNotShown(t *testing.T) {
+	e := newEnv(t)
+	recentAndAlphabetical(e)
+	e.config(`columns = ["name", "branch"]`)
+	d := e.start()
+
+	if got, want := headings(d), "NAME BRANCH"; got != want {
+		t.Errorf("columns setting, sorted by last opened: headings read %q, want %q", got, want)
+	}
+	d.press("s")
+	if got, want := headings(d), "NAME ↑ BRANCH"; got != want {
+		t.Errorf("columns setting, sorted by name: headings read %q, want %q", got, want)
+	}
+
+	e = newEnv(t)
+	recentAndAlphabetical(e)
+	d = e.start()
+	d.send(tea.WindowSizeMsg{Width: 30, Height: 24}) // too narrow for the last_opened column
+	if got, want := headings(d), "NAME FOLDER BRANCH"; got != want {
+		t.Errorf("narrow, sorted by last opened: headings read %q, want %q", got, want)
+	}
+}
+
+func TestTheColumnsStayPutAsSGoesThroughTheSorts(t *testing.T) {
+	e := newEnv(t)
+	ab, cd := e.repo("code/ab"), e.repo("code/cd") // names shorter than NAME
+	e.openedBefore(map[string]time.Duration{ab: time.Hour, cd: 2 * time.Hour})
+	d := e.start()
+
+	// at returns the cell where each heading starts and where alpha's row has
+	// its folder and branch.
+	at := func() []int {
+		lines := strings.Split(d.screen(), "\n")
+		cell := func(line, s string) int { return ansi.StringWidth(line[:strings.Index(line, s)]) } // the arrow is one cell, three bytes
+		return []int{cell(lines[2], "FOLDER"), cell(lines[2], "BRANCH"), cell(lines[3], "~/code"), cell(lines[3], "main")}
+	}
+	want := at()
+	for i := 1; i <= 4; i++ {
+		d.press("s")
+		if got := at(); !slices.Equal(got, want) {
+			t.Errorf("after %d presses of s: FOLDER, BRANCH and the row's folder and branch are at %v, want %v:\n%s", i, got, want, d.screen())
 		}
 	}
 }
@@ -144,8 +213,8 @@ func TestSortNameInTheConfigStartsInAlphabeticalOrder(t *testing.T) {
 	if got := order(d); !slices.Equal(got, byName) {
 		t.Errorf("rows %q, want %q", got, byName)
 	}
-	if got, want := header(d), "loper · 3 repos sort: name"; got != want {
-		t.Errorf("header reads %q, want %q", got, want)
+	if got, want := headings(d), "NAME ↑ FOLDER BRANCH OPENED"; got != want {
+		t.Errorf("headings read %q, want %q", got, want)
 	}
 }
 
@@ -171,7 +240,7 @@ func TestSKeepsTheSelectedRepoSelected(t *testing.T) {
 	d := e.start()
 	d.press("j") // alpha, second by last opened and first by name
 
-	for _, key := range []string{"s", "s"} {
+	for _, key := range []string{"s", "s", "s", "s"} {
 		d.press(key)
 		if got := d.selected(); !startsWith(got, "alpha ~/code") {
 			t.Errorf("after %s: selected %q, want alpha", key, got)
@@ -229,7 +298,7 @@ func TestOpeningARepoUnderTheNameSortLeavesTheOrderAsItIs(t *testing.T) {
 	if got := d.selected(); !startsWith(got, "beta ~/code main just now") {
 		t.Errorf("selected %q, want beta, just opened", got)
 	}
-	d.press("s")
+	d.press("s", "s", "s")
 	if got, want := order(d), []string{"beta ~/code", "gamma ~/code", "alpha ~/code"}; !slices.Equal(got, want) {
 		t.Errorf("back under last opened: rows %q, want %q", got, want)
 	}

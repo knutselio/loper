@@ -10,16 +10,16 @@ It is a launcher and nothing more: it never runs a git operation and makes no ne
 ## A look at it
 
 ```text
- loper · 5 repos                                              sort: last opened
+ / search                                                               5 repos
  ──────────────────────────────────────────────────────────────────────────────
-   NAME        FOLDER       BRANCH                                       OPENED
+   NAME        FOLDER       BRANCH                                     OPENED ↓
  > billing     ~/code/work  fix/rounding-error                           2h ago
    tidy-yaml   ~/code/oss   feature/anchors                           yesterday
    dotfiles    ~            main                                         3d ago
    ray-tracer  ~/code/play  main                                              -
    storefront  ~/code/work  main                                              -
  ──────────────────────────────────────────────────────────────────────────────
- enter open | / search | s sort | r refresh | ? help | q quit | o cd | a add
+ enter open • o cd • ? help • q quit
 ```
 
 ## Installation
@@ -105,7 +105,7 @@ The `x` after the file's text, removed again, keeps line breaks at the end of a 
 ## Features
 
 - Fuzzy search over name and folder, with the matched letters highlighted.
-- Sort by last opened or by name.
+- Sort by last opened or by name, either way round, with `s`; an arrow in the heading shows which.
 - Open the selected repo in a target with one key, or choose it from a menu.
 - Targets that take over loper's own terminal window, such as lazygit or an editor, run in the repo's folder.
 - A `cd` target, written on the first run, that lands you in the repo's folder.
@@ -126,7 +126,7 @@ The `x` after the file's text, removed again, keeps line breaks at the end of a 
 | `enter`, `space`     | Open the target menu for the selected repo  |
 | a target's key       | Open the selected repo in that target       |
 | `/`                  | Start the search                            |
-| `s`                  | Switch the sort                             |
+| `s`                  | Cycle the sort by last opened and by name   |
 | `r`                  | Force a full refresh                        |
 | `a`                  | Add a target to the config file             |
 | `e` / `d`            | Edit / remove a target, in the target menu  |

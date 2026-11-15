@@ -26,7 +26,7 @@ func TestQuestionMarkShowsEveryKeyOfTheSpecWithItsAction(t *testing.T) {
 		"enter, space Open the target menu for the selected repo",
 		"a target's key Open the selected repo in that target",
 		"/ Start the search",
-		"s Switch the sort",
+		"s Cycle the sort by last opened and by name",
 		"r Force a full refresh",
 		"a Add a target to the config file",
 		"? Show the help overlay",
@@ -95,8 +95,11 @@ func TestWhileTheHelpIsOpenListKeysAndTargetKeysDoNothing(t *testing.T) {
 	if got := d.selected(); !startsWith(got, "alpha ~/code main") {
 		t.Errorf("selected %q, want alpha still selected", got)
 	}
-	if got, want := header(d), "loper · 2 repos sort: last opened"; got != want {
-		t.Errorf("header reads %q, want no search, no sort switch and no refresh: %q", got, want)
+	if got, want := header(d), "/ search 2 repos"; got != want {
+		t.Errorf("header reads %q, want no search and no refresh: %q", got, want)
+	}
+	if got, want := headings(d), "NAME FOLDER BRANCH OPENED ↓"; got != want {
+		t.Errorf("headings read %q, want no sort switch: %q", got, want)
 	}
 	if got := boxRows(d); got != nil {
 		t.Errorf("a box is open after closing the help: %q", got)
@@ -151,7 +154,7 @@ command = "false {path}"
 	if got := boxRows(d); got != nil {
 		t.Errorf("? while searching: a box is open: %q", got)
 	}
-	if got, want := header(d), "/?"; got != want {
+	if got, want := header(d), "/?█ 0 of 1"; got != want {
 		t.Errorf("? while searching: header reads %q, want %q", got, want)
 	}
 }

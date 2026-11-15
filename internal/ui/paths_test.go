@@ -71,7 +71,7 @@ func TestAPathsEntryThatIsARepoAppearsAsOneRow(t *testing.T) {
 
 	screen := e.start().screen()
 
-	for _, row := range []string{"alpha ~/code main", "dotfiles ~ main", "loper · 2 repos"} {
+	for _, row := range []string{"alpha ~/code main", "dotfiles ~ main", "/ search 2 repos"} {
 		if !hasRow(screen, row) {
 			t.Errorf("screen has no row %q:\n%s", row, screen)
 		}
@@ -106,7 +106,7 @@ func TestASymlinkListedDirectlyIsFollowedAndShowsThePathAsWritten(t *testing.T) 
 	d := e.start()
 	screen := d.screen()
 
-	for _, row := range []string{"dots ~ main", "backend ~/work main", "loper · 2 repos"} {
+	for _, row := range []string{"dots ~ main", "backend ~/work main", "/ search 2 repos"} {
 		if !hasRow(screen, row) {
 			t.Errorf("screen has no row %q:\n%s", row, screen)
 		}
@@ -117,19 +117,37 @@ func TestASymlinkListedDirectlyIsFollowedAndShowsThePathAsWritten(t *testing.T) 
 	}
 }
 
-func TestAListedPathThatDoesNotExistIsAWarningInTheHeaderAndTheRestStillLoads(t *testing.T) {
+func TestAListedPathThatDoesNotExistIsAProblemTopRightAndTheRestStillLoads(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
-	e.config(`paths = ["~/code", "~/typo"]`)
+	e.config(`paths = ["~/code", "~/typo", "~/nope"]`)
 
-	screen := e.start().screen()
+	d := e.start()
 
-	header := strings.SplitN(screen, "\n", 2)[0]
-	if !strings.Contains(header, "~/typo not found") {
-		t.Errorf("header %q does not warn about ~/typo", header)
+	if got, want := topRight(d), "! ~/typo not found, ~/nope not found"; got != want {
+		t.Errorf("top right reads %q, want %q", got, want)
 	}
-	if !hasRow(screen, "alpha ~/code main") {
-		t.Errorf("screen has no row for alpha:\n%s", screen)
+	if !hasRow(d.screen(), "alpha ~/code main") {
+		t.Errorf("screen has no row for alpha:\n%s", d.screen())
+	}
+}
+
+func TestAProblemIsRedWithColourAndKeepsItsMarkWithout(t *testing.T) {
+	for _, c := range []struct {
+		color bool
+		want  string
+	}{
+		{true, " \x1b[31m! ~/typo not found\x1b[39m "},
+		{false, " ! ~/typo not found "},
+	} {
+		e := newEnv(t)
+		e.color, e.noColor = c.color, !c.color
+		e.repo("code/alpha")
+		e.config(`paths = ["~/code", "~/typo"]`)
+
+		if top := strings.SplitN(e.start().screen(), "\n", 2)[0]; !strings.HasSuffix(top, c.want) {
+			t.Errorf("colour %v: top row is %q, want it to end with %q", c.color, top, c.want)
+		}
 	}
 }
 
@@ -153,7 +171,7 @@ func TestOverlappingPathsListARepoOnce(t *testing.T) {
 
 	d := e.start()
 
-	if !hasRow(d.screen(), "loper · 2 repos") {
+	if !hasRow(d.screen(), "/ search 2 repos") {
 		t.Errorf("header does not count 2 repos:\n%s", d.screen())
 	}
 	if got, want := order(d), []string{"alpha ~/code", "beta ~/code"}; !slices.Equal(got, want) {

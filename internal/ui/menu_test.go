@@ -115,8 +115,8 @@ func TestATargetsKeyInsideTheMenuRunsThatTarget(t *testing.T) {
 	if got := boxRows(d); got != nil {
 		t.Errorf("menu still shown after running a target: %q", got)
 	}
-	if got, want := footer(d), "Opened alpha in Terminal tab"; got != want {
-		t.Errorf("footer reads %q, want %q", got, want)
+	if got, want := topRight(d), "Opened alpha in Terminal tab"; got != want {
+		t.Errorf("top right reads %q, want %q", got, want)
 	}
 }
 
@@ -171,7 +171,7 @@ func TestListKeysDoNotMoveTheSelectionWhileTheMenuIsOpen(t *testing.T) {
 	}
 }
 
-func TestAfterRunningATargetTheMenuIsClosedAndTheFooterConfirmsIt(t *testing.T) {
+func TestAfterRunningATargetTheMenuIsClosedAndANoticeConfirmsIt(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	threeTargets(e)
@@ -182,8 +182,8 @@ func TestAfterRunningATargetTheMenuIsClosedAndTheFooterConfirmsIt(t *testing.T) 
 	if got := boxRows(d); got != nil {
 		t.Errorf("menu still shown after running a target: %q", got)
 	}
-	if got, want := footer(d), "Opened alpha in Menu only"; got != want {
-		t.Errorf("footer reads %q, want %q", got, want)
+	if got, want := topRight(d), "Opened alpha in Menu only"; got != want {
+		t.Errorf("top right reads %q, want %q", got, want)
 	}
 }
 
@@ -203,7 +203,7 @@ func TestTheMenuSitsOverTheListWhichStaysVisibleAroundIt(t *testing.T) {
 	if len(lines) != 24 {
 		t.Errorf("screen has %d lines with the menu open, want 24", len(lines))
 	}
-	for _, row := range []string{"loper · 21 repos", "enter open | / search | s sort | r refresh | ? help | q quit | z Zed | …"} {
+	for _, row := range []string{"/ search 21 repos", "enter open • z Zed • t Terminal tab • ? help • q quit"} {
 		if !hasRow(screen, row) {
 			t.Errorf("screen has no row %q with the menu open:\n%s", row, screen)
 		}

@@ -47,7 +47,7 @@ func TestWithColourTheSelectedRowIsABarAcrossTheScreenThatMovesWithTheSelection(
 		{"a dimmed folder", "", 80, nil, "2"},
 		{"a dimmed path", `row_style = "root-path"`, 80, nil, "2"},
 		{"underlined matches", "", 80, []string{"/", "a", "l"}, "4"},
-		{"a branch cut with …", "", 37, nil, "2"},
+		{"a branch cut with …", "", 38, nil, "2"},
 	} {
 		e := newEnv(t)
 		e.color = true

@@ -226,7 +226,7 @@ func (m Model) write() tea.Cmd {
 
 // overlayAdd draws the dialog centred over the list part of lines or,
 // when the screen is too small for it, a notice in its place: on the middle
-// line of the list, or on the header when there is no list.
+// line of the list, or on the top row when there is no list.
 func (m Model) overlayAdd(lines []string) []string {
 	if !m.addFits() {
 		row := 0
@@ -275,14 +275,14 @@ func (m Model) addRows() ([]string, int) {
 		rows = append(wrap(message(m.shorten(a.refusal))), "", " "+m.key("esc")+" close ") // a loader message starts with the file
 	case a.confirming && a.remove:
 		rows = slices.Concat(wrap("Remove these lines from "+file+":"), lines(short(a.before)),
-			[]string{"", " " + m.key("enter") + " remove  " + m.key("esc") + " keep "})
+			[]string{"", " " + m.key("enter") + " remove" + m.dim(" • ") + m.key("esc") + " keep "})
 	case a.confirming && a.old != nil:
 		rows = slices.Concat(wrap("Replace these lines in "+file+":"), lines(short(a.before)), []string{""},
 			wrap("with these (comments inside the block are not kept):"), lines(a.block),
-			[]string{"", " " + m.key("enter") + " write  " + m.key("esc") + " back "})
+			[]string{"", " " + m.key("enter") + " write" + m.dim(" • ") + m.key("esc") + " back "})
 	case a.confirming:
 		rows = slices.Concat(wrap("Append to "+file), []string{""}, lines(a.block),
-			[]string{"", " " + m.key("enter") + " write  " + m.key("esc") + " back "})
+			[]string{"", " " + m.key("enter") + " write" + m.dim(" • ") + m.key("esc") + " back "})
 	case a.remove: // its lines are still being read
 		rows = []string{" " + m.key("esc") + " keep "}
 	default:
@@ -309,7 +309,7 @@ func (m Model) addRows() ([]string, int) {
 		if a.problem != "" {
 			rows = append(append(rows, ""), wrap(message(m.shorten(a.problem)))...) // a loader message starts with the file
 		}
-		rows = append(rows, "", " "+m.key("enter")+" next  "+m.key("tab")+" move  "+m.key("esc")+" cancel ")
+		rows = append(rows, "", " "+m.key("enter")+" next"+m.dim(" • ")+m.key("tab")+" move"+m.dim(" • ")+m.key("esc")+" cancel ")
 	}
 	return rows, width
 }

@@ -14,7 +14,7 @@ import (
 const cdBlock = "[[targets]]\nname = \"cd\"\nkey = \"o\"\ncommand = \"cd {path}\"\nin_place = true\n"
 
 // cdFooter is the footer with the cd target.
-const cdFooter = "enter open | / search | s sort | r refresh | ? help | q quit | o cd | a add"
+const cdFooter = "enter open • o cd • ? help • q quit"
 
 func TestAFirstRunCreatesTheConfigFileAndTheFooterShowsTheCdTarget(t *testing.T) {
 	e := newEnv(t)
@@ -171,8 +171,8 @@ func TestTheCdTargetIsEditedAndRemovedLikeAnyOtherAndStaysRemoved(t *testing.T) 
 	if got, _ := fileText(t, configPath()); got != "[[targets]]\nname = 'Here'\nkey = 'h'\ncommand = 'cd {path}'\nin_place = true\n" {
 		t.Errorf("after the edit the config is %q, want the block named Here with key h", got)
 	}
-	if got, want := footer(d), "Changed Here"; got != want {
-		t.Errorf("after the edit the footer reads %q, want %q", got, want)
+	if got, want := topRight(d), "Changed Here"; got != want {
+		t.Errorf("after the edit the top right reads %q, want %q", got, want)
 	}
 	d.press("esc", "enter", "d")
 	d.pass()
@@ -182,7 +182,7 @@ func TestTheCdTargetIsEditedAndRemovedLikeAnyOtherAndStaysRemoved(t *testing.T) 
 	}
 
 	d = e.start()
-	if got, want := footer(d), "enter open | / search | s sort | r refresh | ? help | q quit | a add"; got != want {
+	if got, want := footer(d), "enter open • ? help • q quit"; got != want {
 		t.Errorf("on the next run the footer reads %q, want no target, %q", got, want)
 	}
 	if got, _ := fileText(t, configPath()); got != "" {
@@ -205,10 +205,13 @@ func TestAConfigFileThatCannotBeCreatedShowsWhyAndTheCdTarget(t *testing.T) {
 
 	d := e.start()
 
-	if got, want := footer(d), "The config file could not be written: permission denied"; got != want {
-		t.Errorf("footer reads %q, want %q", got, want)
+	if got, want := topRight(d), "The config file could not be written: permission denied"; got != want {
+		t.Errorf("top right reads %q, want %q", got, want)
 	}
 	for d.tick() {
+	}
+	if got, want := topRight(d), "1 repo"; got != want {
+		t.Errorf("once the notice has gone the top right reads %q, want %q", got, want)
 	}
 	if got := footer(d); got != cdFooter {
 		t.Errorf("once the notice has gone the footer reads %q, want %q", got, cdFooter)

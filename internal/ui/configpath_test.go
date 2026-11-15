@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 // red is a colour sequence in a file name, and redShown how it is drawn.
@@ -99,6 +101,7 @@ func TestAFirstRunNoticeIsDrawnEscaped(t *testing.T) {
 		t.Fatal(err)
 	}
 	d := e.start()
+	d.send(tea.WindowSizeMsg{Width: 100, Height: 24}) // room for the whole notice
 
 	if want := "is a link to gone" + redShown; !shown(d, want) {
 		t.Errorf("want %q and no escape code:\n%q", want, d.screen())

@@ -30,7 +30,7 @@ type Settings struct {
 	// 0 means every launch scans.
 	CacheMaxAge time.Duration
 	// Notice says why the config file could not be created on a first run,
-	// for the footer, or is "".
+	// as a notice, or is "".
 	Notice string
 }
 

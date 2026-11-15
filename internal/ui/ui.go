@@ -30,30 +30,33 @@ type Deps struct {
 	History    history.Store
 	Cache      cache.Store
 	Now        func() time.Time
-	// Tick is tea.Tick, which drives the refresh spinner and ends footer
-	// notices. Tests deliver its ticks themselves, so neither needs real time.
+	// Tick is tea.Tick, which drives the refresh spinner and ends notices.
+	// Tests deliver its ticks themselves, so neither needs real time.
 	Tick func(d time.Duration, fn func(time.Time) tea.Msg) tea.Cmd
-	// Notice is shown in the footer at launch, as a notice, or is "".
+	// Notice is shown at the top right at launch, as a notice, or is "".
 	Notice string
-	// NoticeFor is how long a footer notice shows before the keys return.
+	// NoticeFor is how long a notice shows.
 	NoticeFor time.Duration
 	// EnterPause is how long after the dialog's confirmation appears an
 	// enter is ignored, so a quick second enter cannot write unseen.
 	EnterPause time.Duration
 	// CloseOnOpen quits the program after a successful open.
 	CloseOnOpen bool
-	// SortByName starts the list sorted by name rather than by last opened.
+	// SortByName starts the list sorted by name, A to Z, rather than most
+	// recently opened first.
 	SortByName bool
 	// CacheMaxAge is how old the cache may be before a launch scans again
 	// rather than re-reading the cached repos; 0 means every launch scans.
 	CacheMaxAge time.Duration
-	// Styles turns the styles on: the bold title and selection marker, the
-	// bar of the selection, dimmed headings, folders, rules and borders,
-	// underlined matches, and bold keys in the footer, the help and the menu.
-	// Without it the output has no escape codes at all.
+	// Styles turns the styles on: the bold selection marker, the bar of the
+	// selection, dimmed headings, folders, rules, borders, counts and the
+	// search hint, underlined matches, and bold keys in the footer, the top
+	// row, the help and the menu. Without it the output has no escape codes
+	// at all.
 	Styles bool
-	// Color, with Styles, draws the keys in the accent colour. It is off
-	// when NO_COLOR is set and non-empty, and then no colour is drawn.
+	// Color, with Styles, draws the keys in the accent colour and problems
+	// in red. It is off when NO_COLOR is set and non-empty, and then no
+	// colour is drawn.
 	Color bool
 	// Columns are the columns to show, in order, out of name, folder, branch
 	// and last_opened.
@@ -84,7 +87,7 @@ type Model struct {
 	offset   int // the first repo shown, so the selected one stays in view
 	width    int
 	height   int
-	notice   string       // shown in place of the footer keys for a moment, or until the next key press
+	notice   string       // shown at the top right for a moment, or until the next key press
 	notices  int          // how many notices have shown, so the end of an earlier one's moment leaves a later one
 	menu     bool         // the target menu is open
 	choice   int          // the target highlighted in the menu
@@ -96,7 +99,7 @@ type Model struct {
 	helpTop  int          // the first row of the help shown, so the help scrolls when it does not fit
 	opening  bool         // an open is running, so targets do nothing until it finishes
 	quitting bool         // q was pressed while an open was running, so the tool quits once it succeeds
-	byName   bool         // sorted by name rather than by last opened
+	order    int          // the sort: byRecent, byName, byNameReversed or byOldest
 	// helpLines and helpWidth are the help's rows and the width of the
 	// widest, worked out once in New rather than on every render.
 	helpLines []string
@@ -154,14 +157,17 @@ type handOverMsg struct{ h target.HandOver }
 // tickMsg moves the spinner on a frame.
 type tickMsg struct{}
 
-// noticeEndMsg ends the moment of the footer notice it counts.
+// noticeEndMsg ends the moment of the notice it counts.
 type noticeEndMsg int
 
 // spinner is the frames of the refresh spinner.
 var spinner = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 func New(deps Deps) Model {
-	m := Model{deps: deps, byName: deps.SortByName, refreshing: true, ticking: true}
+	m := Model{deps: deps, order: byRecent, refreshing: true, ticking: true}
+	if deps.SortByName {
+		m.order = byName
+	}
 	for _, c := range deps.Columns {
 		if c != "folder" || deps.RowStyle == "name-folder" { // the other styles have no folder column
 			m.columns = append(m.columns, c)
@@ -202,14 +208,14 @@ func (m Model) quit() (Model, tea.Cmd) {
 	return m, tea.Quit
 }
 
-// showNotice shows text in the footer for a moment.
+// showNotice shows text at the top right for a moment.
 func (m Model) showNotice(text string) (Model, tea.Cmd) {
 	m.notice = text
 	m.notices++
 	return m, m.endNotice()
 }
 
-// endNotice ends the moment of the latest footer notice, if there is one.
+// endNotice ends the moment of the latest notice, if there is one.
 func (m Model) endNotice() tea.Cmd {
 	if m.notices == 0 {
 		return nil
@@ -250,7 +256,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.history = h
 		m = m.relist(m.all)
 		notice := "Opened " + safe(filepath.Base(msg.path)) + " in " + msg.target
-		if msg.saveErr != nil { // the footer has one line: room to name the problem, not its cause
+		if msg.saveErr != nil { // a notice has part of a line: room to name the problem, not its cause
 			notice += ", but the history could not be saved"
 		}
 		m, cmd = m.showNotice(notice)
@@ -406,7 +412,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "a":
 			m.add, cmd = addDialog{open: true}, m.checkFile()
 		case "s":
-			m.byName = !m.byName
+			m.order = (m.order + 1) % len(sorts)
 			m = m.relist(m.all)
 		case "r":
 			if !m.refreshing {

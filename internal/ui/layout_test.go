@@ -10,44 +10,43 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-func TestTheHeaderShowsTheRepoCountOnTheLeftAndTheSortOnTheRight(t *testing.T) {
+func TestTheTopRowShowsTheSearchHintOnTheLeftAndTheCountOnTheRight(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.repo("code/beta")
 	e.repo("code/gamma")
 
-	lines := strings.Split(e.start().screen(), "\n") // the screen is 80 wide
+	d := e.start()
+	lines := strings.Split(d.screen(), "\n") // the screen is 80 wide
 
-	if got := strings.Fields(lines[0]); strings.Join(got, " ") != "loper · 3 repos sort: last opened" {
-		t.Errorf("header reads %q, want %q", lines[0], "loper · 3 repos sort: last opened")
+	if got, want := header(d), "/ search 3 repos"; got != want {
+		t.Errorf("top row reads %q, want %q", lines[0], want)
 	}
-	if !strings.HasPrefix(lines[0], " loper · 3 repos ") || !strings.HasSuffix(lines[0], " sort: last opened ") || ansi.StringWidth(lines[0]) != 80 {
-		t.Errorf("header %q does not have the count on the left and the sort on the right, inside the margin", lines[0])
+	if !strings.HasPrefix(lines[0], " / search ") || !strings.HasSuffix(lines[0], " 3 repos ") || ansi.StringWidth(lines[0]) != 80 {
+		t.Errorf("top row %q does not have the hint on the left and the count on the right, inside the margin", lines[0])
+	}
+	if screen := d.screen(); strings.Contains(screen, "loper") || strings.Contains(screen, "sort:") {
+		t.Errorf("the screen still names the tool or the sort:\n%s", screen)
 	}
 }
 
-func TestTheTitleCountsOneRepoAndNoReposAndIsBoldWithColour(t *testing.T) {
+func TestTheCountSaysOneRepoAndWithColourTheHintsKeyIsInTheAccentAndTheRestDimmed(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
-	if got, want := header(e.start()), "loper · 1 repo sort: last opened"; got != want {
-		t.Errorf("one repo: header reads %q, want %q", got, want)
-	}
-
-	e = newEnv(t)
-	if got, want := header(e.start()), "loper · 0 repos ~/code not found sort: last opened"; got != want {
-		t.Errorf("no repos: header reads %q, want %q", got, want)
+	if got, want := header(e.start()), "/ search 1 repo"; got != want {
+		t.Errorf("one repo: top row reads %q, want %q", got, want)
 	}
 
 	e.color = true
-	if got, want := strings.Split(e.start().screen(), "\n")[0], " \x1b[1mloper\x1b[22m · 0 repos"; !strings.HasPrefix(got, want) {
-		t.Errorf("with colour: header is %q, want it to start with %q", got, want)
+	if got, want := styled(strings.Split(e.start().screen(), "\n")[0]), " [/] {search}"; !strings.HasPrefix(got, want) || !strings.HasSuffix(got, " {1 repo} ") {
+		t.Errorf("with colour: top row is %q, want it to start with %q and end with the count dimmed", got, want)
 	}
 }
 
 // The only full-screen snapshot in the suite: it guards the layout of
-// "Layout" in SPEC.md, a header and a footer each under or over a rule, with
+// "Layout" in SPEC.md, a top row and a footer each under or over a rule, with
 // the headings and the list between them.
-func TestTheScreenIsTheHeaderTheListAndTheFooterBetweenRules(t *testing.T) {
+func TestTheScreenIsTheTopRowTheListAndTheFooterBetweenRules(t *testing.T) {
 	e := newEnv(t)
 	backend := e.repo("code/work/unlimited/backend")
 	e.git(backend, "checkout", "-q", "-b", "fix/bug-1116")
@@ -74,16 +73,16 @@ command = "` + e.fakeTarget("rex") + ` {path}"
 	d.send(tea.WindowSizeMsg{Width: 80, Height: 10})
 
 	want := strings.Join([]string{
-		" loper · 4 repos                               sort: last opened   ⠋ refreshing ",
+		" / search                                                          ⠋ refreshing ",
 		" ────────────────────────────────────────────────────────────────────────────── ",
-		"   NAME        FOLDER                 BRANCH                             OPENED",
+		"   NAME        FOLDER                 BRANCH                           OPENED ↓",
 		" > backend     ~/code/work/unlimited  fix/bug-1116                       2h ago",
 		"   aycapi      ~/code/work/mono       main                            yesterday",
 		"   exa-men-v2  ~/code/work/mono       feature/aycid-login                3d ago",
 		"   dotfiles    ~                      main                                    -",
 		"",
 		" ────────────────────────────────────────────────────────────────────────────── ",
-		" enter open | / search | s sort | r refresh | ? help | q quit | z Zed | …",
+		" enter open • z Zed • t Terminal tab • ? help • q quit",
 	}, "\n")
 	if got := d.screen(); got != want {
 		t.Errorf("screen reads\n%s\nwant\n%s", got, want)

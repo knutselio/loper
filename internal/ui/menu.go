@@ -86,7 +86,7 @@ func (m Model) overlayMenu(lines []string) []string {
 		rows[i] = " " + marker + pad(key, keyWidth) + "  " + t.Name + " "
 		width = max(width, ansi.StringWidth(rows[i]))
 	}
-	hint := " " + m.key("e") + " edit  " + m.key("d") + " remove "
+	hint := " " + m.key("e") + " edit" + m.dim(" • ") + m.key("d") + " remove "
 	width = m.boxWidth(title, max(width, ansi.StringWidth(hint)+2)) // the bar spans the menu
 	rows[m.choice] = m.bar(ansi.Truncate(rows[m.choice], width, "…"), width)
 	box := m.box(title, rows[m.menuTop:m.menuTop+m.menuRows()], width)

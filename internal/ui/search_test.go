@@ -27,7 +27,7 @@ func TestSlashShowsTheSearchLineAndOnlyMatchingRowsWithTheTopOneSelected(t *test
 	d.press("j", "j") // gamma
 
 	d.press("/")
-	if got, want := header(d), "/"; got != want {
+	if got, want := header(d), "/█ 3 of 3"; got != want {
 		t.Errorf("after /: header reads %q, want %q", got, want)
 	}
 	if got, want := order(d), []string{"alpha ~/code", "beta ~/code", "gamma ~/code"}; !slices.Equal(got, want) {
@@ -37,7 +37,7 @@ func TestSlashShowsTheSearchLineAndOnlyMatchingRowsWithTheTopOneSelected(t *test
 		t.Errorf("after /: selected %q, want gamma still, as nothing is typed yet", got)
 	}
 	d.typeText("mm") // only gamma has two m
-	if got, want := header(d), "/mm"; got != want {
+	if got, want := header(d), "/mm█ 1 of 3"; got != want {
 		t.Errorf("header reads %q, want %q", got, want)
 	}
 	if got, want := order(d), []string{"gamma ~/code"}; !slices.Equal(got, want) {
@@ -45,7 +45,7 @@ func TestSlashShowsTheSearchLineAndOnlyMatchingRowsWithTheTopOneSelected(t *test
 	}
 
 	d.press("backspace")
-	if got, want := header(d), "/m"; got != want {
+	if got, want := header(d), "/m█ 1 of 3"; got != want {
 		t.Errorf("after backspace: header reads %q, want %q", got, want)
 	}
 	d.press("backspace", "a")
@@ -120,7 +120,7 @@ func TestWhileSearchingTargetKeysAndListKeysAreTextAndTriggerNothing(t *testing.
 	d.typeText("qsrjkgG?z/")
 	d.press("space", "ö")
 
-	if got, want := header(d), "/qsrjkgG?z/ ö"; got != want {
+	if got, want := header(d), "/qsrjkgG?z/ ö█ 0 of 1"; got != want {
 		t.Errorf("header reads %q, want %q", got, want)
 	}
 	if d.quit {
@@ -130,12 +130,15 @@ func TestWhileSearchingTargetKeysAndListKeysAreTextAndTriggerNothing(t *testing.
 		t.Errorf("zed called with %q while searching", got)
 	}
 	d.press("backspace") // ö is two bytes but one character
-	if got, want := header(d), "/qsrjkgG?z/"; got != want {
+	if got, want := header(d), "/qsrjkgG?z/ █ 0 of 1"; got != want {
 		t.Errorf("after backspace: header reads %q, want %q", got, want)
 	}
 	d.press("esc")
-	if got, want := header(d), "loper · 1 repo sort: last opened"; got != want {
-		t.Errorf("after esc: header reads %q, want %q: s switched the sort or r refreshed", got, want)
+	if got, want := header(d), "/ search 1 repo"; got != want {
+		t.Errorf("after esc: header reads %q, want %q: r refreshed", got, want)
+	}
+	if got, want := headings(d), "NAME FOLDER BRANCH OPENED ↓"; got != want {
+		t.Errorf("after esc: headings read %q, want %q: s switched the sort", got, want)
 	}
 }
 
@@ -208,7 +211,7 @@ func TestEscRestoresTheFullListAndTheSelectionFromBeforeTheSearch(t *testing.T) 
 	if got := d.selected(); !startsWith(got, "beta") {
 		t.Errorf("selected %q, want beta, selected before the search", got)
 	}
-	if got, want := header(d), "loper · 3 repos sort: last opened"; got != want {
+	if got, want := header(d), "/ search 3 repos"; got != want {
 		t.Errorf("header reads %q, want %q", got, want)
 	}
 }
@@ -227,11 +230,11 @@ func TestEscClosesTheMenuFirstAndASecondEscClearsTheSearch(t *testing.T) {
 	if got := boxRows(d); got != nil {
 		t.Errorf("after esc: want the menu closed, got %q", got)
 	}
-	if got := header(d); got != "/bet" {
+	if got := header(d); got != "/bet█ 1 of 2" {
 		t.Errorf("after esc: header reads %q, want the search still on", got)
 	}
 	d.press("esc")
-	if got := header(d); got != "loper · 2 repos sort: last opened" {
+	if got := header(d); got != "/ search 2 repos" {
 		t.Errorf("after a second esc: header reads %q, want the search cleared", got)
 	}
 }
@@ -310,7 +313,7 @@ func TestARefreshWhileSearchingUpdatesTheMatchesAndKeepsTheSelectedMatch(t *test
 	if got := d.selected(); !startsWith(got, "beta") {
 		t.Errorf("selected %q, want beta, selected before the refresh", got)
 	}
-	if got := header(d); got != "/et" {
+	if got := header(d); got != "/et█ 3 of 5" {
 		t.Errorf("header reads %q, want the search still on", got)
 	}
 }
@@ -362,7 +365,67 @@ func TestAnOpenWhileSearchingKeepsTheSearchAndEscShowsTheOpenedRepoFirst(t *test
 	}
 }
 
-func TestTheSearchLineKeepsTheSpinnerAndLeavesOutThePathWarnings(t *testing.T) {
+func TestTheQueryIsInTheTopRowWithItsControlCharactersEscapedAndStaysOnceConfirmed(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	e.repo("code/beta")
+	d := e.start()
+
+	d.press("/", "b", "\x07", "\\")
+	if got, want := header(d), `/b\x07\█ 0 of 2`; got != want {
+		t.Errorf("header reads %q, want %q", got, want)
+	}
+	if screen := d.screen(); strings.Contains(screen, "\x07") {
+		t.Errorf("the control character reached the screen raw:\n%q", screen)
+	}
+
+	d.press("backspace", "backspace", "e", "enter")
+	if got := boxRows(d); len(got) == 0 {
+		t.Fatalf("enter opened no menu:\n%s", d.screen())
+	}
+	if got, want := header(d), "/be 1 of 2"; got != want {
+		t.Errorf("with the menu open: header reads %q, want %q", got, want)
+	}
+	if lines := strings.Split(d.screen(), "\n"); slices.ContainsFunc(lines[1:], func(l string) bool { return strings.Contains(l, "/be") }) {
+		t.Errorf("the query shows outside the top row:\n%s", d.screen())
+	}
+}
+
+func TestTheCursorShowsOnlyWhileTypingGoesToTheQuery(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	e.config(zedTarget + `
+[[targets]]
+name = "Broken"
+key = "b"
+command = "false {path}"
+`)
+	d := e.start()
+
+	d.press("/", "a")
+	for _, s := range []struct {
+		keys   []string
+		what   string
+		cursor bool
+	}{
+		{nil, "typing", true},
+		{[]string{"enter"}, "the menu", false},
+		{[]string{"e"}, "the edit dialog", false},
+		{[]string{"esc", "esc"}, "the search after the menu", true},
+		{[]string{"enter", "j", "enter"}, "the error dialog", false},
+		{[]string{"esc"}, "the search after the error dialog", true},
+	} {
+		d.press(s.keys...)
+		if got := strings.Contains(header(d), "█"); got != s.cursor {
+			t.Errorf("%s: header reads %q, want the cursor shown %v", s.what, header(d), s.cursor)
+		}
+		if !strings.HasPrefix(header(d), "/a") {
+			t.Errorf("%s: header reads %q, want the query", s.what, header(d))
+		}
+	}
+}
+
+func TestWhileSearchingTheTopRightShowsTheSpinnerOverTheMatchesAndTheMatchesOverAProblem(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.config(`paths = ["~/code", "~/nope"]`)
@@ -371,22 +434,22 @@ func TestTheSearchLineKeepsTheSpinnerAndLeavesOutThePathWarnings(t *testing.T) {
 	d.press("r")
 
 	d.press("/")
-	if got, want := header(d), "/ ⠋ refreshing"; got != want {
+	if got, want := header(d), "/█ ⠋ refreshing"; got != want {
 		t.Errorf("while refreshing: header reads %q, want %q", got, want)
 	}
 	d.typeText("xyz")
-	if got, want := header(d), "/xyz ⠋ refreshing"; got != want {
+	if got, want := header(d), "/xyz█ ⠋ refreshing"; got != want {
 		t.Errorf("no matches while refreshing: header reads %q, want %q", got, want)
 	}
 	if screen := d.screen(); !strings.Contains(screen, "No matches") {
 		t.Errorf("no matches while refreshing: want No matches:\n%s", screen)
 	}
 	d.release()
-	if got, want := header(d), "/xyz"; got != want {
+	if got, want := header(d), "/xyz█ 0 of 1"; got != want {
 		t.Errorf("after the refresh: header reads %q, want %q", got, want)
 	}
 	d.press("esc")
-	if got, want := header(d), "loper · 1 repo ~/nope not found sort: last opened"; got != want {
+	if got, want := header(d), "/ search ! ~/nope not found"; got != want {
 		t.Errorf("after esc: header reads %q, want %q", got, want)
 	}
 }
@@ -445,7 +508,7 @@ func TestAPasteWhileSearchingGoesToTheQueryWithoutLineBreaksOrControlCharacters(
 
 	d.paste("be\r\nt\x07")
 
-	if got, want := header(d), "/bet"; got != want {
+	if got, want := header(d), "/bet█ 1 of 3"; got != want {
 		t.Errorf("header reads %q, want %q", got, want)
 	}
 	if got := order(d); !slices.Equal(got, []string{"beta ~/code"}) {

@@ -335,10 +335,10 @@ func TestAHeadingsLineNamesEachShownColumnAlignedWithIt(t *testing.T) {
 		config             string
 		headings, firstRow string
 	}{
-		{"", "   NAME   FOLDER  BRANCH                                                 OPENED", " > alpha  ~/code  main                                                        -"},
+		{"", "   NAME    FOLDER  BRANCH                                              OPENED ↓", " > alpha   ~/code  main                                                       -"},
 		{`columns = ["branch", "name"]`, "   BRANCH  NAME", " > main    alpha"},
-		{`row_style = "root-path"`, "   NAME   BRANCH                                                         OPENED", " > alpha  main                                                                -"},
-		{`row_style = "name"`, "   NAME   BRANCH                                                         OPENED", " > alpha  main                                                                -"},
+		{`row_style = "root-path"`, "   NAME    BRANCH                                                      OPENED ↓", " > alpha   main                                                               -"},
+		{`row_style = "name"`, "   NAME    BRANCH                                                      OPENED ↓", " > alpha   main                                                               -"},
 	} {
 		e := newEnv(t)
 		e.repo("code/alpha")
@@ -354,8 +354,8 @@ func TestAHeadingsLineNamesEachShownColumnAlignedWithIt(t *testing.T) {
 	e := newEnv(t)
 	e.color = true
 	e.repo("code/alpha")
-	if got, want := styled(strings.Split(e.start().screen(), "\n")[2]), "   {NAME   FOLDER  BRANCH                                                 OPENED}"; got != want {
-		t.Errorf("with colour: headings read %q, want them dimmed: %q", got, want)
+	if got, want := styled(strings.Split(e.start().screen(), "\n")[2]), "   {NAME}    {FOLDER}  {BRANCH}                                              OPENED ↓"; got != want {
+		t.Errorf("with colour: headings read %q, want them dimmed but the sorted one: %q", got, want)
 	}
 }
 
@@ -365,7 +365,7 @@ func TestTheHeadingsStayDuringASearchAndAreNotShownWithoutRows(t *testing.T) {
 	d := e.start()
 	d.press("/")
 	d.typeText("alp")
-	if got := strings.Split(d.screen(), "\n")[2]; got != "   NAME   FOLDER  BRANCH                                                 OPENED" {
+	if got := strings.Split(d.screen(), "\n")[2]; got != "   NAME    FOLDER  BRANCH                                              OPENED ↓" {
 		t.Errorf("searching: line 3 is %q, want the headings", got)
 	}
 	d.typeText("xyz")
@@ -396,7 +396,7 @@ func TestLastOpenedIsRightAlignedAndEndsOneCellBeforeTheEdge(t *testing.T) {
 		for _, w := range []int{80, 120, 40} {
 			d.send(tea.WindowSizeMsg{Width: w, Height: 24})
 			lines := strings.Split(d.screen(), "\n")
-			for i, want := range []string{"OPENED", "2h ago", "yesterday", "-"} {
+			for i, want := range []string{"OPENED ↓", "2h ago", "yesterday", "-"} {
 				line := lines[2+i]
 				if !strings.HasSuffix(line, " "+want) || ansi.StringWidth(line) != w-1 {
 					t.Errorf("%s, width %d: line %q, want it to end with %q at cell %d", style, w, line, want, w-1)
@@ -416,10 +416,10 @@ func TestLastOpenedIsRightAlignedInItsOwnWidthWhenAnotherColumnIsLast(t *testing
 	lines := strings.Split(e.start().screen(), "\n")
 
 	want := []string{
-		"   NAME      OPENED  BRANCH",
-		" > beta      2h ago  main",
-		"   alpha  yesterday  main",
-		"   c              -  main",
+		"   NAME     OPENED ↓  BRANCH",
+		" > beta       2h ago  main",
+		"   alpha   yesterday  main",
+		"   c               -  main",
 	}
 	if got := lines[2:6]; !slices.Equal(got, want) {
 		t.Errorf("lines read %q, want %q", got, want)

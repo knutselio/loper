@@ -166,7 +166,7 @@ func TestACorruptHistoryFileStartsEmptyAndTheNextOpenReplacesIt(t *testing.T) {
 	}
 }
 
-func TestAHistoryThatCannotBeSavedIsReportedInTheFooterAndTheOpenStillCounts(t *testing.T) {
+func TestAHistoryThatCannotBeSavedIsReportedTopRightAndTheOpenStillCounts(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.writeFile(filepath.Join(e.home, ".local", "state", "loper"), "a file where the folder should be")
@@ -175,8 +175,8 @@ func TestAHistoryThatCannotBeSavedIsReportedInTheFooterAndTheOpenStillCounts(t *
 
 	d.press("z")
 
-	if got, want := footer(d), "Opened alpha in Zed, but the history could not be saved"; got != want {
-		t.Errorf("footer reads %q, want %q", got, want)
+	if got, want := topRight(d), "Opened alpha in Zed, but the history could not be saved"; got != want {
+		t.Errorf("top right reads %q, want %q", got, want)
 	}
 	if screen := d.screen(); !hasExactRow(screen, "alpha ~/code main just now") {
 		t.Errorf("want alpha opened just now for this session:\n%s", screen)
@@ -249,8 +249,8 @@ func TestAHistoryFileThatCannotBeReplacedIsLeftAsItWasWithNothingBesideIt(t *tes
 
 	d.press("z")
 
-	if got, want := footer(d), "Opened alpha in Zed, but the history could not be saved"; got != want {
-		t.Errorf("footer reads %q, want %q", got, want)
+	if got, want := topRight(d), "Opened alpha in Zed, but the history could not be saved"; got != want {
+		t.Errorf("top right reads %q, want %q", got, want)
 	}
 	if names := stateFolder(t, e); len(names) != 1 || names[0] != "history.json" {
 		t.Errorf("state folder holds %q, want only history.json", names)
@@ -291,8 +291,8 @@ func TestAnUnreadableHistoryFileIsLeftAloneAndTheOpenWarnsThatItWasNotSaved(t *t
 
 	d.press("z")
 
-	if got, want := footer(d), "Opened alpha in Zed, but the history could not be saved"; got != want {
-		t.Errorf("footer reads %q, want %q", got, want)
+	if got, want := topRight(d), "Opened alpha in Zed, but the history could not be saved"; got != want {
+		t.Errorf("top right reads %q, want %q", got, want)
 	}
 	if err := os.Chmod(file, 0o644); err != nil {
 		t.Fatal(err)

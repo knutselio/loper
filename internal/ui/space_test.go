@@ -68,8 +68,8 @@ func TestSpaceInTheMenuOpensTheHighlightedTargetAsEnterDoes(t *testing.T) {
 			t.Errorf("close %q: quit %v, want %v", c.close, d.quit, c.quits)
 		}
 		if !c.quits {
-			if got, want := footer(d), "Opened beta in Menu only"; got != want {
-				t.Errorf("close %q: footer reads %q, want %q", c.close, got, want)
+			if got, want := topRight(d), "Opened beta in Menu only"; got != want {
+				t.Errorf("close %q: top right reads %q, want %q", c.close, got, want)
 			}
 			if got := boxRows(d); got != nil {
 				t.Errorf("close %q: menu still shown after running a target: %q", c.close, got)

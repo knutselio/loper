@@ -17,8 +17,8 @@ import (
 // one that fails; extra settings go before the targets. With the default
 // settings, all four columns fit 80 cells exactly, the last cell blank.
 func sweepTree(e *env, extra string) {
-	backend := e.repo("code/work/unlimited/backend")               // the widest folder: 21 cells
-	e.git(backend, "checkout", "-q", "-b", "fix/a-long-branch-16") // 20 cells
+	backend := e.repo("code/work/unlimited/backend")             // the widest folder: 21 cells
+	e.git(backend, "checkout", "-q", "-b", "fix/long-branch-16") // 18 cells
 	e.repo("code/work/mono/日本語のリポジトリ")
 	e.repo("code/a-repo-with-a-long-name") // the widest name: 23 cells
 	e.repo("dotfiles")
@@ -158,7 +158,7 @@ func TestNothingIsDrawnWiderOrTallerThanTheTerminalInAnyState(t *testing.T) {
 	}
 	e := newEnv(t)
 	sweepTree(e, "")
-	if screen := e.start().screen(); !hasExactRow(screen, "backend ~/code/work/unlimited fix/a-long-branch-16 2h ago") {
+	if screen := e.start().screen(); !hasExactRow(screen, "backend ~/code/work/unlimited fix/long-branch-16 2h ago") {
 		t.Fatalf("at 80 cells the sweep's rows do not show all four columns:\n%s", screen)
 	}
 	for _, color := range []bool{false, true} {
@@ -170,6 +170,9 @@ func TestNothingIsDrawnWiderOrTallerThanTheTerminalInAnyState(t *testing.T) {
 				d := s.setup(e)
 				if !strings.Contains(dialogText(d), s.shows) {
 					t.Fatalf("the state does not show %q:\n%s", s.shows, d.screen())
+				}
+				if strings.Contains(ansi.Strip(d.screen()), " | ") {
+					t.Errorf("the state has a | separator:\n%s", d.screen())
 				}
 				sweep(t, d, color, s.again)
 			})
@@ -272,11 +275,11 @@ func TestColumnsDropInAFixedOrderAsTheTerminalNarrowsAndComeBackAsItWidens(t *te
 		headings, alpha, b [5]string
 	}{
 		{`["name", "folder", "branch", "last_opened"]`,
-			[5]string{"NAME FOLDER BRANCH OPENED", "NAME FOLDER BRANCH", "NAME FOLDER", "NAME", "NAME"},
+			[5]string{"NAME FOLDER BRANCH OPENED ↓", "NAME FOLDER BRANCH", "NAME FOLDER", "NAME", "NAME"},
 			[5]string{"alpha ~/code main 1h ago", "alpha ~/code main", "alpha ~/code", "alpha", "alp…"},
 			[5]string{"b ~/code main -", "b ~/code main", "b ~/code", "b", "b"}},
 		{`["last_opened", "branch", "folder", "name"]`,
-			[5]string{"OPENED BRANCH FOLDER NAME", "BRANCH FOLDER NAME", "FOLDER NAME", "NAME", "NAME"},
+			[5]string{"OPENED ↓ BRANCH FOLDER NAME", "BRANCH FOLDER NAME", "FOLDER NAME", "NAME", "NAME"},
 			[5]string{"1h ago main ~/code alpha", "main ~/code alpha", "~/code alpha", "alpha", "alp…"},
 			[5]string{"- main ~/code b", "main ~/code b", "~/code b", "b", "b"}},
 	} {
@@ -287,12 +290,14 @@ func TestColumnsDropInAFixedOrderAsTheTerminalNarrowsAndComeBackAsItWidens(t *te
 		e.config("columns = " + c.columns)
 		d := e.start()
 
-		// The marker takes 3 cells and two columns are 2 apart, and the branch
-		// column is as wide as its heading, so the row is 32 cells with all
-		// four columns, 24 with three, 16 with two and 8 with the name alone,
-		// and the terminal one cell wider, as the last cell stays blank.
+		// The marker takes 3 cells and two columns are 2 apart, the branch
+		// column is as wide as its heading, and the name and last_opened
+		// columns as wide as their headings with room for an arrow, so the row
+		// is 35 cells with all four columns, 25 with three, 17 with two and 9
+		// with the name alone, and the terminal one cell wider, as the last
+		// cell stays blank; the name alone is cut only when it does not fit.
 		for _, s := range []struct{ width, want int }{
-			{80, 0}, {33, 0}, {32, 1}, {25, 1}, {24, 2}, {17, 2}, {16, 3}, {9, 3}, {8, 4}, {80, 0},
+			{80, 0}, {36, 0}, {35, 1}, {26, 1}, {25, 2}, {18, 2}, {17, 3}, {9, 3}, {8, 4}, {80, 0},
 		} {
 			d.send(tea.WindowSizeMsg{Width: s.width, Height: 24})
 			screen := d.screen()
@@ -326,66 +331,104 @@ func TestANameTooLongIsCutWithAnEllipsisAndNeverSplitsAWideCharacter(t *testing.
 	}
 }
 
-func TestANarrowHeaderGivesWayWarningsFirstThenTheSortThenTheSpinner(t *testing.T) {
+func TestANarrowTopRowCutsItsRightSideAndKeepsTheLeftWhole(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.config(`paths = ["~/code", "~/nope"]`)
 	d := e.start()
-	d.hold = true
-	d.press("r") // the refresh runs until released
 
-	// The title takes 15 cells, the warning 18, the sort 20 and the spinner 15.
+	// The hint takes 8 cells and the problem 18.
 	for _, c := range []struct {
 		width int
 		want  string
 	}{
-		{80, " loper · 1 repo  ~/nope not found" + strings.Repeat(" ", 12) + "  sort: last opened   ⠋ refreshing "},
-		{68, " loper · 1 repo  ~/nope not found  sort: last opened   ⠋ refreshing "},
-		{56, " loper · 1 repo  ~/n…  sort: last opened   ⠋ refreshing "},
-		{53, " loper · 1 repo  …  sort: last opened   ⠋ refreshing "},
-		{52, " loper · 1 repo    sort: last opened   ⠋ refreshing "}, // too little room to show a warning was cut
-		{50, " loper · 1 repo  sort: last opened   ⠋ refreshing "},
-		{49, " loper · 1 repo" + strings.Repeat(" ", 19) + "  ⠋ refreshing "},
-		{30, " loper · 1 repo  ⠋ refreshing "},
-		{29, " loper · 1 repo" + strings.Repeat(" ", 14)},
-		{15, " loper · 1 repo"},
-		{5, " lop…"},
+		{80, " / search" + strings.Repeat(" ", 52) + "! ~/nope not found "},
+		{30, " / search  ! ~/nope not found "},
+		{29, " / search  ! ~/nope not fou… "},
+		{13, " / search  … "},
+		{12, " / search   "},
+		{5, " / s "}, // the last cell stays blank
 	} {
 		d.send(tea.WindowSizeMsg{Width: c.width, Height: 24})
 		if got := strings.Split(d.screen(), "\n")[0]; got != c.want {
-			t.Errorf("width %d: header is %q, want %q", c.width, got, c.want)
+			t.Errorf("width %d: top row is %q, want %q", c.width, got, c.want)
 		}
-	}
-
-	d.press("/")
-	d.typeText("alpha")
-	d.send(tea.WindowSizeMsg{Width: 10, Height: 24})
-	if got, want := strings.Split(d.screen(), "\n")[0], " /alpha   "; got != want {
-		t.Errorf("searching: header is %q, want the query kept over the spinner, %q", got, want)
 	}
 }
 
-func TestANarrowFooterDropsWholeItemsFromTheEndAndEndsWithAnEllipsis(t *testing.T) {
+func TestTheCountIsCutBeforeALongQueryWhichKeepsAtLeastTenCells(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
-	e.config(zedTarget)
+	d := e.start()
+	d.press("/")
+	d.typeText("alphaalphaalpha") // 15 cells, and no match
+
+	for _, c := range []struct {
+		width int
+		want  string
+	}{
+		{30, " /alphaalphaalpha█     0 of 1 "},
+		{26, " /alphaalphaalpha█  0 of… "}, // the count gives way first
+		{22, " /alphaalphaalpha█  … "},
+		{21, " /alphaalphaalpha█   "},
+		{19, " /alphaalphaalpha█ "},
+		{18, " /…phaalphaalpha█ "}, // the query alone does not fit
+		{14, " /…lphaalpha█ "},
+		{10, " /…lphaal "}, // the query keeps 10 cells, and the window cuts it
+	} {
+		d.send(tea.WindowSizeMsg{Width: c.width, Height: 24})
+		if got := strings.Split(d.screen(), "\n")[0]; got != c.want {
+			t.Errorf("width %d: top row is %q, want %q", c.width, got, c.want)
+		}
+	}
+}
+
+func TestANarrowFooterDropsTargetsFromTheLastAndKeepsHelpAndQuit(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	// The targets of the design review's captures: cd, Editor, Terminal tab
+	// and Git UI.
+	e.config(`
+[[targets]]
+name = "cd"
+key = "o"
+command = "cd {path}"
+in_place = true
+
+[[targets]]
+name = "Editor"
+key = "z"
+command = "zed {path}"
+
+[[targets]]
+name = "Terminal tab"
+key = "t"
+command = "zed {path}"
+
+[[targets]]
+name = "Git UI"
+key = "l"
+command = "zed {path}"
+`)
 	d := e.start()
 
 	for _, c := range []struct {
 		width int
 		want  string
 	}{
-		{80, " enter open | / search | s sort | r refresh | ? help | q quit | z Zed | a add"},
-		{77, " enter open | / search | s sort | r refresh | ? help | q quit | z Zed | a add"},
-		{76, " enter open | / search | s sort | r refresh | ? help | q quit | z Zed | …"},
-		{73, " enter open | / search | s sort | r refresh | ? help | q quit | z Zed | …"},
-		{72, " enter open | / search | s sort | r refresh | ? help | q quit | …"},
-		{65, " enter open | / search | s sort | r refresh | ? help | q quit | …"},
-		{64, " enter open | / search | s sort | r refresh | ? help | …"},
-		{15, " enter open | …"},
-		{14, " …"},
-		{2, " …"},
-		{1, " "},
+		{80, " enter open • o cd • z Editor • t Terminal tab • l Git UI • ? help • q quit"},
+		{76, " enter open • o cd • z Editor • t Terminal tab • l Git UI • ? help • q quit"}, // the last cell stays blank
+		{75, " enter open • o cd • z Editor • t Terminal tab • … • ? help • q quit"},
+		{69, " enter open • o cd • z Editor • t Terminal tab • … • ? help • q quit"},
+		{68, " enter open • o cd • z Editor • … • ? help • q quit"},
+		{41, " enter open • o cd • … • ? help • q quit"},
+		{40, " enter open • … • ? help • q quit"},
+		{34, " enter open • … • ? help • q quit"},
+		{33, " enter open • ? help • q quit"}, // no room left for the …
+		{30, " enter open • ? help • q quit"},
+		{29, " enter open • ? help • q qu…"}, // cut, as nothing else is left to drop
+		{2, "…"},
+		{1, ""},
 		{0, ""},
 	} {
 		d.send(tea.WindowSizeMsg{Width: c.width, Height: 24})
@@ -407,8 +450,8 @@ func TestWithColourTheFootersKeysAreBoldAndItsSeparatorsDimmed(t *testing.T) {
 		width int
 		want  string
 	}{
-		{80, " [enter] open{ | }[/] search{ | }[s] sort{ | }[r] refresh{ | }[?] help{ | }[q] quit{ | }[z] Zed{ | }[a] add"},
-		{76, " [enter] open{ | }[/] search{ | }[s] sort{ | }[r] refresh{ | }[?] help{ | }[q] quit{ | }[z] Zed{ | }…"},
+		{80, " [enter] open{ • }[z] Zed{ • }[?] help{ • }[q] quit"},
+		{36, " [enter] open{ • }…{ • }[?] help{ • }[q] quit"},
 	} {
 		d.send(tea.WindowSizeMsg{Width: c.width, Height: 24})
 		lines := strings.Split(d.screen(), "\n")
@@ -427,10 +470,13 @@ func TestWithColourTheKeysOfTheFooterTheHelpAndTheMenuAreBoldInTheAccentColour(t
 	d := e.start()
 
 	lines := strings.Split(d.screen(), "\n")
-	for _, key := range []string{"enter", "/", "q", "z"} {
+	for _, key := range []string{"enter", "?", "q", "z"} {
 		if want := on + key + off + " "; !strings.Contains(lines[len(lines)-1], want) {
 			t.Errorf("footer is %q, want the key %q in the accent: %q", lines[len(lines)-1], key, want)
 		}
+	}
+	if want := " " + on + "/" + off + " "; !strings.HasPrefix(lines[0], want) {
+		t.Errorf("top row is %q, want the search hint's key in the accent: %q", lines[0], want)
 	}
 
 	d.press("?")
@@ -452,7 +498,7 @@ func TestWithColourTheKeysOfTheFooterTheHelpAndTheMenuAreBoldInTheAccentColour(t
 
 	d.press("esc", "a")
 	for _, key := range []string{"enter", "tab", "esc"} {
-		if want := " " + on + key + off + " "; !strings.Contains(d.screen(), want) {
+		if want := on + key + off + " "; !strings.Contains(d.screen(), want) {
 			t.Errorf("add dialog: want the key %q in the accent, %q:\n%q", key, want, d.screen())
 		}
 	}
@@ -464,7 +510,7 @@ func TestWithColourTheKeysOfTheFooterTheHelpAndTheMenuAreBoldInTheAccentColour(t
 		t.Fatalf("no add confirmation:\n%q", d.screen())
 	}
 	for _, key := range []string{"enter", "esc"} {
-		if want := " " + on + key + off + " "; !strings.Contains(d.screen(), want) {
+		if want := on + key + off + " "; !strings.Contains(d.screen(), want) {
 			t.Errorf("add confirmation: want the key %q in the accent, %q:\n%q", key, want, d.screen())
 		}
 	}
@@ -477,10 +523,10 @@ func TestWithColourTheSelectionIsMarkedAndTheRulesAndBordersAreDimmed(t *testing
 	e.repo("code/beta")
 	e.config(zedTarget)
 	d := e.start()
-	d.send(tea.WindowSizeMsg{Width: 33, Height: 8})
+	d.send(tea.WindowSizeMsg{Width: 36, Height: 8})
 
 	lines := strings.Split(d.screen(), "\n")
-	rule := " {" + strings.Repeat("─", 31) + "} "
+	rule := " {" + strings.Repeat("─", 34) + "} "
 	if got := styled(lines[1]); got != rule {
 		t.Errorf("top rule reads %q, want it dimmed: %q", got, rule)
 	}
@@ -510,7 +556,7 @@ func TestWithColourTheSelectionIsMarkedAndTheRulesAndBordersAreDimmed(t *testing
 		}
 		box = append(box, strings.Join(strings.Fields(s[i:j]), " "))
 	}
-	if want := []string{"{╭─} Open alpha {───────╮}", "{│} [>] [z] Zed {│}", "{╰─} [e] edit [d] remove {─╯}"}; !slices.Equal(box, want) {
+	if want := []string{"{╭─} Open alpha {────────╮}", "{│} [>] [z] Zed {│}", "{╰─} [e] edit{ • }[d] remove {─╯}"}; !slices.Equal(box, want) {
 		t.Errorf("menu reads %q, want %q", box, want)
 	}
 }
@@ -527,7 +573,7 @@ func TestWithColourAMenuOverDimmedFoldersKeepsEachStyleOnItsOwnSide(t *testing.T
 
 	d.press("enter")
 
-	edges := regexp.MustCompile(`^ .*[^ ]\}\{[╭│╰].*[╮│╯]\}\{[^ ]+\}  main {9}- ?$`) // last opened ends a cell before the edge; the selected row is padded for its bar
+	edges := regexp.MustCompile(`^ .*[^ ]\}\{[╭│╰].*[╮│╯]\}\{[^ ]+\}  main {11}- ?$`) // last opened ends a cell before the edge; the selected row is padded for its bar
 	lines := strings.Split(d.screen(), "\n")[3:6]
 	for i, line := range lines {
 		if s := styled(line); !edges.MatchString(s) {
@@ -591,9 +637,9 @@ func TestALongBranchIsCutRatherThanDroppingAColumn(t *testing.T) {
 	branch := "feature/aycid-login-with-refresh-tokens-and-a-much-longer-tail" // 62 cells
 	e.git(alpha, "checkout", "-q", "-b", branch)
 	e.openedBefore(map[string]time.Duration{alpha: time.Hour})
-	d := e.start() // 80 wide: the full row would be 88
+	d := e.start() // 80 wide: the full row would be 91
 
-	if want := "alpha ~/code " + branch[:52] + "… 1h ago"; !hasExactRow(d.screen(), want) {
+	if want := "alpha ~/code " + branch[:49] + "… 1h ago"; !hasExactRow(d.screen(), want) {
 		t.Errorf("want the row %q:\n%s", want, d.screen())
 	}
 }
@@ -607,17 +653,17 @@ func TestTheFolderAndBranchShrinkBeforeTheFirstColumnDrops(t *testing.T) {
 	e.openedBefore(map[string]time.Duration{alpha: time.Hour})
 	d := e.start()
 
-	// The full row is 73 cells, and 44 with both columns at 12; the terminal
+	// The full row is 76 cells, and 47 with both columns at 12; the terminal
 	// is one cell wider, as the last cell stays blank.
 	for _, c := range []struct {
 		width int
 		want  string
 	}{
-		{74, "alpha ~/code/a-long-folder-name-here a-long-branch-name-here 1h ago"},
-		{67, "alpha ~/code/a-long-folder-n… a-long-branch-name-here 1h ago"}, // the wider one first
-		{61, "alpha ~/code/a-long-folde… a-long-branch-name-… 1h ago"},
-		{45, "alpha ~/code/a-lo… a-long-bran… 1h ago"},
-		{43, "alpha ~/code/a-long-… a-long-branch-…"}, // last opened dropped, so the rest grows back
+		{77, "alpha ~/code/a-long-folder-name-here a-long-branch-name-here 1h ago"},
+		{70, "alpha ~/code/a-long-folder-n… a-long-branch-name-here 1h ago"}, // the wider one first
+		{64, "alpha ~/code/a-long-folde… a-long-branch-name-… 1h ago"},
+		{48, "alpha ~/code/a-lo… a-long-bran… 1h ago"},
+		{44, "alpha ~/code/a-long-… a-long-branch-…"}, // last opened dropped, so the rest grows back
 	} {
 		d.send(tea.WindowSizeMsg{Width: c.width, Height: 24})
 		if screen := d.screen(); !hasExactRow(screen, c.want) {
@@ -640,12 +686,12 @@ func TestASearchLineTooLongKeepsTheEndOfTheQuery(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	d := e.start()
-	d.send(tea.WindowSizeMsg{Width: 12, Height: 24})
+	d.send(tea.WindowSizeMsg{Width: 14, Height: 24})
 
 	d.press("/")
 	d.typeText("abcdefghijklmnopqrstuvwxyz")
 
-	if got, want := strings.Split(d.screen(), "\n")[0], " /…rstuvwxyz"; got != want {
+	if got, want := strings.Split(d.screen(), "\n")[0], " /…rstuvwxyz█ "; got != want {
 		t.Errorf("header is %q, want the start of the query cut: %q", got, want)
 	}
 }

@@ -125,7 +125,7 @@ func TestARepoDeletedAfterTheCacheWasWrittenIsGoneOnceTheRefreshFinishes(t *test
 		t.Errorf("cached list: want beta still there:\n%s", screen)
 	}
 	d.release()
-	if screen := d.screen(); hasRow(screen, "beta") || header(d) != "loper · 1 repo sort: last opened" {
+	if screen := d.screen(); hasRow(screen, "beta") || header(d) != "/ search 1 repo" {
 		t.Errorf("refreshed list: want beta gone and one repo:\n%s", screen)
 	}
 }
@@ -137,17 +137,17 @@ func TestTheHeaderShowsTheSpinnerAndRefreshingWhileTheRefreshRunsAndNotAfter(t *
 
 	d := relaunch(e)
 
-	if got, want := header(d), "loper · 1 repo sort: last opened ⠋ refreshing"; got != want {
+	if got, want := header(d), "/ search ⠋ refreshing"; got != want {
 		t.Errorf("while refreshing: header reads %q, want %q", got, want)
 	}
 	d.tick()
-	if got, want := header(d), "loper · 1 repo sort: last opened ⠙ refreshing"; got != want {
+	if got, want := header(d), "/ search ⠙ refreshing"; got != want {
 		t.Errorf("after a tick: header reads %q, want %q", got, want)
 	}
 	d.release()
 	lines := strings.Split(d.screen(), "\n")
-	if !strings.HasSuffix(lines[0], " sort: last opened ") {
-		t.Errorf("after the refresh: header reads %q, want it to end with the sort", lines[0])
+	if !strings.HasSuffix(lines[0], " 1 repo ") {
+		t.Errorf("after the refresh: header reads %q, want it to end with the count", lines[0])
 	}
 	d.tick() // the tick that was on its way when the refresh finished
 	if d.tick() {
@@ -168,7 +168,7 @@ func TestWithNoCacheTheScreenShowsScanningUntilTheRefreshFinishes(t *testing.T) 
 		if screen := d.screen(); !strings.Contains(screen, "\n   ⠋ scanning…") || hasRow(screen, "alpha") {
 			t.Errorf("cache %q: before the refresh's result: want the spinner and scanning… and no repos:\n%s", body, screen)
 		}
-		if got, want := header(d), "loper · 0 repos sort: last opened"; got != want {
+		if got, want := header(d), "/ search 0 repos"; got != want {
 			t.Errorf("cache %q: before the refresh: header reads %q, want %q, the spinner being in the list", body, got, want)
 		}
 		d.release()
@@ -429,10 +429,10 @@ func TestACacheThatCannotBeWrittenLeavesTheRefreshedListOnScreen(t *testing.T) {
 
 	d := e.start()
 
-	if screen := d.screen(); !hasExactRow(screen, "alpha ~/code main -") || header(d) != "loper · 1 repo sort: last opened" {
+	if screen := d.screen(); !hasExactRow(screen, "alpha ~/code main -") || header(d) != "/ search 1 repo" {
 		t.Errorf("want the refreshed list:\n%s", screen)
 	}
-	if got, want := footer(d), "enter open | / search | s sort | r refresh | ? help | q quit | z Zed | a add"; got != want {
+	if got, want := footer(d), "enter open • z Zed • ? help • q quit"; got != want {
 		t.Errorf("footer reads %q, want %q", got, want)
 	}
 }

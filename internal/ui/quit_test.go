@@ -8,8 +8,35 @@ import (
 	"testing"
 )
 
-// waiting is the footer while q waits for an open to finish.
+// waiting is the top right while q waits for an open to finish.
 const waiting = "Quitting when the open is done"
+
+func TestTheQuittingLineShowsOverANotice(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	e.config(zedTarget)
+	d := startQuiet(e)
+	d.hold = true
+	d.press("z") // zed's open stays in its wait while its result is held
+	opened := d.held
+	d.hold, d.held = false, nil
+
+	d.press("q")
+	d.fill("Tab", "t", "tab {path}")
+	d.confirm() // a notice, while q still waits for the open
+	if got := e.record("zed.args"); got == "" {
+		t.Fatal("zed did not run")
+	}
+	if got := topRight(d); got != waiting {
+		t.Errorf("after adding a target: top right reads %q, want %q over the notice", got, waiting)
+	}
+	for _, msg := range opened {
+		d.send(msg)
+	}
+	if !d.quit {
+		t.Error("the open finished and the tool did not quit")
+	}
+}
 
 // historyFile returns the path of the history file in e's state folder.
 func historyFile(e *env) string {
@@ -42,8 +69,11 @@ command = "` + e.fakeTarget("other") + ` {path}"
 	if d.quit {
 		t.Fatal("q quit while the open was running")
 	}
-	if got := footer(d); got != waiting {
-		t.Errorf("footer reads %q, want %q", got, waiting)
+	if got := topRight(d); got != waiting {
+		t.Errorf("top right reads %q, want %q", got, waiting)
+	}
+	if got := footer(d); !strings.HasPrefix(got, "enter open") {
+		t.Errorf("after q the footer reads %q, want the keys", got)
 	}
 
 	d.press("j")
@@ -66,8 +96,8 @@ command = "` + e.fakeTarget("other") + ` {path}"
 	if d.quit {
 		t.Fatal("a key while waiting quit")
 	}
-	if got := footer(d); got != waiting {
-		t.Errorf("after other keys the footer reads %q, want %q", got, waiting)
+	if got := topRight(d); got != waiting {
+		t.Errorf("after other keys the top right reads %q, want %q", got, waiting)
 	}
 
 	d.release()
@@ -99,8 +129,8 @@ func TestQDuringAnOpenThatFailsShowsTheDialogAndStays(t *testing.T) {
 		t.Errorf("a history file exists (%v), want none", err)
 	}
 	d.press("esc")
-	if got := footer(d); got == waiting {
-		t.Errorf("after the dialog the footer still reads %q", got)
+	if got := topRight(d); got == waiting {
+		t.Errorf("after the dialog the top right still reads %q", got)
 	}
 }
 
@@ -130,8 +160,8 @@ func TestQDuringAnOpenDoesNotQuitWhileTheAddDialogIsOpen(t *testing.T) {
 		t.Error("the tool quit with the add dialog open")
 	}
 	d.press("esc")
-	if got := footer(d); got == waiting {
-		t.Errorf("after the open the footer still reads %q", got)
+	if got := topRight(d); got == waiting {
+		t.Errorf("after the open the top right still reads %q", got)
 	}
 }
 
@@ -168,8 +198,8 @@ func TestQInTheConfigRefusalDuringAnOpenClosesItAndQuitsOnceTheOpenIsDone(t *tes
 	if got := dialogText(d); got != "" {
 		t.Errorf("after q the refusal still shows %q", got)
 	}
-	if got := footer(d); got != waiting {
-		t.Errorf("footer reads %q, want %q", got, waiting)
+	if got := topRight(d); got != waiting {
+		t.Errorf("top right reads %q, want %q", got, waiting)
 	}
 	done()
 
@@ -199,8 +229,8 @@ func TestQInTheNoTargetsMessageDuringAnOpenQuitsOnceTheOpenIsDone(t *testing.T) 
 	if d.quit {
 		t.Fatal("q quit while the open was running")
 	}
-	if got := footer(d); got != waiting {
-		t.Errorf("footer reads %q, want %q", got, waiting)
+	if got := topRight(d); got != waiting {
+		t.Errorf("top right reads %q, want %q", got, waiting)
 	}
 	done()
 

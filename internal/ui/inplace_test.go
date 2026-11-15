@@ -176,7 +176,7 @@ func TestAnEditOfAnInPlaceTargetStartsOnTakeOverAndKeepsTheLine(t *testing.T) {
 		"with these (comments inside the block are not kept):",
 		"[[targets]]", "name = 'Lazygit two'", "key = 'l'", "command = 'lazygit -p {path}'", "in_place = true",
 		"",
-		"enter write esc back",
+		"enter write • esc back",
 	}
 	if got := boxRows(d); !slices.Equal(got, want) {
 		t.Errorf("confirmation reads %q, want %q", got, want)
@@ -277,8 +277,8 @@ func TestAnInPlaceTargetsKeyDoesNothingWhileAnotherOpenIsInItsWait(t *testing.T)
 	if _, _, _, ok := handOver(d); ok || d.quit {
 		t.Errorf("l during zed's open asks for a hand-over (%v) or ended the UI (%v)", ok, d.quit)
 	}
-	if got, want := footer(d), "Opened alpha in Zed"; got != want {
-		t.Errorf("footer reads %q, want %q", got, want)
+	if got, want := topRight(d), "Opened alpha in Zed"; got != want {
+		t.Errorf("top right reads %q, want %q", got, want)
 	}
 	if screen := e.start().screen(); !hasExactRow(screen, "beta ~/code main -") {
 		t.Errorf("beta was recorded; want only zed's open of alpha:\n%s", screen)

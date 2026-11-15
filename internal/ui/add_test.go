@@ -102,7 +102,7 @@ func TestAOpensTheAddDialogAndEveryPrintableKeyLandsInItsFields(t *testing.T) {
 	if got := e.targetArgs("zed"); got != nil {
 		t.Errorf("z typed in the dialog ran zed with %q", got)
 	}
-	if strings.Contains(d.screen(), "sort: name") || strings.Contains(d.screen(), "╭─ Help ─") {
+	if !strings.Contains(d.screen(), "OPENED ↓") || strings.Contains(d.screen(), "╭─ Help ─") {
 		t.Errorf("s or ? typed in the dialog acted:\n%s", d.screen())
 	}
 
@@ -232,8 +232,8 @@ func TestConfirmingAppendsOneBlockAndKeepsEveryByteBeforeIt(t *testing.T) {
 		if got := boxRows(d); got != nil {
 			t.Errorf("dialog still shown after writing: %q", got)
 		}
-		if got, want := footer(d), "Added Tab"; got != want {
-			t.Errorf("footer reads %q, want %q", got, want)
+		if got, want := topRight(d), "Added Tab"; got != want {
+			t.Errorf("top right reads %q, want %q", got, want)
 		}
 	}
 }
@@ -848,8 +848,8 @@ func TestAnAddedTargetWorksAtOnceAndAfterARelaunch(t *testing.T) {
 		t.Errorf("help lists no t Tab:\n%s", d.screen())
 	}
 	d.press("esc")
-	if got := footer(d); !strings.HasSuffix(got, "| z Zed | t Tab | a add") {
-		t.Errorf("footer reads %q, want it to end with the new target", got)
+	if got := footer(d); !strings.Contains(got, " • z Zed • t Tab • ? help") {
+		t.Errorf("footer reads %q, want the new target after z Zed", got)
 	}
 	d.press("t")
 	if got, want := e.targetArgs("tab"), []string{alpha}; !slices.Equal(got, want) {
@@ -858,8 +858,8 @@ func TestAnAddedTargetWorksAtOnceAndAfterARelaunch(t *testing.T) {
 
 	d = e.start()
 	d.send(tea.WindowSizeMsg{Width: 100, Height: 24})
-	if got := footer(d); !strings.HasSuffix(got, "| z Zed | t Tab | a add") {
-		t.Errorf("after a relaunch: footer reads %q, want it to end with the new target", got)
+	if got := footer(d); !strings.Contains(got, " • z Zed • t Tab • ? help") {
+		t.Errorf("after a relaunch: footer reads %q, want the new target after z Zed", got)
 	}
 }
 
@@ -904,8 +904,8 @@ func TestANameIsWrittenWithoutTheSpacesAroundIt(t *testing.T) {
 	if got, _ := fileText(t, configPath()); got != tabBlock {
 		t.Errorf("config is %q, want %q", got, tabBlock)
 	}
-	if got, want := footer(d), "Added Tab"; got != want {
-		t.Errorf("footer reads %q, want %q", got, want)
+	if got, want := topRight(d), "Added Tab"; got != want {
+		t.Errorf("top right reads %q, want %q", got, want)
 	}
 }
 

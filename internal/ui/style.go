@@ -10,22 +10,24 @@ import (
 // tool follows the terminal's theme. matchOn and matchOff start and end the
 // highlight of a matched letter, dimOn and dimOff a dimmed part (a folder,
 // the path before a name, the rules and the borders of a box), boldOn and
-// boldOff the title and the marker of the selected row or target, and keyOn
-// and keyOff the keys of the footer, the help and the target menu, in the
-// accent colour. barOn and barOff draw the selected row or target as a bar,
-// in reverse video; the styles inside the bar end only their own attribute,
-// so none of them ends the bar.
+// boldOff the marker of the selected row or target, keyOn and keyOff the
+// keys of the footer, the help and the target menu, in the accent colour,
+// and problemOn and problemOff a problem, in red. barOn and barOff draw the
+// selected row or target as a bar, in reverse video; the styles inside the
+// bar end only their own attribute, so none of them ends the bar.
 var (
-	matchOn  = ansi.Style{}.Underline(true).String()
-	matchOff = ansi.Style{}.NoUnderline().String()
-	dimOn    = ansi.Style{}.Faint().String()
-	dimOff   = ansi.Style{}.Normal().String()
-	boldOn   = ansi.Style{}.Bold().String()
-	boldOff  = ansi.Style{}.Normal().String()
-	keyOn    = ansi.Style{}.Bold().ForegroundColor(ansi.Cyan).String()
-	keyOff   = ansi.Style{}.Normal().DefaultForegroundColor().String()
-	barOn    = ansi.Style{}.Reverse(true).String()
-	barOff   = ansi.Style{}.NoReverse().String()
+	matchOn    = ansi.Style{}.Underline(true).String()
+	matchOff   = ansi.Style{}.NoUnderline().String()
+	dimOn      = ansi.Style{}.Faint().String()
+	dimOff     = ansi.Style{}.Normal().String()
+	boldOn     = ansi.Style{}.Bold().String()
+	boldOff    = ansi.Style{}.Normal().String()
+	keyOn      = ansi.Style{}.Bold().ForegroundColor(ansi.Cyan).String()
+	keyOff     = ansi.Style{}.Normal().DefaultForegroundColor().String()
+	problemOn  = ansi.Style{}.ForegroundColor(ansi.Red).String()
+	problemOff = ansi.Style{}.DefaultForegroundColor().String()
+	barOn      = ansi.Style{}.Reverse(true).String()
+	barOff     = ansi.Style{}.NoReverse().String()
 )
 
 // dim dims s, unless the styles are off.
@@ -36,8 +38,8 @@ func (m Model) dim(s string) string {
 	return dimOn + s + dimOff
 }
 
-// bold styles s as the title or the marker of what is selected, unless the
-// styles are off.
+// bold styles s as the marker of what is selected, unless the styles are
+// off.
 func (m Model) bold(s string) string {
 	if !m.deps.Styles || s == "" {
 		return s
@@ -59,6 +61,15 @@ func (m Model) key(s string) string {
 		return m.bold(s)
 	}
 	return keyOn + s + keyOff
+}
+
+// problem draws s as a problem: with "! " in front, which says it also
+// without colour, and in red unless colour is off.
+func (m Model) problem(s string) string {
+	if !m.deps.Color {
+		return "! " + s
+	}
+	return problemOn + "! " + s + problemOff
 }
 
 // highlight marks the characters of s at the positions pos, which are in

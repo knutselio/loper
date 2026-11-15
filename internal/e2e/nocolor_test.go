@@ -56,8 +56,8 @@ func TestTheBuiltBinaryWithNoColorSetDrawsTheStylesWithoutColour(t *testing.T) {
 			}
 		}
 		config := filepath.Join(home, "try.toml")
-		writeConfig(t, config, fmt.Sprintf("paths = [%q]\n\n[[targets]]\nname = \"Never\"\nkey = \"z\"\ncommand = %q\n",
-			filepath.Join(home, "code"), filepath.Join(home, "never")+" {path}"))
+		writeConfig(t, config, fmt.Sprintf("paths = [%q, %q]\n\n[[targets]]\nname = \"Never\"\nkey = \"z\"\ncommand = %q\n",
+			filepath.Join(home, "code"), filepath.Join(home, "missing"), filepath.Join(home, "never")+" {path}"))
 
 		s := start(t, "alps", loper, "--config", config)
 		s.within("the list to be drawn", s.shown)
@@ -85,6 +85,9 @@ func TestTheBuiltBinaryWithNoColorSetDrawsTheStylesWithoutColour(t *testing.T) {
 	if got := colours(out); len(got) > 0 {
 		t.Errorf("with NO_COLOR=1 the terminal got the colours %q", got)
 	}
+	if !bytes.Contains(out, []byte("! ~/missing not found")) { // before the search, whose count takes its place
+		t.Errorf("with NO_COLOR=1, want the problem marked with !:\n%q", out)
+	}
 	for _, c := range []struct{ what, pattern string }{
 		{"the selected row in reverse video", `\x1b\[7m \x1b\[1m>`},
 		{"the matched letters underlined", `\x1b\[4(;7)?ma\x1b`},
@@ -104,8 +107,12 @@ func TestTheBuiltBinaryWithNoColorSetDrawsTheStylesWithoutColour(t *testing.T) {
 			t.Errorf("with NO_COLOR=%s the screen is\n%q\nwant the one of NO_COLOR=1\n%q", value, gotScreen, screen)
 		}
 	}
-	if _, screen := run(""); len(colours(screen)) == 0 {
+	out, screen = run("")
+	if len(colours(screen)) == 0 {
 		t.Errorf("with NO_COLOR empty the screen has no colour:\n%q", screen)
+	}
+	if red := `\x1b\[([0-9]+;)*31(;[0-9]+)*m! ~/missing not found`; !regexp.MustCompile(red).Match(out) {
+		t.Errorf("with NO_COLOR empty, want the problem in red (%s):\n%q", red, out)
 	}
 }
 

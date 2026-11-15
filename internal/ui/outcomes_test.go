@@ -270,8 +270,8 @@ func TestATargetStillRunningWhenTheWaitEndsCountsAsOpenedAndRunsOnDetached(t *te
 	if took > e.wait+time.Second {
 		t.Errorf("the open took %v, longer than the wait of %v", took, e.wait)
 	}
-	if got, want := footer(d), "Opened alpha in Server"; got != want {
-		t.Errorf("footer reads %q, want %q", got, want)
+	if got, want := topRight(d), "Opened alpha in Server"; got != want {
+		t.Errorf("top right reads %q, want %q", got, want)
 	}
 	if d.quit {
 		t.Error("the tool quit after opening a repo")

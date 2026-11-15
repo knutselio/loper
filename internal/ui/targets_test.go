@@ -21,7 +21,7 @@ func TestWithNoTargetsTheFooterListsNoneAndZRunsNothing(t *testing.T) {
 		if !hasExactRow(d.screen(), "alpha ~/code main -") {
 			t.Errorf("config %q: want the list as before:\n%s", body, d.screen())
 		}
-		if got, want := footer(d), "enter open | / search | s sort | r refresh | ? help | q quit | a add"; got != want {
+		if got, want := footer(d), "enter open • ? help • q quit"; got != want {
 			t.Errorf("config %q: footer reads %q, want %q", body, got, want)
 		}
 		d.press("z")
@@ -60,8 +60,11 @@ func TestEnterWithNoTargetsShowsAMessageInsteadOfTheMenu(t *testing.T) {
 	if got, want := boxRows(d), []string{noTargets}; !slices.Equal(got, want) {
 		t.Errorf("after other keys: box reads %q, want the message %q:\n%s", got, want, d.screen())
 	}
-	if got, want := header(d), "loper · 2 repos sort: last opened"; got != want {
-		t.Errorf("header reads %q, want no search and no sort switch: %q", got, want)
+	if got, want := header(d), "/ search 2 repos"; got != want {
+		t.Errorf("header reads %q, want no search: %q", got, want)
+	}
+	if got, want := headings(d), "NAME FOLDER BRANCH OPENED ↓"; got != want {
+		t.Errorf("headings read %q, want no sort switch: %q", got, want)
 	}
 
 	d.press("esc")
@@ -249,7 +252,18 @@ func footer(d *driver) string {
 	return strings.Join(strings.Fields(lines[len(lines)-1]), " ")
 }
 
-func TestTheFooterListsTheToolsOwnKeysThenTheKeyedTargets(t *testing.T) {
+// topRight returns the right side of the top row: what follows its last gap
+// of two or more spaces, with its spacing collapsed, or "" if it has none.
+func topRight(d *driver) string {
+	line := strings.TrimRight(strings.SplitN(d.screen(), "\n", 2)[0], " ")
+	i := strings.LastIndex(line, "  ")
+	if i < 0 {
+		return ""
+	}
+	return strings.Join(strings.Fields(line[i:]), " ")
+}
+
+func TestTheFooterListsEnterThenTheKeyedTargetsThenHelpAndQuit(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.config(`
@@ -271,12 +285,12 @@ command = "zed {path}"
 	d.send(tea.WindowSizeMsg{Width: 100, Height: 24}) // room for every item
 
 	lines := strings.Split(d.screen(), "\n")
-	if got, want := lines[len(lines)-1], " enter open | / search | s sort | r refresh | ? help | q quit | z Zed | t Terminal tab | a add"; got != want {
+	if got, want := lines[len(lines)-1], " enter open • z Zed • t Terminal tab • ? help • q quit"; got != want {
 		t.Errorf("footer reads %q, want %q", got, want)
 	}
 }
 
-func TestASuccessfulOpenIsConfirmedInTheFooterAndTheNextKeyClearsItAtOnce(t *testing.T) {
+func TestASuccessfulOpenIsConfirmedTopRightAndTheNextKeyClearsItAtOnce(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.repo("code/aycapi")
@@ -284,12 +298,15 @@ func TestASuccessfulOpenIsConfirmedInTheFooterAndTheNextKeyClearsItAtOnce(t *tes
 	d := e.start()
 
 	d.press("j", "z")
-	if got, want := footer(d), "Opened aycapi in Zed"; got != want {
-		t.Errorf("after opening: footer reads %q, want %q", got, want)
+	if got, want := topRight(d), "Opened aycapi in Zed"; got != want {
+		t.Errorf("after opening: top right reads %q, want %q", got, want)
 	}
 
 	d.press("k")
-	if got, want := footer(d), "enter open | / search | s sort | r refresh | ? help | q quit | z Zed | a add"; got != want {
+	if got, want := topRight(d), "2 repos"; got != want {
+		t.Errorf("after the next key: top right reads %q, want %q", got, want)
+	}
+	if got, want := footer(d), "enter open • z Zed • ? help • q quit"; got != want {
 		t.Errorf("after the next key: footer reads %q, want %q", got, want)
 	}
 }
@@ -307,7 +324,10 @@ command = "false {path}"
 
 	d.press("b")
 
-	if got, want := footer(d), "enter open | / search | s sort | r refresh | ? help | q quit | b Broken | a add"; got != want {
+	if got, want := topRight(d), "1 repo"; got != want {
+		t.Errorf("top right reads %q, want %q", got, want)
+	}
+	if got, want := footer(d), "enter open • b Broken • ? help • q quit"; got != want {
 		t.Errorf("footer reads %q, want %q", got, want)
 	}
 }

@@ -90,16 +90,16 @@ func TestAnEditedNameKeyAndCommandAreWrittenAndWorkAtOnce(t *testing.T) {
 	if got, want := boxRows(d), []string{"z Zed", "> x Terminal"}; !slices.Equal(got, want) {
 		t.Errorf("menu reads %q, want %q with the edited target highlighted", got, want)
 	}
-	if got, want := footer(d), "Changed Terminal"; got != want {
-		t.Errorf("footer reads %q, want %q", got, want)
+	if got, want := topRight(d), "Changed Terminal"; got != want {
+		t.Errorf("top right reads %q, want %q", got, want)
 	}
 	d.press("esc", "?")
 	if rows := boxRows(d); !slices.Contains(rows, "x Terminal") || slices.Contains(rows, "t Tab") {
 		t.Errorf("help does not list x Terminal alone:\n%s", d.screen())
 	}
 	d.press("esc")
-	if got := footer(d); !strings.HasSuffix(got, "| z Zed | x Terminal | a add") {
-		t.Errorf("footer reads %q, want it to end with the edited target", got)
+	if got := footer(d); !strings.Contains(got, " • z Zed • x Terminal • ? help") {
+		t.Errorf("footer reads %q, want the edited target after z Zed", got)
 	}
 	d.press("t")
 	if got := e.targetArgs("tab"); got != nil {
@@ -157,7 +157,7 @@ func TestTheEditConfirmationShowsTheOldAndTheNewBlockAndEscGoesBackToTheFields(t
 		"with these (comments inside the block are not kept):",
 		"[[targets]]", "name = 'Zed two'", "key = 'z'", "command = 'zed {path}'",
 		"",
-		"enter write esc back",
+		"enter write • esc back",
 	}
 	if got := boxRows(d); !slices.Equal(got, want) {
 		t.Errorf("confirmation reads %q, want %q", got, want)
@@ -182,7 +182,7 @@ func TestDShowsTheLinesToRemoveEscKeepsThemAndEnterRemovesTheTarget(t *testing.T
 		"Remove these lines from ~/.config/loper/config.toml:",
 		"[[targets]]", `name = "Zed" # the editor`, `key = "z"`, `command = "zed {path}"`,
 		"",
-		"enter remove esc keep",
+		"enter remove • esc keep",
 	}
 	if got := boxRows(d); !slices.Equal(got, want) || !strings.Contains(d.screen(), "╭─ Remove a target ─") {
 		t.Errorf("d shows %q, want %q:\n%s", got, want, d.screen())
@@ -209,8 +209,8 @@ func TestDShowsTheLinesToRemoveEscKeepsThemAndEnterRemovesTheTarget(t *testing.T
 	if got, want := boxRows(d), []string{"> t Tab"}; !slices.Equal(got, want) {
 		t.Errorf("menu reads %q, want %q", got, want)
 	}
-	if got, want := footer(d), "Removed Zed"; got != want {
-		t.Errorf("footer reads %q, want %q", got, want)
+	if got, want := topRight(d), "Removed Zed"; got != want {
+		t.Errorf("top right reads %q, want %q", got, want)
 	}
 	d.press("esc", "?")
 	if rows := boxRows(d); slices.Contains(rows, "z Zed") {
@@ -240,8 +240,8 @@ func TestRemovingTheLastTargetLeavesTheNoTargetsState(t *testing.T) {
 	if got := boxRows(d); got != nil {
 		t.Errorf("box reads %q, want the menu closed", got)
 	}
-	if got, want := footer(d), "Removed Zed"; got != want {
-		t.Errorf("footer reads %q, want %q", got, want)
+	if got, want := topRight(d), "Removed Zed"; got != want {
+		t.Errorf("top right reads %q, want %q", got, want)
 	}
 	d.press("enter")
 	if got, want := boxRows(d), []string{noTargets}; !slices.Equal(got, want) {
@@ -522,7 +522,7 @@ func TestEAndDDoNothingOnTheListInASearchTheErrorDialogOrTheHelp(t *testing.T) {
 		keys  []string
 		title string // of what stays on screen
 	}{
-		{"list", nil, " loper · 1 repo"},
+		{"list", nil, " / search"},
 		{"error dialog", []string{"b"}, "╭─ Could not open alpha in Broken ─"},
 		{"help", []string{"?"}, "╭─ Help ─"},
 		{"search", []string{"/"}, " /ed"},
@@ -548,7 +548,7 @@ func TestTheMenuSaysEEditsAndDRemoves(t *testing.T) {
 
 	d.press("enter")
 
-	if got, want := menuBottom(d), "╰─ e edit d remove ─╯"; got != want {
+	if got, want := menuBottom(d), "╰─ e edit • d remove ─╯"; got != want {
 		t.Errorf("the menu's bottom border reads %q, want %q", got, want)
 	}
 }
@@ -654,8 +654,8 @@ func TestAnEditThatChangesNothingClosesWithoutWriting(t *testing.T) {
 	if got, want := boxRows(d), []string{"> z Zed", "t Tab"}; !slices.Equal(got, want) {
 		t.Errorf("box reads %q, want the menu back, %q", got, want)
 	}
-	if got := footer(d); strings.Contains(got, "Changed") {
-		t.Errorf("footer reads %q, want no notice", got)
+	if got, want := topRight(d), "1 repo"; got != want {
+		t.Errorf("top right reads %q, want no notice, %q", got, want)
 	}
 	if got, _ := fileText(t, configPath()); got != editConfig {
 		t.Errorf("config is %q, want it byte for byte as it was", got)
@@ -681,7 +681,7 @@ func TestAnEditKeepsTheCloseLineAndShowsItInTheOldAndTheNewBlock(t *testing.T) {
 		"with these (comments inside the block are not kept):",
 		"[[targets]]", "name = 'Zed two'", "key = 'z'", "command = 'zed {path}'", "close = true",
 		"",
-		"enter write esc back",
+		"enter write • esc back",
 	}
 	if got := boxRows(d); !slices.Equal(got, want) {
 		t.Errorf("confirmation reads %q, want %q", got, want)
@@ -705,8 +705,8 @@ func TestAnEditOfOnlyTheChoiceIsWritten(t *testing.T) {
 	if got, _ := fileText(t, configPath()); got != "[[targets]]\nname = 'Zed'\nkey = 'z'\ncommand = 'zed {path}'\nclose = false\n" {
 		t.Errorf("config is %q, want close = false", got)
 	}
-	if got, want := footer(d), "Changed Zed"; got != want {
-		t.Errorf("footer reads %q, want %q", got, want)
+	if got, want := topRight(d), "Changed Zed"; got != want {
+		t.Errorf("top right reads %q, want %q", got, want)
 	}
 }
 

@@ -8,8 +8,8 @@ type Binding struct {
 	// FooterKey and FooterLabel are the binding's item in the footer, such as
 	// "q" and "quit"; a binding without a label is not in the footer.
 	FooterKey, FooterLabel string
-	// FooterLast puts the item after the targets, so it is the first to go
-	// when the footer does not fit.
+	// FooterLast puts the item after the targets, so it stays when targets
+	// give way because the footer does not fit.
 	FooterLast bool
 }
 
@@ -31,12 +31,12 @@ func KeyList() []Section {
 			{Keys: "ctrl-d / ctrl-u", Action: "Move half a page down / up"},
 			{Keys: "enter, space", Action: "Open the target menu for the selected repo", FooterKey: "enter", FooterLabel: "open"},
 			{Keys: "a target's key", Action: "Open the selected repo in that target"},
-			{Keys: "/", Action: "Start the search", FooterKey: "/", FooterLabel: "search"},
-			{Keys: "s", Action: "Switch the sort", FooterKey: "s", FooterLabel: "sort"},
-			{Keys: "r", Action: "Force a full refresh", FooterKey: "r", FooterLabel: "refresh"},
-			{Keys: "a", Action: "Add a target to the config file", FooterKey: "a", FooterLabel: "add", FooterLast: true},
-			{Keys: "?", Action: "Show the help overlay", FooterKey: "?", FooterLabel: "help"},
-			{Keys: "q, ctrl-c", Action: "Quit", FooterKey: "q", FooterLabel: "quit"},
+			{Keys: "/", Action: "Start the search"},
+			{Keys: "s", Action: "Cycle the sort by last opened and by name"},
+			{Keys: "r", Action: "Force a full refresh"},
+			{Keys: "a", Action: "Add a target to the config file"},
+			{Keys: "?", Action: "Show the help overlay", FooterKey: "?", FooterLabel: "help", FooterLast: true},
+			{Keys: "q, ctrl-c", Action: "Quit", FooterKey: "q", FooterLabel: "quit", FooterLast: true},
 			{Keys: "esc", Action: "Close a menu or dialog, or clear the search"},
 		}},
 		{Title: "In the target menu", Bindings: []Binding{

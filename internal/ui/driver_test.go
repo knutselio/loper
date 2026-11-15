@@ -63,7 +63,7 @@ type env struct {
 	root string // holds the home folder, the fake targets and their records
 	home string
 	wait time.Duration // how long a target runs before it counts as opened
-	// notice is how long a footer notice shows; the driver never waits for
+	// notice is how long a notice shows; the driver never waits for
 	// it, but records it with the notice's tick.
 	notice time.Duration
 	// pause is how long after the add dialog's confirmation appears an enter
@@ -253,7 +253,7 @@ type driver struct {
 	// ran, instead of handing it to the program, until next or release.
 	hold bool
 	held []tea.Msg
-	// ticks are the pending ticks of the spinner and of footer notices, which
+	// ticks are the pending ticks of the spinner and of notices, which
 	// never come by themselves: a test delivers them with tick, so neither
 	// needs real time and the driver never loops on the spinner.
 	ticks []pendingTick
