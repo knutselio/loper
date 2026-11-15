@@ -26,12 +26,12 @@ type errorDialog struct {
 	reason  string   // why it failed, without its margins
 }
 
-func newErrorDialog(msg failedMsg) *errorDialog {
+func (m Model) newErrorDialog(msg failedMsg) *errorDialog {
 	d := &errorDialog{
 		title:   " Could not open " + safe(msg.repo) + " in " + msg.target + " ",
-		command: " $ " + safe(msg.Command) + " ",
+		command: " $ " + safe(m.commandLine(msg.Words)) + " ",
 		cut:     msg.Cut,
-		reason:  message(msg.Reason), // a path in it shows as in the command line
+		reason:  message(msg.Reason), // control characters escaped as in the command line
 	}
 	if out := strings.TrimRight(msg.Output, "\n"); out != "" {
 		for _, l := range strings.Split(out, "\n") {
@@ -39,6 +39,22 @@ func newErrorDialog(msg failedMsg) *errorDialog {
 		}
 	}
 	return d
+}
+
+// commandLine is the command line of words, quoted as a shell would need
+// it, with a word in the home folder drawn from ~, as shorten draws it, and
+// the rest of it quoted after the ~.
+func (m Model) commandLine(words []string) string {
+	quoted := make([]string, len(words))
+	for i, w := range words {
+		quoted[i] = target.Quote(w)
+		if s := m.shorten(w); s == "~" {
+			quoted[i] = s
+		} else if rest, ok := strings.CutPrefix(s, "~/"); ok && s != w {
+			quoted[i] = "~/" + target.Quote(rest)
+		}
+	}
+	return strings.Join(quoted, " ")
 }
 
 // overlayFailure draws the error dialog centred over the list part of
@@ -72,10 +88,10 @@ func (m Model) overlayFailure(lines []string) []string {
 	for _, r := range rows {
 		width = max(width, ansi.StringWidth(r))
 	}
-	width = m.boxWidth(f.title, width)
+	width = m.fitWidth(f.title, width, m.width) // as wide as its lines, up to the screen
 	reason := f.reason
 	if over := ansi.StringWidth(reason) - (width - 2); over > 0 { // 2: the margins
 		reason = "…" + cutStart(reason, over+1)
 	}
-	return m.overlay(lines, m.box(f.title, append(rows, " "+reason+" "), width))
+	return m.overlay(lines, m.drawBox(f.title, append(rows, " "+reason+" "), width))
 }

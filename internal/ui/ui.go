@@ -320,7 +320,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case failedMsg:
 		m.opening, m.quitting = false, false
 		// The dialog replaces a menu or the help opened while the target ran.
-		m.menu, m.help, m.failure = false, false, newErrorDialog(msg)
+		m.menu, m.help, m.failure = false, false, m.newErrorDialog(msg)
 	case fileCheckedMsg:
 		// The refusal replaces the fields and what was typed in them; a dialog
 		// closed or past its fields since is left alone.

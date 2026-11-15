@@ -179,7 +179,7 @@ func TestTheMenuAndTheErrorDialogShowARepoWithControlCharactersEscaped(t *testin
 	if !strings.Contains(d.screen(), `Could not open \x1b[31mred\rx in Broken`) {
 		t.Errorf("the dialog's title is not escaped:\n%s", d.screen())
 	}
-	if got, want := boxRows(d)[0], "$ "+script+" --flag '"+e.home+`/code/\x1b[31mred\rx'`; got != want {
+	if got, want := boxRows(d)[0], "$ "+script+` --flag ~/'code/\x1b[31mred\rx'`; got != want {
 		t.Errorf("the dialog's command line reads %q, want %q", got, want)
 	}
 	if got := rawControls(d.screen(), false); len(got) > 0 {

@@ -180,6 +180,7 @@ func TestDShowsTheLinesToRemoveEscKeepsThemAndEnterRemovesTheTarget(t *testing.T
 	d.press("enter", "d")
 	want := []string{
 		"Remove these lines from ~/.config/loper/config.toml:",
+		"",
 		"[[targets]]", `name = "Zed" # the editor`, `key = "z"`, `command = "zed {path}"`,
 		"",
 		"enter remove • esc keep",
@@ -258,7 +259,7 @@ func TestAfterARemoveTheHighlightStaysInRange(t *testing.T) {
 	}
 	e.config(config)
 	d := e.start()
-	d.send(tea.WindowSizeMsg{Width: 80, Height: 12}) // 8 list lines: the menu shows 3 targets and scrolls, and the dialog fits
+	d.send(tea.WindowSizeMsg{Width: 80, Height: 13}) // 9 list lines: the menu shows 3 targets and scrolls, and the dialog fits
 	d.press("enter")
 	d.press(slices.Repeat([]string{"j"}, 6)...)
 
@@ -594,7 +595,11 @@ func TestALongBlockIsShortenedInTheConfirmationSoTheEditAndRemoveStillFit(t *tes
 			d.toLast()
 			d.press("enter")
 		}
-		if rows := boxRows(d); len(rows) < 5 || !slices.Equal(rows[1:5], []string{"[[targets]]", "# a note", "… 11 more lines", `command = "zed {path}"`}) {
+		at := 1 // after the sentence, and in a removal the blank line under it
+		if remove {
+			at = 2
+		}
+		if rows := boxRows(d); len(rows) < at+4 || !slices.Equal(rows[at:at+4], []string{"[[targets]]", "# a note", "… 11 more lines", `command = "zed {path}"`}) {
 			t.Errorf("remove %v: confirmation reads %q, want the block shortened:\n%s", remove, rows, d.screen())
 		}
 		d.pass()

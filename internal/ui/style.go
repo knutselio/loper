@@ -95,9 +95,13 @@ func (m Model) highlight(s string, pos []int) string {
 
 // box draws rows in a rounded border with title in its top edge. width is
 // what the rows want inside the border; the box grows to fit the title and
-// shrinks to fit the screen, cutting rows that are too long.
+// shrinks to fit the screen and 100 cells, cutting rows that are too long.
 func (m Model) box(title string, rows []string, width int) []string {
-	width = m.boxWidth(title, width)
+	return m.drawBox(title, rows, m.boxWidth(title, width))
+}
+
+// drawBox is box with width as the width inside the border.
+func (m Model) drawBox(title string, rows []string, width int) []string {
 	box := []string{m.edge("╭", title, width, "", "╮")}
 	side := m.dim("│")
 	for _, r := range rows {
@@ -146,11 +150,17 @@ func (m Model) edge(left, text string, width int, mark, right string) string {
 	return m.dim(left+strings.Repeat("─", stroke)) + text + m.dim(fill) + mark + m.dim("─"+right)
 }
 
-// boxWidth is the width inside the border of a box with title whose rows
-// want width: room for a stroke of the border either side of the title, and
-// no more than the screen has inside the two side borders.
+// boxWidth is fitWidth for a box at most 100 cells wide, its borders
+// included.
 func (m Model) boxWidth(title string, width int) int {
-	return max(min(max(width, ansi.StringWidth(title)+2), m.width-2), 0)
+	return m.fitWidth(title, width, 98)
+}
+
+// fitWidth is the width inside the border of a box with title whose rows
+// want width: room for a stroke of the border either side of the title, and
+// no more than the screen has inside the two side borders, nor than most.
+func (m Model) fitWidth(title string, width, most int) int {
+	return max(min(max(width, ansi.StringWidth(title)+2), m.width-2, most), 0)
 }
 
 // overlay places box centred over the list part of lines, which stays

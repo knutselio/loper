@@ -85,7 +85,7 @@ func TestTheCdTargetOnAFolderThatIsGoneShowsTheDialogAndRecordsNothing(t *testin
 
 	d.press("j", "o")
 
-	want := []string{"$ cd '" + beta + "'", "stat " + beta + ": no such file or directory"}
+	want := []string{"$ cd ~/code/beta", "stat " + beta + ": no such file or directory"}
 	if got := boxRows(d); !slices.Equal(got, want) {
 		t.Errorf("dialog reads %q, want %q:\n%s", got, want, d.screen())
 	}
@@ -248,7 +248,7 @@ func TestTheCdTargetOnAFileShowsTheDialogAndRecordsNothing(t *testing.T) {
 
 	d.press("o")
 
-	want := []string{"$ cd '" + file + "'", file + " is not a folder"}
+	want := []string{"$ cd ~/code/alpha/notes", file + " is not a folder"}
 	if got := boxRows(d); !slices.Equal(got, want) {
 		t.Errorf("dialog reads %q, want %q:\n%s", got, want, d.screen())
 	}

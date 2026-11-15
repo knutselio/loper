@@ -54,14 +54,14 @@ type HandOver struct {
 
 // Failure is a target that did not open.
 type Failure struct {
-	Command string // the command line that ran, quoted as a shell would need it
-	Output  string // the end of what the command printed, or ""
-	Cut     bool   // whether output before Output was dropped
-	Reason  string // why it failed: its exit status, or why it could not start
+	Words  []string // the command that ran, its words after substitution
+	Output string   // the end of what the command printed, or ""
+	Cut    bool     // whether output before Output was dropped
+	Reason string   // why it failed: its exit status, or why it could not start
 }
 
 func (f *Failure) Error() string {
-	return f.Command + ": " + f.Reason
+	return commandLine(f.Words) + ": " + f.Reason
 }
 
 // Run opens the repo at path in t, with the repo as the working folder and
@@ -84,7 +84,7 @@ func (f *Failure) Error() string {
 func Run(t Target, path string, wait time.Duration, drain []string) error {
 	words := substitute(t, path)
 	fail := func(why string) error {
-		return &Failure{Command: commandLine(words), Reason: why}
+		return &Failure{Words: words, Reason: why}
 	}
 	out, w, err := os.Pipe()
 	if err != nil {
@@ -155,7 +155,7 @@ func Run(t Target, path string, wait time.Duration, drain []string) error {
 		out.SetReadDeadline(time.Time{})
 		output.sweep(out)
 		end, cut := output.end()
-		return &Failure{Command: commandLine(words), Output: string(end), Cut: cut, Reason: err.Error()}
+		return &Failure{Words: words, Output: string(end), Cut: cut, Reason: err.Error()}
 	case <-time.After(wait):
 		return nil
 	}
@@ -230,7 +230,7 @@ func Prepare(t Target, path string) (HandOver, error) {
 			err = errors.New(words[1] + " is not a folder")
 		}
 		if err != nil {
-			return HandOver{}, &Failure{Command: commandLine(words), Reason: err.Error()}
+			return HandOver{}, &Failure{Words: words, Reason: err.Error()}
 		}
 		shell := cmp.Or(os.Getenv("SHELL"), "/bin/sh")
 		return HandOver{Program: shell, Args: []string{shell}, Dir: words[1], Cd: true}, nil
@@ -241,7 +241,7 @@ func Prepare(t Target, path string) (HandOver, error) {
 	}
 	program, err := exec.LookPath(program)
 	if err != nil {
-		return HandOver{}, &Failure{Command: commandLine(words), Reason: err.Error()}
+		return HandOver{}, &Failure{Words: words, Reason: err.Error()}
 	}
 	return HandOver{Program: program, Args: words, Dir: path}, nil
 }
@@ -319,10 +319,15 @@ var safeWord = regexp.MustCompile(`^[\w@%+=:,./-]+$`)
 func commandLine(words []string) string {
 	quoted := make([]string, len(words))
 	for i, w := range words {
-		quoted[i] = w
-		if !safeWord.MatchString(w) {
-			quoted[i] = "'" + strings.ReplaceAll(w, "'", `'\''`) + "'"
-		}
+		quoted[i] = Quote(w)
 	}
 	return strings.Join(quoted, " ")
+}
+
+// Quote returns word as a shell reads it back: as it is, or in single quotes.
+func Quote(word string) string {
+	if safeWord.MatchString(word) {
+		return word
+	}
+	return "'" + strings.ReplaceAll(word, "'", `'\''`) + "'"
 }

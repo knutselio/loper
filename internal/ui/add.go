@@ -255,6 +255,13 @@ func (m Model) addRows() ([]string, int) {
 		}
 		return rows
 	}
+	sentence := func(s string) []string { // set apart from the lines below it
+		rows := wrap(s)
+		for i, r := range rows {
+			rows[i] = " " + m.bold(r[1:len(r)-1]) + " "
+		}
+		return rows
+	}
 	lines := func(block string) []string {
 		var rows []string
 		for _, l := range strings.Split(strings.TrimSuffix(block, "\n"), "\n") {
@@ -268,14 +275,14 @@ func (m Model) addRows() ([]string, int) {
 	case a.refusal != "":
 		rows = append(wrap(message(m.shorten(a.refusal))), "", " "+m.key("esc")+" close ") // a loader message starts with the file
 	case a.confirming && a.remove:
-		rows = slices.Concat(wrap("Remove these lines from "+file+":"), lines(short(a.before)),
+		rows = slices.Concat(sentence("Remove these lines from "+file+":"), []string{""}, lines(short(a.before)),
 			[]string{"", " " + m.key("enter") + " remove" + m.dim(" • ") + m.key("esc") + " keep "})
 	case a.confirming && a.old != nil:
-		rows = slices.Concat(wrap("Replace these lines in "+file+":"), lines(short(a.before)), []string{""},
-			wrap("with these (comments inside the block are not kept):"), lines(a.block),
+		rows = slices.Concat(sentence("Replace these lines in "+file+":"), lines(short(a.before)), []string{""},
+			sentence("with these (comments inside the block are not kept):"), lines(a.block),
 			[]string{"", " " + m.key("enter") + " write" + m.dim(" • ") + m.key("esc") + " back "})
 	case a.confirming:
-		rows = slices.Concat(wrap("Append to "+file), []string{""}, lines(a.block),
+		rows = slices.Concat(sentence("Append to "+file), []string{""}, lines(a.block),
 			[]string{"", " " + m.key("enter") + " write" + m.dim(" • ") + m.key("esc") + " back "})
 	case a.remove: // its lines are still being read
 		rows = []string{" " + m.key("esc") + " keep "}

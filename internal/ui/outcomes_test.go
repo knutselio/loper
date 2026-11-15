@@ -35,14 +35,14 @@ command = "zed {path}"
 
 func TestATargetThatExitsNonZeroShowsADialogWithTheCommandLineAndItsOutput(t *testing.T) {
 	e := newEnv(t)
-	alpha := e.repo("code/alpha")
+	e.repo("code/alpha")
 	script := brokenTarget(e, "echo 'to stdout'\necho 'fatal: to stderr' >&2\nexit 3\n")
 	d := e.start()
 	d.send(tea.WindowSizeMsg{Width: 400, Height: 24}) // wide enough for the temporary paths
 
 	d.press("b")
 
-	want := []string{"$ " + script + " --flag '" + alpha + "'", "to stdout", "fatal: to stderr", "exit status 3"}
+	want := []string{"$ " + script + " --flag ~/code/alpha", "to stdout", "fatal: to stderr", "exit status 3"}
 	if got := boxRows(d); !slices.Equal(got, want) {
 		t.Errorf("dialog reads %q, want %q:\n%s", got, want, d.screen())
 	}
@@ -53,7 +53,7 @@ func TestATargetThatExitsNonZeroShowsADialogWithTheCommandLineAndItsOutput(t *te
 
 func TestATargetWhoseProgramDoesNotExistShowsTheDialogWithTheCommandLineAndTheReason(t *testing.T) {
 	e := newEnv(t)
-	alpha := e.repo("code/alpha")
+	e.repo("code/alpha")
 	e.config(`
 [[targets]]
 name = "Missing"
@@ -65,7 +65,7 @@ command = "no-such-program {path}"
 
 	d.press("m")
 
-	want := []string{"$ no-such-program '" + alpha + "'", `exec: "no-such-program": executable file not found in $PATH`}
+	want := []string{"$ no-such-program ~/code/alpha", `exec: "no-such-program": executable file not found in $PATH`}
 	if got := boxRows(d); !slices.Equal(got, want) {
 		t.Errorf("dialog reads %q, want %q:\n%s", got, want, d.screen())
 	}
@@ -152,13 +152,13 @@ func TestADialogBiggerThanTheScreenKeepsItsBordersAndShowsTheEndCut(t *testing.T
 
 func TestADialogShowsTheCommandHowItEndedAndTheLastLinesOfOutput(t *testing.T) {
 	e := newEnv(t)
-	alpha := e.repo("code/alpha")
+	e.repo("code/alpha")
 	script := brokenTarget(e, "seq -f 'progress %g' 30\necho FINAL_REASON\nexit 3\n")
 	d := e.start() // 80×24: 20 list lines, room for 18 rows
 
 	d.press("b")
 
-	command := "$ " + script + " --flag '" + alpha + "'"
+	command := "$ " + script + " --flag ~/code/alpha"
 	want := []string{"… 16 earlier lines left out"}
 	for i := 17; i <= 30; i++ {
 		want = append(want, "progress "+strconv.Itoa(i))
@@ -526,7 +526,7 @@ func TestTrailingBlankLinesOfOutputDoNotShow(t *testing.T) {
 
 func TestTheDialogIsAsWideAsTheLinesItShows(t *testing.T) {
 	e := newEnv(t)
-	alpha := e.repo("code/alpha")
+	e.repo("code/alpha")
 	// An early line far wider than the command line, then more lines than fit.
 	script := brokenTarget(e, "printf '%0390d\\n' 0\nseq 30\nexit 1\n")
 	d := e.start()
@@ -534,7 +534,7 @@ func TestTheDialogIsAsWideAsTheLinesItShows(t *testing.T) {
 
 	d.press("b")
 
-	command := " $ " + script + " --flag '" + alpha + "' "
+	command := " $ " + script + " --flag ~/code/alpha "
 	for _, line := range strings.Split(d.screen(), "\n") {
 		if i, j := strings.Index(line, "╭"), strings.Index(line, "╮"); i >= 0 && j > i {
 			if got, want := ansi.StringWidth(line[i:j+len("╮")]), ansi.StringWidth(command)+2; got != want {
@@ -572,8 +572,8 @@ func TestAPathInTheReasonIsEscapedAsInTheCommandLine(t *testing.T) {
 	d.press("c")
 
 	got := boxRows(d)
-	if len(got) != 2 || !strings.Contains(got[0], `/code/a\x01b/notes`) || !strings.HasSuffix(got[1], `/code/a\x01b/notes is not a folder`) {
-		t.Errorf("dialog reads %q, want the path escaped the same way in the command line and the reason:\n%s", got, d.screen())
+	if len(got) != 2 || !strings.Contains(got[0], `code/a\x01b/notes`) || !strings.HasSuffix(got[1], `/code/a\x01b/notes is not a folder`) {
+		t.Errorf("dialog reads %q, want the control character escaped the same way in the command line and the reason:\n%s", got, d.screen())
 	}
 }
 

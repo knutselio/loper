@@ -92,14 +92,14 @@ func TestAnInPlaceOpenIsRecordedSoTheRepoIsFirstOnTheNextStart(t *testing.T) {
 func TestAnInPlaceTargetWhoseProgramDoesNotExistShowsTheDialogAndRecordsNothing(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
-	beta := e.repo("code/beta")
+	e.repo("code/beta")
 	e.config("\n[[targets]]\nname = \"Missing\"\nkey = \"m\"\ncommand = \"no-such-program {path}\"\nin_place = true\n")
 	d := e.start()
 	d.send(tea.WindowSizeMsg{Width: 400, Height: 24})
 
 	d.press("j", "m")
 
-	want := []string{"$ no-such-program '" + beta + "'", `exec: "no-such-program": executable file not found in $PATH`}
+	want := []string{"$ no-such-program ~/code/beta", `exec: "no-such-program": executable file not found in $PATH`}
 	if got := boxRows(d); !slices.Equal(got, want) {
 		t.Errorf("dialog reads %q, want %q:\n%s", got, want, d.screen())
 	}
