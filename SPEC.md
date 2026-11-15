@@ -182,8 +182,9 @@ Each module hides its details behind a small interface. The UI is the only modul
   - `name-folder` (default): the name in one column, and the parent folder in a dimmed second column, shortened with `~`.
   - `root-path`: the `name` column shows the path from the repo's scan root, with everything before the name dimmed. A repo listed directly shows its bare name. The `folder` column is not shown, even when `columns` lists it.
   - `name`: the name only. The `folder` column is not shown, even when `columns` lists it.
-- `last_opened` shows a relative time, or `-` for a repo never opened with `loper`.
+- `last_opened` shows a relative time, or `-` for a repo never opened with `loper`. Its values and its heading are right-aligned. As the last column it takes the room left, so it ends one cell before the window's right edge, like the header line and the footer; elsewhere in `columns` it is right-aligned in its own width.
 - `branch` shows the branch name, the short commit hash prefixed with `@` for a detached HEAD, or the pending branch name for a repo with no commits.
+- The last cell of every row is blank, whichever column is last, at every width; the selection bar still spans the full width.
 - In a narrow terminal, columns are dropped in a fixed order, whatever order `columns` puts them in: last opened first, then branch, then folder. Before a column is dropped, the folder and branch columns shrink to 12 cells, with long values cut by `…`. Values that are still too long are cut with `…`; under `root-path` the dimmed path is cut at its start, so the repo's name stays whole.
 - Colours come from the terminal's own palette. The tool honours `NO_COLOR`: set to any non-empty value, such as `1`, `yes` or even `false`, it turns colour off and nothing else, so bold, dim, underline and the reverse-video bar stay. Set but empty, it leaves colour on.
 - A repo's name, folder and branch come from the file system and are drawn as display text: control characters, such as an escape, a carriage return or a line feed, and bytes that are not UTF-8 are shown escaped, as `\x1b`, `\r` or `\n`, so they never reach the terminal and two names that differ in one never look the same. A backslash is shown as `\\`, so the escaping is one to one. Other text, emoji and wide characters included, is drawn as it is. This holds wherever such text shows: the rows, the titles of the target menu and the error dialog, the error dialog's command line, the "Opened" notice, the path warnings and the "No repos found" message. The config file's path, and any other path in a message about it, such as where a link points, is drawn the same way wherever the picker shows it: the "No repos found" message, the add dialog, its refusals and problems, and the notice that a first run could not write the file. A value such a message quotes, such as a target's name, is escaped once, as Go quotes it, not twice. Opening, the history and the cache use the real path.
@@ -210,17 +211,17 @@ A single full-width scrolling list between a one-line header and a one-line foot
 ```
  loper · 7 repos                             sort: last opened   ⠋ refreshing
  ──────────────────────────────────────────────────────────────────────────────
-   NAME         FOLDER                   BRANCH                 OPENED
- > backend      ~/code/work/unlimited    fix/bug-1116           2h ago
-   aycapi       ~/code/work/mono         main                   yesterday
-   exa-men-v2   ~/code/work/mono         feature/aycid-login    3d ago
-   dotfiles     ~                        main                   -
+   NAME         FOLDER                   BRANCH                          OPENED
+ > backend      ~/code/work/unlimited    fix/bug-1116                    2h ago
+   aycapi       ~/code/work/mono         main                         yesterday
+   exa-men-v2   ~/code/work/mono         feature/aycid-login             3d ago
+   dotfiles     ~                        main                                 -
  ──────────────────────────────────────────────────────────────────────────────
  enter open | / search | s sort | r refresh | ? help | q quit | z Zed | …
 ```
 
 - **Header:** the title, such as `loper · 7 repos` with `loper` in bold, or `loper · 1 repo` for one; then the current sort, refresh spinner and any path warnings.
-- **Headings:** a dimmed line under the header's rule names the columns shown, `NAME`, `FOLDER`, `BRANCH` and `OPENED`, each aligned with its column. A column is at least as wide as its heading. The headings stay during a search and are not shown when the list has no rows or room for only one line.
+- **Headings:** a dimmed line under the header's rule names the columns shown, `NAME`, `FOLDER`, `BRANCH` and `OPENED`, each aligned with its column, `OPENED` on the right like its values. A column is at least as wide as its heading. The headings stay during a search and are not shown when the list has no rows or room for only one line.
 - **Selection:** the selected row is marked with `>`. It is also drawn in reverse video across the full width of the screen, gaps and padding included, and the dimmed and highlighted parts inside it never end it. The highlighted target in the menu is drawn the same way across the menu's width.
 - **Accent:** the keys in the footer, the help overlay, the target menu and its hint, and the add dialog are bold and, with colour on, in one palette colour, cyan. With `NO_COLOR` set they are bold only. Inside the reverse-video bar the accent is not used.
 - **Footer:** the tool's own keys, then the targets with their keys, then `a add` last, separated by ` | `. `a add` comes after the targets so that it is the first item to go when the line is short. Each key is in the accent and the separators are dimmed. When the line does not fit, whole items are dropped from the end and it ends with `…`. After a successful open it shows a confirmation such as "Opened aycapi in Zed", and after a target is added, edited or removed one such as "Added Lazygit", "Changed Lazygit" or "Removed Lazygit". Every such notice shows in place of the keys for 3 seconds, or until the next key press, and a new notice gets its own 3 seconds. The 3 seconds are not a config setting. The line `q` shows while an open is in its wait, under "Keybindings", is not such a notice: it stays until the open's result arrives.

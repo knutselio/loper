@@ -260,7 +260,7 @@ func TestAHistoryFileThatCannotBeReplacedIsLeftAsItWasWithNothingBesideIt(t *tes
 	}
 }
 
-func TestLastOpenedStartsOnAStraightEdgeAfterBranchesOfDifferentLengths(t *testing.T) {
+func TestLastOpenedEndsOnAStraightEdgeAfterBranchesOfDifferentLengths(t *testing.T) {
 	e := newEnv(t)
 	alpha := e.repo("code/alpha")
 	e.git(alpha, "checkout", "-q", "-b", "feature/long-branch-name")
@@ -271,8 +271,8 @@ func TestLastOpenedStartsOnAStraightEdgeAfterBranchesOfDifferentLengths(t *testi
 	d.press("z")
 
 	lines := strings.Split(d.screen(), "\n")
-	if got, want := cellColumn(t, lines[4], "-"), cellColumn(t, lines[3], "just now"); got != want {
-		t.Errorf("last opened starts at cell %d for beta and %d for alpha:\n%s", got, want, d.screen())
+	if got, want := cellColumn(t, lines[4], "-")+len("-"), cellColumn(t, lines[3], "just now")+len("just now"); got != want {
+		t.Errorf("last opened ends at cell %d for beta and %d for alpha:\n%s", got, want, d.screen())
 	}
 }
 

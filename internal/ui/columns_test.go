@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 )
 
 func TestColumnsShowsOnlyTheListedColumnsInTheirOrder(t *testing.T) {
@@ -326,10 +329,10 @@ func TestAHeadingsLineNamesEachShownColumnAlignedWithIt(t *testing.T) {
 		config             string
 		headings, firstRow string
 	}{
-		{"", "   NAME   FOLDER  BRANCH  OPENED", " > alpha  ~/code  main    -"},
+		{"", "   NAME   FOLDER  BRANCH                                                 OPENED", " > alpha  ~/code  main                                                        -"},
 		{`columns = ["branch", "name"]`, "   BRANCH  NAME", " > main    alpha"},
-		{`row_style = "root-path"`, "   NAME   BRANCH  OPENED", " > alpha  main    -"},
-		{`row_style = "name"`, "   NAME   BRANCH  OPENED", " > alpha  main    -"},
+		{`row_style = "root-path"`, "   NAME   BRANCH                                                         OPENED", " > alpha  main                                                                -"},
+		{`row_style = "name"`, "   NAME   BRANCH                                                         OPENED", " > alpha  main                                                                -"},
 	} {
 		e := newEnv(t)
 		e.repo("code/alpha")
@@ -345,7 +348,7 @@ func TestAHeadingsLineNamesEachShownColumnAlignedWithIt(t *testing.T) {
 	e := newEnv(t)
 	e.color = true
 	e.repo("code/alpha")
-	if got, want := styled(strings.Split(e.start().screen(), "\n")[2]), "   {NAME   FOLDER  BRANCH  OPENED}"; got != want {
+	if got, want := styled(strings.Split(e.start().screen(), "\n")[2]), "   {NAME   FOLDER  BRANCH                                                 OPENED}"; got != want {
 		t.Errorf("with colour: headings read %q, want them dimmed: %q", got, want)
 	}
 }
@@ -356,7 +359,7 @@ func TestTheHeadingsStayDuringASearchAndAreNotShownWithoutRows(t *testing.T) {
 	d := e.start()
 	d.press("/")
 	d.typeText("alp")
-	if got := strings.Split(d.screen(), "\n")[2]; got != "   NAME   FOLDER  BRANCH  OPENED" {
+	if got := strings.Split(d.screen(), "\n")[2]; got != "   NAME   FOLDER  BRANCH                                                 OPENED" {
 		t.Errorf("searching: line 3 is %q, want the headings", got)
 	}
 	d.typeText("xyz")
@@ -372,5 +375,95 @@ func TestTheHeadingsStayDuringASearchAndAreNotShownWithoutRows(t *testing.T) {
 
 	if got := strings.Split(newEnv(t).start().screen(), "\n")[2]; !strings.HasPrefix(got, "   No repos found in ") {
 		t.Errorf("no repos: line 3 is %q, want the no-repos message in place of the headings", got)
+	}
+}
+
+func TestLastOpenedIsRightAlignedAndEndsOneCellBeforeTheEdge(t *testing.T) {
+	for _, style := range []string{"name-folder", "root-path", "name"} {
+		e := newEnv(t)
+		alpha, beta := e.repo("code/alpha"), e.repo("code/beta")
+		e.repo("code/c")
+		e.openedBefore(map[string]time.Duration{alpha: 24 * time.Hour, beta: 2 * time.Hour})
+		e.config(`row_style = "` + style + `"`)
+		d := e.start()
+
+		for _, w := range []int{80, 120, 40} {
+			d.send(tea.WindowSizeMsg{Width: w, Height: 24})
+			lines := strings.Split(d.screen(), "\n")
+			for i, want := range []string{"OPENED", "2h ago", "yesterday", "-"} {
+				line := lines[2+i]
+				if !strings.HasSuffix(line, " "+want) || ansi.StringWidth(line) != w-1 {
+					t.Errorf("%s, width %d: line %q, want it to end with %q at cell %d", style, w, line, want, w-1)
+				}
+			}
+		}
+	}
+}
+
+func TestLastOpenedIsRightAlignedInItsOwnWidthWhenAnotherColumnIsLast(t *testing.T) {
+	e := newEnv(t)
+	alpha, beta := e.repo("code/alpha"), e.repo("code/beta")
+	e.repo("code/c")
+	e.openedBefore(map[string]time.Duration{alpha: 24 * time.Hour, beta: 2 * time.Hour})
+	e.config(`columns = ["name", "last_opened", "branch"]`)
+
+	lines := strings.Split(e.start().screen(), "\n")
+
+	want := []string{
+		"   NAME      OPENED  BRANCH",
+		" > beta      2h ago  main",
+		"   alpha  yesterday  main",
+		"   c              -  main",
+	}
+	if got := lines[2:6]; !slices.Equal(got, want) {
+		t.Errorf("lines read %q, want %q", got, want)
+	}
+}
+
+func TestTheLastCellOfEveryRowIsBlankAtEveryWidth(t *testing.T) {
+	for _, color := range []bool{false, true} {
+		for _, extra := range []string{
+			"",
+			"row_style = \"root-path\"\n",
+			"row_style = \"name\"\n",
+			"columns = [\"last_opened\", \"branch\", \"folder\", \"name\"]\n",
+			"columns = [\"name\", \"last_opened\", \"branch\"]\n",
+		} {
+			e := newEnv(t)
+			e.color = color
+			sweepTree(e, extra)
+			e.repo("code/a-repo-with-a-name-that-runs-on-and-on-and-on") // cut even alone at 28 and up
+			d := e.start()
+			for w := 4; w <= 120; w++ { // from the narrowest width with headings
+				d.send(tea.WindowSizeMsg{Width: w, Height: 24})
+				for i, line := range strings.Split(d.screen(), "\n")[2:22] {
+					plain := ansi.Strip(line)
+					if strings.HasPrefix(plain, " > ") && color && ansi.StringWidth(plain) != w {
+						t.Errorf("%q, width %d: the selection bar is %d cells wide, want %d", extra, w, ansi.StringWidth(plain), w)
+					}
+					if ansi.StringWidth(plain) >= w && !strings.HasSuffix(plain, " ") {
+						t.Errorf("%q, colour %v, width %d: line %d %q reaches the edge", extra, color, w, i+3, plain)
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestTheLastCellOfTheNoReposMessageIsBlankAtEveryWidth(t *testing.T) {
+	e := newEnv(t)
+	e.config(`paths = ["~/a-folder-with-a-rather-long-name-that-runs-on"]`)
+	d := e.start()
+	if screen := d.screen(); !strings.Contains(screen, "No repos found in") || !strings.Contains(screen, "Change paths in") {
+		t.Fatalf("no message:\n%s", screen)
+	}
+	for w := 4; w <= 120; w++ {
+		d.send(tea.WindowSizeMsg{Width: w, Height: 24})
+		lines := strings.Split(d.screen(), "\n")
+		for i, line := range lines[2:4] {
+			if ansi.StringWidth(line) >= w && !strings.HasSuffix(line, " ") {
+				t.Errorf("width %d: line %d %q reaches the edge", w, i+3, line)
+			}
+		}
 	}
 }

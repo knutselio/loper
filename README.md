@@ -12,12 +12,12 @@ It is a launcher and nothing more: it never runs a git operation and makes no ne
 ```text
  loper · 5 repos                                              sort: last opened
  ──────────────────────────────────────────────────────────────────────────────
-   NAME        FOLDER       BRANCH              OPENED
- > billing     ~/code/work  fix/rounding-error  2h ago
-   tidy-yaml   ~/code/oss   feature/anchors     yesterday
-   dotfiles    ~            main                3d ago
-   ray-tracer  ~/code/play  main                -
-   storefront  ~/code/work  main                -
+   NAME        FOLDER       BRANCH                                       OPENED
+ > billing     ~/code/work  fix/rounding-error                           2h ago
+   tidy-yaml   ~/code/oss   feature/anchors                           yesterday
+   dotfiles    ~            main                                         3d ago
+   ray-tracer  ~/code/play  main                                              -
+   storefront  ~/code/work  main                                              -
  ──────────────────────────────────────────────────────────────────────────────
  enter open | / search | s sort | r refresh | ? help | q quit | o cd | a add
 ```

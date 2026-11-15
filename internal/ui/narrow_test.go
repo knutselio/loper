@@ -15,10 +15,10 @@ import (
 // sweepTree makes repos with long and wide names under ~/code, ~/dotfiles
 // listed directly, and a config with a missing path, a target that opens and
 // one that fails; extra settings go before the targets. With the default
-// settings, all four columns fit 80 cells exactly.
+// settings, all four columns fit 80 cells exactly, the last cell blank.
 func sweepTree(e *env, extra string) {
-	backend := e.repo("code/work/unlimited/backend")                // the widest folder: 21 cells
-	e.git(backend, "checkout", "-q", "-b", "fix/a-long-branch-116") // 21 cells
+	backend := e.repo("code/work/unlimited/backend")               // the widest folder: 21 cells
+	e.git(backend, "checkout", "-q", "-b", "fix/a-long-branch-16") // 20 cells
 	e.repo("code/work/mono/日本語のリポジトリ")
 	e.repo("code/a-repo-with-a-long-name") // the widest name: 23 cells
 	e.repo("dotfiles")
@@ -158,7 +158,7 @@ func TestNothingIsDrawnWiderOrTallerThanTheTerminalInAnyState(t *testing.T) {
 	}
 	e := newEnv(t)
 	sweepTree(e, "")
-	if screen := e.start().screen(); !hasExactRow(screen, "backend ~/code/work/unlimited fix/a-long-branch-116 2h ago") {
+	if screen := e.start().screen(); !hasExactRow(screen, "backend ~/code/work/unlimited fix/a-long-branch-16 2h ago") {
 		t.Fatalf("at 80 cells the sweep's rows do not show all four columns:\n%s", screen)
 	}
 	for _, color := range []bool{false, true} {
@@ -289,9 +289,10 @@ func TestColumnsDropInAFixedOrderAsTheTerminalNarrowsAndComeBackAsItWidens(t *te
 
 		// The marker takes 3 cells and two columns are 2 apart, and the branch
 		// column is as wide as its heading, so the row is 32 cells with all
-		// four columns, 24 with three, 16 with two and 8 with the name alone.
+		// four columns, 24 with three, 16 with two and 8 with the name alone,
+		// and the terminal one cell wider, as the last cell stays blank.
 		for _, s := range []struct{ width, want int }{
-			{80, 0}, {32, 0}, {31, 1}, {24, 1}, {23, 2}, {16, 2}, {15, 3}, {8, 3}, {7, 4}, {80, 0},
+			{80, 0}, {33, 0}, {32, 1}, {25, 1}, {24, 2}, {17, 2}, {16, 3}, {9, 3}, {8, 4}, {80, 0},
 		} {
 			d.send(tea.WindowSizeMsg{Width: s.width, Height: 24})
 			screen := d.screen()
@@ -314,9 +315,9 @@ func TestANameTooLongIsCutWithAnEllipsisAndNeverSplitsAWideCharacter(t *testing.
 		width int
 		want  string
 	}{
-		{15, " > 日本語日本語"},
-		{14, " > 日本語日本…"},
-		{13, " > 日本語日…"}, // the next character would be cut in half, so it goes whole
+		{16, " > 日本語日本語"},
+		{15, " > 日本語日本…"},
+		{14, " > 日本語日…"}, // the next character would be cut in half, so it goes whole
 	} {
 		d.send(tea.WindowSizeMsg{Width: c.width, Height: 24})
 		if got := strings.Split(d.screen(), "\n")[3]; got != c.want {
@@ -476,10 +477,10 @@ func TestWithColourTheSelectionIsMarkedAndTheRulesAndBordersAreDimmed(t *testing
 	e.repo("code/beta")
 	e.config(zedTarget)
 	d := e.start()
-	d.send(tea.WindowSizeMsg{Width: 32, Height: 8})
+	d.send(tea.WindowSizeMsg{Width: 33, Height: 8})
 
 	lines := strings.Split(d.screen(), "\n")
-	rule := " {" + strings.Repeat("─", 30) + "} "
+	rule := " {" + strings.Repeat("─", 31) + "} "
 	if got := styled(lines[1]); got != rule {
 		t.Errorf("top rule reads %q, want it dimmed: %q", got, rule)
 	}
@@ -526,7 +527,7 @@ func TestWithColourAMenuOverDimmedFoldersKeepsEachStyleOnItsOwnSide(t *testing.T
 
 	d.press("enter")
 
-	edges := regexp.MustCompile(`^ .*[^ ]\}\{[╭│╰].*[╮│╯]\}\{[^ ]+\}  main    - *$`) // the selected row is padded for its bar
+	edges := regexp.MustCompile(`^ .*[^ ]\}\{[╭│╰].*[╮│╯]\}\{[^ ]+\}  main {9}- ?$`) // last opened ends a cell before the edge; the selected row is padded for its bar
 	lines := strings.Split(d.screen(), "\n")[3:6]
 	for i, line := range lines {
 		if s := styled(line); !edges.MatchString(s) {
@@ -554,10 +555,10 @@ func TestUnderRootPathAPathTooLongIsCutFromItsStartAndKeepsTheName(t *testing.T)
 		width int
 		want  string
 	}{
-		{32, " > clients/acme/services/backend"},
-		{21, " > …/services/backend"},
-		{10, " > backend"},
-		{9, " > backe…"},
+		{33, " > clients/acme/services/backend"},
+		{22, " > …/services/backend"},
+		{11, " > backend"},
+		{10, " > backe…"},
 	} {
 		d.send(tea.WindowSizeMsg{Width: c.width, Height: 24})
 		if got := strings.Split(d.screen(), "\n")[3]; got != c.want {
@@ -567,7 +568,7 @@ func TestUnderRootPathAPathTooLongIsCutFromItsStartAndKeepsTheName(t *testing.T)
 
 	e.color = true
 	d = e.start()
-	d.send(tea.WindowSizeMsg{Width: 21, Height: 24})
+	d.send(tea.WindowSizeMsg{Width: 22, Height: 24})
 	d.press("/")
 	d.typeText("services back")
 	if got, want := styledRows(d), []string{"[>] {…/[s][e][r][v][i][c][e][s]/}[b][a][c][k]end"}; !slices.Equal(got, want) {
@@ -578,7 +579,7 @@ func TestUnderRootPathAPathTooLongIsCutFromItsStartAndKeepsTheName(t *testing.T)
 	e.repo("code/日本/backend")
 	e.config(`row_style = "root-path"`)
 	d = e.start()
-	d.send(tea.WindowSizeMsg{Width: 13, Height: 24}) // the cut falls in the middle of 本, which goes whole
+	d.send(tea.WindowSizeMsg{Width: 14, Height: 24}) // the cut falls in the middle of 本, which goes whole
 	if got, want := strings.Split(d.screen(), "\n")[3], " > …/backend"; got != want {
 		t.Errorf("wide path: row is %q, want %q", got, want)
 	}
@@ -592,7 +593,7 @@ func TestALongBranchIsCutRatherThanDroppingAColumn(t *testing.T) {
 	e.openedBefore(map[string]time.Duration{alpha: time.Hour})
 	d := e.start() // 80 wide: the full row would be 88
 
-	if want := "alpha ~/code " + branch[:53] + "… 1h ago"; !hasExactRow(d.screen(), want) {
+	if want := "alpha ~/code " + branch[:52] + "… 1h ago"; !hasExactRow(d.screen(), want) {
 		t.Errorf("want the row %q:\n%s", want, d.screen())
 	}
 }
@@ -606,16 +607,17 @@ func TestTheFolderAndBranchShrinkBeforeTheFirstColumnDrops(t *testing.T) {
 	e.openedBefore(map[string]time.Duration{alpha: time.Hour})
 	d := e.start()
 
-	// The full row is 73 cells, and 44 with both columns at 12.
+	// The full row is 73 cells, and 44 with both columns at 12; the terminal
+	// is one cell wider, as the last cell stays blank.
 	for _, c := range []struct {
 		width int
 		want  string
 	}{
-		{73, "alpha ~/code/a-long-folder-name-here a-long-branch-name-here 1h ago"},
-		{66, "alpha ~/code/a-long-folder-n… a-long-branch-name-here 1h ago"}, // the wider one first
-		{60, "alpha ~/code/a-long-folde… a-long-branch-name-… 1h ago"},
-		{44, "alpha ~/code/a-lo… a-long-bran… 1h ago"},
-		{42, "alpha ~/code/a-long-… a-long-branch-…"}, // last opened dropped, so the rest grows back
+		{74, "alpha ~/code/a-long-folder-name-here a-long-branch-name-here 1h ago"},
+		{67, "alpha ~/code/a-long-folder-n… a-long-branch-name-here 1h ago"}, // the wider one first
+		{61, "alpha ~/code/a-long-folde… a-long-branch-name-… 1h ago"},
+		{45, "alpha ~/code/a-lo… a-long-bran… 1h ago"},
+		{43, "alpha ~/code/a-long-… a-long-branch-…"}, // last opened dropped, so the rest grows back
 	} {
 		d.send(tea.WindowSizeMsg{Width: c.width, Height: 24})
 		if screen := d.screen(); !hasExactRow(screen, c.want) {

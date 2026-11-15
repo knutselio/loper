@@ -87,15 +87,19 @@ func (m Model) View() tea.View {
 		empty = []string{spinner[m.frame] + " scanning…"}
 	}
 	// join lines up the shown columns, each cell from cell given its room.
+	// The last_opened column is right-aligned.
 	join := func(cell func(c string, room int) string) string {
 		cells := make([]string, len(shown))
 		for j, k := range shown {
 			room := widths[k]
-			if len(shown) == 1 { // the name alone has the whole row
-				room = max(m.width-3, 0)
+			if len(shown) == 1 { // the name alone has the whole row but its last cell
+				room = max(m.width-4, 0)
 			}
 			cells[j] = cell(m.columns[k], room)
-			if j < len(cells)-1 { // the last column is not padded, so a row has no trailing spaces
+			switch {
+			case m.columns[k] == "last_opened":
+				cells[j] = strings.Repeat(" ", widths[k]-ansi.StringWidth(cells[j])) + cells[j]
+			case j < len(cells)-1: // the last column is not padded, so a row has no trailing spaces
 				cells[j] = pad(cells[j], widths[k])
 			}
 		}
@@ -103,13 +107,13 @@ func (m Model) View() tea.View {
 	}
 	if m.pageHeight() < m.listHeight() {
 		line := join(func(c string, room int) string { return headings[c] })
-		lines = append(lines, ansi.Truncate("   "+m.dim(line), m.width, "…"))
+		lines = append(lines, ansi.Truncate("   "+m.dim(line), max(m.width-1, 0), "…"))
 	}
 	for i := m.offset; i < m.offset+m.pageHeight(); i++ {
 		if i >= len(m.repos) {
 			line := ""
 			if i < len(empty) {
-				line = ansi.Truncate("   "+empty[i], m.width, "…")
+				line = ansi.Truncate("   "+empty[i], max(m.width-1, 0), "…")
 			}
 			lines = append(lines, line)
 			continue
@@ -124,7 +128,7 @@ func (m Model) View() tea.View {
 			h = m.hits[i]
 		}
 		cells := join(func(c string, room int) string { return m.cell(c, r, h, now, room) })
-		line := ansi.Truncate(marker+cells, m.width, "…")
+		line := ansi.Truncate(marker+cells, max(m.width-1, 0), "…")
 		if i == m.selected {
 			line = m.bar(line, m.width)
 		}
@@ -189,12 +193,13 @@ func (m Model) footer() string {
 }
 
 // fit returns the indexes of the columns shown and the width of each column,
-// given the width of each column's widest value. While the rows would be
-// wider than the terminal, the folder and branch columns shrink, the widest
+// given the width of each column's widest value. While the rows would reach
+// the terminal's last cell, the folder and branch columns shrink, the widest
 // first, down to 12 cells; a column narrower than that keeps its width. When
 // that is not enough, last_opened is dropped, then branch, then folder,
 // whatever order the columns are in, and the columns left shrink again from
-// their full width. The name never shrinks here.
+// their full width. The name never shrinks here. A last_opened column
+// shown last is widened to the room left.
 func (m Model) fit(full []int) (shown, widths []int) {
 	shown = make([]int, len(m.columns))
 	for i := range shown {
@@ -211,7 +216,13 @@ func (m Model) fit(full []int) (shown, widths []int) {
 					widest = i
 				}
 			}
-			if width <= m.width {
+			if width <= m.width-1 { // the last cell stays blank
+				// A last_opened column shown last takes the room left, so it
+				// ends one cell before the edge, as the header line and the
+				// footer do.
+				if last := shown[len(shown)-1]; m.columns[last] == "last_opened" {
+					widths[last] += m.width - 1 - width
+				}
 				return shown, widths
 			}
 			if widest < 0 {

@@ -89,9 +89,10 @@ func TestOutsideTextIsDrawnEscapedOnOneRowInEveryStyleAndWidth(t *testing.T) {
 									}
 								}
 								// Each column after the name starts where its heading does,
-								// in both rows. The escaped text is ASCII, so a rune is a cell.
+								// in both rows, and last opened ends where its heading
+								// does. The escaped text is ASCII, so a rune is a cell.
 								heading := []rune(lines[2])
-								for _, word := range []string{"FOLDER", "BRANCH", "OPENED"} {
+								for _, word := range []string{"FOLDER", "BRANCH"} {
 									s := strings.Index(lines[2], word)
 									if s < 0 {
 										continue
@@ -102,6 +103,15 @@ func TestOutsideTextIsDrawnEscapedOnOneRowInEveryStyleAndWidth(t *testing.T) {
 										if len(r) <= s || r[s-1] != ' ' || r[s] == ' ' {
 											t.Errorf("%s does not start at cell %d in %q:\n%s", word, s, row, string(heading))
 										}
+									}
+								}
+								end := len(heading) // OPENED is last, so its end is the end of the headings
+								for _, row := range lines[3:5] {
+									if !strings.HasSuffix(lines[2], "OPENED") {
+										break
+									}
+									if r := []rune(row); len(r) < end || r[end-1] == ' ' || len(r) > end && r[end] != ' ' {
+										t.Errorf("OPENED does not end at cell %d in %q:\n%s", end, row, string(heading))
 									}
 								}
 							})
