@@ -251,23 +251,16 @@ func TestANameWithABackslashLooksDifferentFromOneWithTheControlCharacterItSpells
 	}
 }
 
-func TestSearchHighlightsWhatIsDrawnInAFolderAndABranchWithControlCharacters(t *testing.T) {
+func TestSearchHighlightsWhatIsDrawnInAFolderWithControlCharacters(t *testing.T) {
 	e := newEnv(t)
 	e.color = true
 	e.repo("code/q\x01zz/alpha")
-	beta := e.repo("code/beta")
-	e.writeFile(filepath.Join(beta, ".git", "HEAD"), "ref: refs/heads/w\x01vv\n")
+	e.repo("code/beta")
 	d := e.start()
 
-	for _, c := range []struct{ query, want string }{
-		{"qzz", `[>] alpha {~/code/[q]\x01[z][z]} main -`},
-		{"wvv", `[>] beta {~/code} [w]\x01[v][v] -`},
-	} {
-		d.press("/")
-		d.typeText(c.query)
-		if got := styledRows(d); !slices.Equal(got, []string{c.want}) {
-			t.Errorf("searching %q: rows read %q, want %q", c.query, got, []string{c.want})
-		}
-		d.press("esc")
+	d.press("/")
+	d.typeText("qzz")
+	if got, want := styledRows(d), []string{`[>] alpha {~/code/[q]\x01[z][z]} main -`}; !slices.Equal(got, want) {
+		t.Errorf("rows read %q, want %q", got, want)
 	}
 }

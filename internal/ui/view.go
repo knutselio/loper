@@ -76,7 +76,7 @@ func (m Model) View() tea.View {
 	switch {
 	case len(m.repos) > 0:
 	case m.searching && len(m.all) > 0:
-		empty = []string{"No matches"}
+		empty = []string{`No matches for "` + message(m.query) + `"`}
 	case !m.refreshing:
 		paths := make([]string, len(m.deps.Paths))
 		for i, p := range m.deps.Paths {
@@ -263,7 +263,7 @@ func (m Model) cell(c string, r repo, h matcher.Match, now time.Time, room int) 
 	case "folder":
 		s = m.dim(m.highlight(safe(m.shorten(filepath.Dir(r.path))), h.Folder))
 	case "branch":
-		s = m.highlight(safe(r.branch), h.Branch)
+		s = safe(r.branch)
 	default: // last_opened
 		s = "-"
 		if at, ok := m.history[r.path]; ok {

@@ -291,20 +291,26 @@ func TestMatchedLettersAreHighlightedInTheCellsOfEachRowStyle(t *testing.T) {
 	}
 }
 
-func TestTheSearchMatchesTheFolderAndBranchEvenWhenTheyAreNotShown(t *testing.T) {
+func TestTheSearchMatchesTheFolderEvenWhenItIsNotShownButNotTheBranch(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	beta := e.repo("projects/beta")
 	e.git(beta, "checkout", "-q", "-b", "feature")
 	e.config("row_style = \"name\"\ncolumns = [\"name\"]\npaths = [\"~/code\", \"~/projects\"]")
 
-	for _, query := range []string{"proj", "feat"} {
+	for _, c := range []struct {
+		query string
+		want  []string
+	}{
+		{"proj", []string{"beta"}},
+		{"feat", nil},
+	} {
 		d := e.start()
 		d.press("/")
-		d.typeText(query)
+		d.typeText(c.query)
 
-		if got, want := rows(d), []string{"beta"}; !slices.Equal(got, want) {
-			t.Errorf("%q: rows %q, want %q", query, got, want)
+		if got := rows(d); !slices.Equal(got, c.want) {
+			t.Errorf("%q: rows %q, want %q", c.query, got, c.want)
 		}
 	}
 }
@@ -363,7 +369,7 @@ func TestTheHeadingsStayDuringASearchAndAreNotShownWithoutRows(t *testing.T) {
 		t.Errorf("searching: line 3 is %q, want the headings", got)
 	}
 	d.typeText("xyz")
-	if got := strings.Split(d.screen(), "\n")[2]; got != "   No matches" {
+	if got := strings.Split(d.screen(), "\n")[2]; got != `   No matches for "alpxyz"` {
 		t.Errorf("no matches: line 3 is %q, want No matches in place of the headings", got)
 	}
 

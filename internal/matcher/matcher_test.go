@@ -19,9 +19,9 @@ func names(rows []matcher.Row, matches []matcher.Match) []string {
 
 func TestOnlyRowsWithAFieldMatchingEachTermOfTheQueryAreReturned(t *testing.T) {
 	rows := []matcher.Row{
-		{Name: "backend", Folder: "~/code", Branch: "main"},
-		{Name: "dotfiles", Folder: "~", Branch: "main"},
-		{Name: "aycapi", Folder: "~/code/work", Branch: "fix/login"},
+		{Name: "backend", Folder: "~/code"},
+		{Name: "dotfiles", Folder: "~"},
+		{Name: "aycapi", Folder: "~/code/work"},
 	}
 	for _, c := range []struct {
 		query string
@@ -29,14 +29,12 @@ func TestOnlyRowsWithAFieldMatchingEachTermOfTheQueryAreReturned(t *testing.T) {
 	}{
 		{"bnd", []string{"backend"}},                    // the name
 		{"wrk", []string{"aycapi"}},                     // the folder
-		{"login", []string{"aycapi"}},                   // the branch
 		{"zzz", nil},                                    // nothing
-		{"dotmain", nil},                                // one term across two fields
+		{"bndcode", nil},                                // one term across two fields
 		{"", []string{"backend", "dotfiles", "aycapi"}}, // an empty query matches every row, in order
-		{"dot main", []string{"dotfiles"}},              // each term in its own field
-		{"wrk login", []string{"aycapi"}},
-		{"code main", []string{"backend"}},
-		{"bnd login", nil}, // every term must match
+		{"ayc wrk", []string{"aycapi"}},                 // each term in its own field
+		{"code bnd", []string{"backend"}},
+		{"bnd wrk", nil}, // every term must match
 		{"  bnd   ", []string{"backend"}},
 		{"   ", []string{"backend", "dotfiles", "aycapi"}},
 	} {
@@ -46,23 +44,22 @@ func TestOnlyRowsWithAFieldMatchingEachTermOfTheQueryAreReturned(t *testing.T) {
 	}
 }
 
-func TestAMatchInTheNameRanksAboveAnExactMatchInTheFolderOrBranch(t *testing.T) {
+func TestAMatchInTheNameRanksAboveAnExactMatchInTheFolder(t *testing.T) {
 	rows := []matcher.Row{
-		{Name: "api", Folder: "~/code/tools", Branch: "main"},
-		{Name: "web", Folder: "~/code", Branch: "tools"},
-		{Name: "t-o-o-l-s", Folder: "~/code", Branch: "main"}, // scattered, so it scores below the others
+		{Name: "api", Folder: "~/code/tools"},
+		{Name: "t-o-o-l-s", Folder: "~/code"}, // scattered, so it scores below the other
 	}
 
 	got := names(rows, matcher.Find("tools", rows))
-	if len(got) != 3 || got[0] != "t-o-o-l-s" {
-		t.Errorf("ranked %q, want t-o-o-l-s first of all three", got)
+	if len(got) != 2 || got[0] != "t-o-o-l-s" {
+		t.Errorf("ranked %q, want t-o-o-l-s first of both", got)
 	}
 }
 
 func TestAWordBoundaryRanksAboveTheMiddleOfAWord(t *testing.T) {
 	rows := []matcher.Row{
-		{Name: "rapido", Folder: "~", Branch: "main"},
-		{Name: "my-api", Folder: "~", Branch: "main"},
+		{Name: "rapido", Folder: "~"},
+		{Name: "my-api", Folder: "~"},
 	}
 
 	if got, want := names(rows, matcher.Find("api", rows)), []string{"my-api", "rapido"}; !slices.Equal(got, want) {
@@ -71,7 +68,7 @@ func TestAWordBoundaryRanksAboveTheMiddleOfAWord(t *testing.T) {
 }
 
 func TestTiesKeepTheOrderOfTheRows(t *testing.T) {
-	for _, field := range []string{"name", "folder", "branch"} {
+	for _, field := range []string{"name", "folder"} {
 		// Even rows match exactly and odd rows scattered, so the rows tie in
 		// two groups; enough of them that an unstable sort would reorder.
 		var rows []matcher.Row
@@ -84,14 +81,12 @@ func TestTiesKeepTheOrderOfTheRows(t *testing.T) {
 			} else {
 				evens = append(evens, i)
 			}
-			r := matcher.Row{Name: other, Folder: other, Branch: other}
+			r := matcher.Row{Name: other, Folder: other}
 			switch field {
 			case "name":
 				r.Name = text
 			case "folder":
 				r.Folder = text
-			case "branch":
-				r.Branch = text
 			}
 			rows = append(rows, r)
 		}
@@ -108,9 +103,9 @@ func TestTiesKeepTheOrderOfTheRows(t *testing.T) {
 
 func TestALowercaseQueryIgnoresCaseAndOneWithACapitalDoesNot(t *testing.T) {
 	rows := []matcher.Row{
-		{Name: "Backend", Folder: "~", Branch: "main"},
-		{Name: "backend", Folder: "~", Branch: "main"},
-		{Name: "bB", Folder: "~", Branch: "main"},
+		{Name: "Backend", Folder: "~"},
+		{Name: "backend", Folder: "~"},
+		{Name: "bB", Folder: "~"},
 	}
 	for _, c := range []struct {
 		query string
@@ -128,7 +123,7 @@ func TestALowercaseQueryIgnoresCaseAndOneWithACapitalDoesNot(t *testing.T) {
 }
 
 func TestMatchedPositionsAreTheCharactersOfEachMatchingField(t *testing.T) {
-	rows := []matcher.Row{{Name: "main-app", Folder: "~/köde/main", Branch: "mainline"}}
+	rows := []matcher.Row{{Name: "main-app", Folder: "~/köde/main"}}
 
 	got := matcher.Find("main", rows)
 
@@ -142,25 +137,22 @@ func TestMatchedPositionsAreTheCharactersOfEachMatchingField(t *testing.T) {
 	if want := []int{7, 8, 9, 10}; !slices.Equal(m.Folder, want) { // characters, not bytes: ö is two bytes
 		t.Errorf("folder positions %v, want %v", m.Folder, want)
 	}
-	if want := []int{0, 1, 2, 3}; !slices.Equal(m.Branch, want) {
-		t.Errorf("branch positions %v, want %v", m.Branch, want)
-	}
 }
 
 func TestAFieldThatDoesNotMatchHasNoPositions(t *testing.T) {
-	rows := []matcher.Row{{Name: "web", Folder: "~/code", Branch: "fix/login"}}
+	rows := []matcher.Row{{Name: "web", Folder: "~/code/login"}}
 
 	got := matcher.Find("login", rows)
 
-	if len(got) != 1 || got[0].Name != nil || got[0].Folder != nil || !slices.Equal(got[0].Branch, []int{4, 5, 6, 7, 8}) {
-		t.Errorf("got %+v, want only the branch's positions 4 to 8", got)
+	if len(got) != 1 || got[0].Name != nil || !slices.Equal(got[0].Folder, []int{7, 8, 9, 10, 11}) {
+		t.Errorf("got %+v, want only the folder's positions 7 to 11", got)
 	}
 }
 
-func TestARowWithANameMatchingOneTermRanksAboveRowsMatchingOnlyInTheFolderOrBranch(t *testing.T) {
+func TestARowWithANameMatchingOneTermRanksAboveRowsMatchingOnlyInTheFolder(t *testing.T) {
 	rows := []matcher.Row{
-		{Name: "web", Folder: "~/api", Branch: "main"},
-		{Name: "api", Folder: "~/code", Branch: "main"},
+		{Name: "web", Folder: "~/api/main"},
+		{Name: "api", Folder: "~/code/main"},
 	}
 
 	if got, want := names(rows, matcher.Find("main api", rows)), []string{"api", "web"}; !slices.Equal(got, want) {
@@ -170,8 +162,8 @@ func TestARowWithANameMatchingOneTermRanksAboveRowsMatchingOnlyInTheFolderOrBran
 
 func TestMoreTermsMatchedWellRankHigher(t *testing.T) {
 	rows := []matcher.Row{
-		{Name: "w-e-b", Folder: "~/a-p-i", Branch: "main"},
-		{Name: "web", Folder: "~/api", Branch: "main"},
+		{Name: "w-e-b", Folder: "~/a-p-i"},
+		{Name: "web", Folder: "~/api"},
 	}
 
 	if got, want := names(rows, matcher.Find("web api", rows)), []string{"web", "w-e-b"}; !slices.Equal(got, want) {
@@ -180,9 +172,9 @@ func TestMoreTermsMatchedWellRankHigher(t *testing.T) {
 }
 
 func TestThePositionsOfAFieldAreThoseOfEveryTermThatMatchedIt(t *testing.T) {
-	rows := []matcher.Row{{Name: "api-web", Folder: "~/code", Branch: "main"}}
+	rows := []matcher.Row{{Name: "api-web", Folder: "~/code"}}
 
-	got := matcher.Find("web api main", rows)
+	got := matcher.Find("web api code", rows)
 
 	if len(got) != 1 {
 		t.Fatalf("got %d matches, want 1", len(got))
@@ -190,15 +182,15 @@ func TestThePositionsOfAFieldAreThoseOfEveryTermThatMatchedIt(t *testing.T) {
 	if want := []int{0, 1, 2, 4, 5, 6}; !slices.Equal(got[0].Name, want) {
 		t.Errorf("name positions %v, want %v", got[0].Name, want)
 	}
-	if want := []int{0, 1, 2, 3}; !slices.Equal(got[0].Branch, want) {
-		t.Errorf("branch positions %v, want %v", got[0].Branch, want)
+	if want := []int{2, 3, 4, 5}; !slices.Equal(got[0].Folder, want) {
+		t.Errorf("folder positions %v, want %v", got[0].Folder, want)
 	}
 }
 
 func TestEachTermIsCaseSensitiveOnlyWhenItHasACapital(t *testing.T) {
 	rows := []matcher.Row{
-		{Name: "Backend", Folder: "~", Branch: "MAIN"},
-		{Name: "backend", Folder: "~", Branch: "main"},
+		{Name: "Backend", Folder: "~/MAIN"},
+		{Name: "backend", Folder: "~/main"},
 	}
 
 	if got, want := names(rows, matcher.Find("Back main", rows)), []string{"Backend"}; !slices.Equal(got, want) {
@@ -208,8 +200,8 @@ func TestEachTermIsCaseSensitiveOnlyWhenItHasACapital(t *testing.T) {
 
 func TestATermWithoutAccentsIgnoresThemAndOneWithAccentsDoesNot(t *testing.T) {
 	rows := []matcher.Row{
-		{Name: "~café", Folder: "~", Branch: "main"},
-		{Name: "cafe", Folder: "~", Branch: "main"},
+		{Name: "~café", Folder: "~"},
+		{Name: "cafe", Folder: "~"},
 	}
 	for _, c := range []struct {
 		query string

@@ -16,19 +16,19 @@ import (
 func init() { algo.Init("default") }
 
 // Row is the text of a row's searchable fields, as the list shows them.
-type Row struct{ Name, Folder, Branch string }
+type Row struct{ Name, Folder string }
 
 // Match is a row that matches the query: its index among the rows given and,
 // for each field that matches, the positions of the matched characters,
 // counted in characters (runes) and in ascending order.
 type Match struct {
-	Row                  int
-	Name, Folder, Branch []int
+	Row          int
+	Name, Folder []int
 }
 
 // Find returns the rows that match every space-separated term of query in
 // one of their fields, best match first. A row with a term matching its name
-// ranks above the rows matching only in the folder or branch, then the sum
+// ranks above the rows matching only in the folder, then the sum
 // of each term's best score decides, and equal matches keep the order of
 // rows. A term ignores case unless it contains a capital letter, and ignores
 // accents unless it contains one.
@@ -48,7 +48,7 @@ func Find(query string, rows []Row) []Match {
 		fields := []struct {
 			text string
 			pos  *[]int
-		}{{row.Name, &r.Name}, {row.Folder, &r.Folder}, {row.Branch, &r.Branch}}
+		}{{row.Name, &r.Name}, {row.Folder, &r.Folder}}
 		matched := true
 		for _, t := range terms {
 			best, ok := 0, false

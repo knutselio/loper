@@ -136,7 +136,7 @@ func (m Model) filter() ([]repo, []matcher.Match) {
 	}
 	rows := make([]matcher.Row, len(m.all))
 	for i, r := range m.all {
-		rows[i] = matcher.Row{Name: m.name(r), Folder: safe(m.shorten(filepath.Dir(r.path))), Branch: safe(r.branch)}
+		rows[i] = matcher.Row{Name: m.name(r), Folder: safe(m.shorten(filepath.Dir(r.path)))}
 	}
 	hits := matcher.Find(m.query, rows)
 	repos := make([]repo, len(hits))

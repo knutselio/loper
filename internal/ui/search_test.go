@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -56,18 +57,15 @@ func TestSlashShowsTheSearchLineAndOnlyMatchingRowsWithTheTopOneSelected(t *test
 	}
 }
 
-func TestARepoIsFoundByPartOfItsNameItsFolderOrItsBranch(t *testing.T) {
+func TestARepoIsFoundByPartOfItsNameOrItsFolder(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/backend")
 	e.repo("work/web")
-	feature := e.repo("code/site")
-	e.git(feature, "checkout", "-q", "-b", "fix/login")
 	e.config(`paths = ["~/code", "~/work"]`)
 
 	for _, c := range []struct{ query, want string }{
 		{"bkd", "backend ~/code main"},
 		{"wrk", "web ~/work main"},
-		{"login", "site ~/code fix/login"},
 	} {
 		d := e.start()
 		d.press("/")
@@ -78,20 +76,33 @@ func TestARepoIsFoundByPartOfItsNameItsFolderOrItsBranch(t *testing.T) {
 	}
 }
 
-func TestANameMatchRanksAboveAFolderOrBranchMatch(t *testing.T) {
+func TestAQueryOnlyABranchWouldMatchMatchesNothing(t *testing.T) {
 	e := newEnv(t)
-	e.repo("api/main") // the folder matches exactly
-	web := e.repo("code/web")
-	e.git(web, "checkout", "-q", "-b", "api") // the branch matches exactly
-	e.repo("code/a-p-i")                      // the name matches, scattered
+	e.repo("code/backend")
+	site := e.repo("code/site")
+	e.git(site, "checkout", "-q", "-b", "fix/login")
+	d := e.start()
+
+	d.press("/")
+	d.typeText("fix/login")
+
+	if screen := d.screen(); !strings.Contains(screen, "\n   No matches for \"fix/login\"\n") || hasRow(screen, "site") {
+		t.Errorf("want no rows and the no-matches line:\n%s", screen)
+	}
+}
+
+func TestANameMatchRanksAboveAFolderMatch(t *testing.T) {
+	e := newEnv(t)
+	e.repo("api/main")   // the folder matches exactly
+	e.repo("code/a-p-i") // the name matches, scattered
 	e.config(`paths = ["~/api", "~/code"]`)
 	d := e.start()
 
 	d.press("/")
 	d.typeText("api")
 
-	if got := order(d); len(got) != 3 || got[0] != "a-p-i ~/code" {
-		t.Errorf("rows %q, want a-p-i first of three", got)
+	if got := order(d); len(got) != 2 || got[0] != "a-p-i ~/code" {
+		t.Errorf("rows %q, want a-p-i first of two", got)
 	}
 	if got := d.selected(); !startsWith(got, "a-p-i") {
 		t.Errorf("selected %q, want the top match", got)
@@ -225,7 +236,7 @@ func TestEscClosesTheMenuFirstAndASecondEscClearsTheSearch(t *testing.T) {
 	}
 }
 
-func TestAQueryThatMatchesNothingShowsNoMatches(t *testing.T) {
+func TestAQueryThatMatchesNothingShowsNoMatchesForTheQuery(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.config(zedTarget)
@@ -234,8 +245,8 @@ func TestAQueryThatMatchesNothingShowsNoMatches(t *testing.T) {
 	d.press("/")
 	d.typeText("xyz")
 
-	if screen := d.screen(); !strings.Contains(screen, "\n   No matches\n") || hasRow(screen, "alpha") {
-		t.Errorf("want No matches and no rows:\n%s", screen)
+	if screen := d.screen(); !strings.Contains(screen, "\n   No matches for \"xyz\"\n") || hasRow(screen, "alpha") {
+		t.Errorf("want No matches for the query and no rows:\n%s", screen)
 	}
 	d.press("enter", "z")
 	if got := boxRows(d); got != nil {
@@ -244,6 +255,41 @@ func TestAQueryThatMatchesNothingShowsNoMatches(t *testing.T) {
 	d.press("esc")
 	if screen := d.screen(); !hasRow(screen, "alpha ~/code main") {
 		t.Errorf("after esc: want alpha back:\n%s", screen)
+	}
+}
+
+func TestTheNoMatchesLineShowsTheQueryEscapedAndCutWhenTooLong(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	d := e.start()
+
+	d.press("/", "x", "\x07", "\\")
+	if got, want := strings.Split(d.screen(), "\n")[2], `   No matches for "x\x07\"`; got != want {
+		t.Errorf("line 3 is %q, want %q", got, want)
+	}
+
+	d.press("esc", "/")
+	d.typeText("Foo q")
+	if got, want := strings.Split(d.screen(), "\n")[2], `   No matches for "Foo q"`; got != want {
+		t.Errorf("line 3 is %q, want the query as typed, %q", got, want)
+	}
+
+	d.press("esc", "/")
+	d.typeText("zyxwvutsrqponm")
+	d.send(tea.WindowSizeMsg{Width: 30, Height: 24})
+	if got, want := strings.Split(d.screen(), "\n")[2], `   No matches for "zyxwvutsr…`; got != want {
+		t.Errorf("at 30 wide: line 3 is %q, want %q", got, want)
+	}
+}
+
+func TestASearchWithNoReposStillShowsNoReposFound(t *testing.T) {
+	d := newEnv(t).start()
+
+	d.press("/")
+	d.typeText("xyz")
+
+	if screen := d.screen(); !strings.Contains(screen, "No repos found in") || strings.Contains(screen, "No matches") {
+		t.Errorf("want No repos found and no No matches:\n%s", screen)
 	}
 }
 
@@ -347,7 +393,7 @@ func TestTheSearchLineKeepsTheSpinnerAndLeavesOutThePathWarnings(t *testing.T) {
 
 var sgr = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
-func TestMatchedLettersAreHighlightedInEachColumn(t *testing.T) {
+func TestMatchedLettersAreHighlightedInTheNameAndFolderButNotTheBranch(t *testing.T) {
 	e := newEnv(t)
 	e.color = true
 	e.repo("code/mango")
@@ -355,11 +401,15 @@ func TestMatchedLettersAreHighlightedInEachColumn(t *testing.T) {
 	d := e.start()
 
 	d.press("/")
-	d.typeText("mn")
+	d.typeText("mn") // also in the branch, main
+	if got, want := styledRows(d), []string{"[>] [m]a[n]go {~/code} main -"}; !slices.Equal(got, want) {
+		t.Errorf("mn: rows read %q, want %q", got, want)
+	}
 
-	rows := styledRows(d)
-	if want := []string{"[>] [m]a[n]go {~/code} [m]ai[n] -", "web {~/code} [m]ai[n] -"}; !slices.Equal(rows, want) {
-		t.Errorf("rows read %q, want %q", rows, want)
+	d.press("esc", "/")
+	d.typeText("cd web")
+	if got, want := styledRows(d), []string{"[>] [w][e][b] {~/[c]o[d]e} main -"}; !slices.Equal(got, want) {
+		t.Errorf("cd web: rows read %q, want %q", got, want)
 	}
 }
 

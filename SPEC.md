@@ -18,7 +18,7 @@ Tools that list multiple repos exist (gitpane, git-scope, dirtygit), but they ar
 
 - **It starts instantly.** The list comes from a cache and is corrected in the background, so it is always current without ever making me wait.
 - **Each row tells me enough to choose.** A row shows the repo's name, where it lives, the branch it is on, and when I last opened it with `loper`. The repos I opened most recently are at the top.
-- **I find a repo by typing.** `/` starts a fuzzy search over name, folder and branch.
+- **I find a repo by typing.** `/` starts a fuzzy search over name and folder.
 - **I choose where it opens.** Each "open target" is a command I define in a config file, such as Zed, a new terminal tab or lazygit. `enter` shows the targets, and each target can have its own key that opens the selected repo in one keystroke.
 - **It is a launcher and nothing more.** It never runs git operations and never fetches.
 
@@ -72,11 +72,11 @@ Tools that list multiple repos exist (gitpane, git-scope, dirtygit), but they ar
 35. As a developer, I want to set the starting sort in my config, so that the tool opens the way I like it.
 36. As a developer, I want a sort switched with the key to last only for that session, so that my configured order is back on the next launch.
 37. As a developer, I want to press `/` and type to fuzzy-search, so that I reach a repo in a few keystrokes as I do today with `fzf`.
-38. As a developer, I want the search to match the name, the folder and the branch, so that I can find a repo by what I was working on.
+38. As a developer, I want the search to match the name and the folder only, so that the matches are the repos whose name or place I typed.
 39. As a developer, I want the best match selected automatically, so that `/`, a few letters and `enter` acts on it without moving.
 40. As a developer, I want matched letters highlighted, so that I can see why a row matched.
 41. As a developer, I want `esc` to clear the search and restore my previous selection, so that a mistaken search costs nothing.
-42. As a developer, I want "No matches" shown when a search finds nothing, so that an empty list is explained.
+42. As a developer, I want "No matches" shown with my query when a search finds nothing, so that an empty list is explained and does not read as "No repos found".
 
 ### Opening a repo
 
@@ -187,7 +187,7 @@ Each module hides its details behind a small interface. The UI is the only modul
 - The last cell of every row is blank, whichever column is last, at every width; the selection bar still spans the full width.
 - In a narrow terminal, columns are dropped in a fixed order, whatever order `columns` puts them in: last opened first, then branch, then folder. Before a column is dropped, the folder and branch columns shrink to 12 cells, with long values cut by `…`. Values that are still too long are cut with `…`; under `root-path` the dimmed path is cut at its start, so the repo's name stays whole.
 - Colours come from the terminal's own palette. The tool honours `NO_COLOR`: set to any non-empty value, such as `1`, `yes` or even `false`, it turns colour off and nothing else, so bold, dim, underline and the reverse-video bar stay. Set but empty, it leaves colour on.
-- A repo's name, folder and branch come from the file system and are drawn as display text: control characters, such as an escape, a carriage return or a line feed, and bytes that are not UTF-8 are shown escaped, as `\x1b`, `\r` or `\n`, so they never reach the terminal and two names that differ in one never look the same. A backslash is shown as `\\`, so the escaping is one to one. Other text, emoji and wide characters included, is drawn as it is. This holds wherever such text shows: the rows, the titles of the target menu and the error dialog, the error dialog's command line, the "Opened" notice, the path warnings and the "No repos found" message. The config file's path, and any other path in a message about it, such as where a link points, is drawn the same way wherever the picker shows it: the "No repos found" message, the add dialog, its refusals and problems, and the notice that a first run could not write the file. A value such a message quotes, such as a target's name, is escaped once, as Go quotes it, not twice. Opening, the history and the cache use the real path.
+- A repo's name, folder and branch come from the file system and are drawn as display text: control characters, such as an escape, a carriage return or a line feed, and bytes that are not UTF-8 are shown escaped, as `\x1b`, `\r` or `\n`, so they never reach the terminal and two names that differ in one never look the same. A backslash is shown as `\\`, so the escaping is one to one. Other text, emoji and wide characters included, is drawn as it is. This holds wherever such text shows: the rows, the titles of the target menu and the error dialog, the error dialog's command line, the "Opened" notice, the path warnings and the "No repos found" message. The config file's path, and any other path in a message about it, such as where a link points, is drawn the same way wherever the picker shows it: the "No repos found" message, the add dialog, its refusals and problems, and the notice that a first run could not write the file. A value such a message quotes, such as a target's name, is escaped once, as Go quotes it, not twice. The query in the no-matches line is drawn the same way as such a message: control characters are shown escaped, but a backslash is shown once, as typed. Opening, the history and the cache use the real path.
 
 ### Sorting
 
@@ -198,9 +198,9 @@ Each module hides its details behind a small interface. The UI is the only modul
 ### Search
 
 - `/` starts the search. The header becomes the search line.
-- The query is matched fuzzily against name, folder and branch, also when their column is hidden. Under `root-path` the name is the path the row shows. The query is matched against the text as drawn, so a control character matches as its escape. A space separates terms, and a row matches when every term matches one of the three. Matching is case-insensitive unless the query contains a capital letter.
-- Only matching rows are shown, best match first. A match in the name ranks above a match in the folder or branch. Ties keep the current sort order.
-- The top match is selected automatically. Matched letters are highlighted.
+- The query is matched fuzzily against name and folder, also when their column is hidden. The branch is not matched. Under `root-path` the name is the path the row shows. The query is matched against the text as drawn, so a control character matches as its escape. A space separates terms, and a row matches when every term matches one of the two. Matching is case-insensitive unless the query contains a capital letter.
+- Only matching rows are shown, best match first. A match in the name ranks above a match in the folder. Ties keep the current sort order.
+- The top match is selected automatically. Matched letters are highlighted in the name and folder; the branch has none.
 - While searching, letters go to the query, so target keys are inactive. `↑`/`↓` and `ctrl-p`/`ctrl-n` move through the matches, and `enter` opens the target menu for the selected match.
 - `esc` clears the search and restores the full list and the previous selection.
 
@@ -229,7 +229,7 @@ A single full-width scrolling list between a one-line header and a one-line foot
 - **Empty states:**
   - First launch with no cache: the spinner and "scanning…".
   - No repos found: a message naming the scanned paths and the config file location.
-  - Search with no matches: "No matches".
+  - Search with no matches: `No matches for "<query>"`, with the query as typed and its control characters shown escaped. A query too long for the line is cut with `…`.
   - No targets, in a config file without any: the footer lists none, so `a add` follows `q quit`, and `enter` shows "No targets yet. Press a to add one." in a box in the menu's place instead of an empty menu, and the help overlay's "Targets" heading has "None yet. Press a to add one." under it.
 
 ### Keybindings

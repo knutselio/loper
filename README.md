@@ -104,7 +104,7 @@ The `x` after the file's text, removed again, keeps line breaks at the end of a 
 
 ## Features
 
-- Fuzzy search over name, folder and branch, with the matched letters highlighted.
+- Fuzzy search over name and folder, with the matched letters highlighted.
 - Sort by last opened or by name.
 - Open the selected repo in a target with one key, or choose it from a menu.
 - Targets that take over loper's own terminal window, such as lazygit or an editor, run in the repo's folder.
