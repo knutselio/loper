@@ -124,12 +124,13 @@ func (m Model) View() tea.View {
 
 // top is the top row: on the left the search hint, or while searching the
 // query; on the right one message, the first there is of the line q shows
-// while an open is in its wait, a notice, the refresh spinner, the count of
-// matches while searching, the paths that do not exist, as a problem, and
-// the count. When the two do not fit, the right side is cut and the left
-// stays whole, unless it alone does not fit: then the query is cut from its
-// start, so its end, where the typing is, shows, keeping at least 10 cells.
-// The last cell stays blank.
+// while an open is in its wait, a notice, the refresh spinner, the problem
+// that the window is too small for the add dialog, the count of matches
+// while searching, the paths that do not exist, as a problem, and the
+// count. When the two do not fit, the right side is cut and the left stays
+// whole, unless it alone does not fit: then the query is cut from its start,
+// so its end, where the typing is, shows, keeping at least 10 cells. The
+// last cell stays blank.
 func (m Model) top() string {
 	noun := "repos"
 	if len(m.repos) == 1 {
@@ -147,6 +148,8 @@ func (m Model) top() string {
 		right = message(m.notice)
 	case m.refreshing && len(m.all) > 0: // with no list yet, the spinner is in the list
 		right = m.dim(spinner[m.frame] + " refreshing")
+	case m.failure == nil && m.add.open && !m.addFits(): // the error dialog is drawn over the add dialog
+		right = m.problem("Window too small for the dialog")
 	case m.searching:
 		right = m.dim(fmt.Sprintf("%d of %d", len(m.repos), len(m.all)))
 	case len(missing) > 0:

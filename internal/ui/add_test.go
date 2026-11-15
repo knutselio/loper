@@ -496,18 +496,17 @@ func TestTheMomentOfAnEarlierConfirmationDoesNotCountForALaterOne(t *testing.T) 
 }
 
 func TestTheFieldsNeedRoomForTheLongestLabelAndACellOfValue(t *testing.T) {
-	const notice = "Window too small for the dialog"
 	e := newEnv(t)
 	e.repo("code/alpha")
 	d := e.start()
 	d.fill("Tab", "t", "tab {path}")
 
 	d.send(tea.WindowSizeMsg{Width: 18, Height: 24}) // 16 cells inside the border: no cell for a value after After open
-	if screen := d.screen(); !strings.Contains(screen, ansi.Truncate(notice, 17, "…")) || strings.Contains(screen, "After") {
-		t.Errorf("at 18 cells: want the notice and no dialog:\n%s", screen)
+	if screen := d.screen(); topRight(d) != ansi.Truncate(tooSmall, 18-12, "…") || strings.Contains(screen, "After") {
+		t.Errorf("at 18 cells: want the problem top right and no dialog:\n%s", screen)
 	}
 	d.send(tea.WindowSizeMsg{Width: 19, Height: 24})
-	if screen := d.screen(); strings.Contains(screen, "Window too") || !strings.Contains(screen, "After open") {
+	if screen := d.screen(); strings.Contains(screen, "! Win") || !strings.Contains(screen, "After open") {
 		t.Errorf("at 19 cells: want the dialog:\n%s", screen)
 	}
 }
@@ -535,8 +534,7 @@ func TestTheMomentStartsAgainWhenAHiddenConfirmationShows(t *testing.T) {
 	}
 }
 
-func TestOnAScreenTooSmallForTheDialogANoticeShowsAndTheTextIsKept(t *testing.T) {
-	const notice = "Window too small for the dialog"
+func TestOnAScreenTooSmallForTheDialogAProblemShowsAndTheTextIsKept(t *testing.T) {
 	e := newEnv(t)
 	e.repo("code/alpha")
 	e.config(zedConfig)
@@ -554,8 +552,10 @@ func TestOnAScreenTooSmallForTheDialogANoticeShowsAndTheTextIsKept(t *testing.T)
 		for _, size := range [][2]int{{80, 1}, {80, 4}, {80, 5}, {80, 10}, {13, 24}} {
 			d.send(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
 			screen := d.screen()
-			if want := ansi.Truncate(notice, size[0]-1, "…"); !strings.Contains(screen, want) || strings.Contains(screen, "Add a target") {
-				t.Errorf("%s at %dx%d: want the notice %q and no dialog:\n%s", step.name, size[0], size[1], want, screen)
+			// The top row's right side has the row but its margins, the
+			// search hint and the gap.
+			if want := ansi.Truncate(tooSmall, size[0]-12, "…"); topRight(d) != want || strings.Contains(screen, "Add a target") {
+				t.Errorf("%s at %dx%d: want the problem %q top right and no dialog:\n%s", step.name, size[0], size[1], want, screen)
 			}
 		}
 		if step.name == "confirmation" {
@@ -568,7 +568,7 @@ func TestOnAScreenTooSmallForTheDialogANoticeShowsAndTheTextIsKept(t *testing.T)
 
 		d.send(tea.WindowSizeMsg{Width: 80, Height: 24})
 
-		if got := boxRows(d); !slices.Contains(got, step.want) || strings.Contains(d.screen(), notice) {
+		if got := boxRows(d); !slices.Contains(got, step.want) || strings.Contains(d.screen(), tooSmall) {
 			t.Errorf("%s after growing: dialog reads %q, want the row %q", step.name, got, step.want)
 		}
 		if step.name == "confirmation" {

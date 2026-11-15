@@ -224,16 +224,10 @@ func (m Model) write() tea.Cmd {
 	}
 }
 
-// overlayAdd draws the dialog centred over the list part of lines or,
-// when the screen is too small for it, a notice in its place: on the middle
-// line of the list, or on the top row when there is no list.
+// overlayAdd draws the dialog centred over the list part of lines, unless
+// the screen is too small for it: then the top row says so.
 func (m Model) overlayAdd(lines []string) []string {
 	if !m.addFits() {
-		row := 0
-		if m.listHeight() > 0 {
-			row = 2 + (m.listHeight()-1)/2
-		}
-		lines[row] = ansi.Truncate(" Window too small for the dialog", m.width, "…")
 		return lines
 	}
 	rows, width := m.addRows()
@@ -307,7 +301,13 @@ func (m Model) addRows() ([]string, int) {
 			rows = append(rows, " "+marker+pad(label, 10)+"  "+value+" ")
 		}
 		if a.problem != "" {
-			rows = append(append(rows, ""), wrap(message(m.shorten(a.problem)))...) // a loader message starts with the file
+			rows = append(rows, "")
+			// A loader message starts with the file. The text wraps in the room
+			// the "! " of a problem leaves.
+			problem := ansi.Wrap(clean(message(m.shorten(a.problem))), max(width-4, 1), "")
+			for _, l := range strings.Split(m.problem(problem), "\n") {
+				rows = append(rows, " "+l+" ")
+			}
 		}
 		rows = append(rows, "", " "+m.key("enter")+" next"+m.dim(" • ")+m.key("tab")+" move"+m.dim(" • ")+m.key("esc")+" cancel ")
 	}

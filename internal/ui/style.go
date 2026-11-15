@@ -64,12 +64,15 @@ func (m Model) key(s string) string {
 }
 
 // problem draws s as a problem: with "! " in front, which says it also
-// without colour, and in red unless colour is off.
+// without colour, and in red unless colour is off. A line of s after the
+// first is indented under the first's text, and each line is red on its own,
+// so the red never reaches what is drawn around it.
 func (m Model) problem(s string) string {
+	s = "! " + strings.ReplaceAll(s, "\n", "\n  ")
 	if !m.deps.Color {
-		return "! " + s
+		return s
 	}
-	return problemOn + "! " + s + problemOff
+	return problemOn + strings.ReplaceAll(s, "\n", problemOff+"\n"+problemOn) + problemOff
 }
 
 // highlight marks the characters of s at the positions pos, which are in
