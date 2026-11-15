@@ -460,7 +460,7 @@ func TestTheHelpFlagPrintsTheUsageTheConfigFileAndTheKeys(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Errorf("exit code %d, stderr %q; want 0 and nothing", code, stderr)
 	}
-	want := []string{"Usage: loper [--config <file>]", "\n  -h, --help       Print this help\n  -v, --version    Print the version\n", "Config file: " + filepath.Join(xdgConfig, "loper", "config.toml"), "\n  a  ", "Add a target to the config file",
+	want := []string{"Usage: loper [--config <file>]", "\n  -h, --help       Print this help\n  -v, --version    Print the version\n" + helpExamples, "Config file: " + filepath.Join(xdgConfig, "loper", "config.toml"), "\n  a  ", "Add a target to the config file",
 		"\n  e  ", "Edit the highlighted target", "\n  d  ", "Remove the highlighted target", "enter, space  "}
 	for _, s := range ui.KeyList() {
 		want = append(want, s.Title)
@@ -483,6 +483,38 @@ func TestTheHelpFlagPrintsTheUsageTheConfigFileAndTheKeys(t *testing.T) {
 			t.Errorf("stdout has no section %q after the one before:\n%s", title, stdout)
 		}
 		at = i
+	}
+}
+
+// helpExamples are the examples and the link that follow the options in --help.
+const helpExamples = `
+Examples:
+  loper                      Pick a repo and open it
+  loper --config ~/try.toml  Use another config file for one run
+
+More in the README: https://github.com/knutselio/loper
+`
+
+func TestTheHelpFlagAndALoadErrorShowAConfigPathWithAnEscapeEscaped(t *testing.T) {
+	home := tempHome(t)
+	file := filepath.Join(home, "x\x1b[31mred", "c.toml")
+	writeConfig(t, file, "colour = \"blue\"\n")
+	shown := filepath.Join(home, `x\x1b[31mred`, "c.toml")
+
+	_, stdout, _ := withoutUI(t, "--help", "--config", file)
+	code, stderr := startup(t, "--config", file)
+
+	if want := "Config file: " + shown + "\n"; !strings.Contains(stdout, want) {
+		t.Errorf("--help does not show %q:\n%s", want, stdout)
+	}
+	if got, want := targetsSection(t, stdout), []string{"  " + shown + `:1: unknown setting "colour"`}; !slices.Equal(got, want) {
+		t.Errorf("Targets section %q, want %q", got, want)
+	}
+	if want := "loper: " + shown + ":1: unknown setting \"colour\"\n"; code != 1 || stderr != want {
+		t.Errorf("exit code %d, stderr %q; want 1 and %q", code, stderr, want)
+	}
+	if strings.Contains(stdout+stderr, "\x1b") {
+		t.Errorf("the escape reached the terminal raw:\n%q\n%q", stdout, stderr)
 	}
 }
 
@@ -700,6 +732,24 @@ func TestAUsageErrorPrintsWhatIsWrongAndTheUsage(t *testing.T) {
 		}
 		if want := c.want + "\nUsage: loper [--config <file>]\n"; !strings.HasPrefix(stderr, want) {
 			t.Errorf("%q: stderr %q does not start with %q", c.args, stderr, want)
+		}
+	}
+}
+
+func TestAUsageErrorShowsTheArgumentEscapedAndOnlyTheUsage(t *testing.T) {
+	tempHome(t)
+	for _, c := range []struct{ arg, want string }{
+		{"--x\x1b[31mred", `loper: unknown flag --x\x1b[31mred`},
+		{"---\x1b[31mred", `loper: bad flag syntax: ---\x1b[31mred`},
+	} {
+		code, _, stderr := withoutUI(t, c.arg)
+
+		want := c.want + "\n\nUsage: loper [--config <file>]\n\nOptions:\n" +
+			"  --config <file>  Use this config file instead of the standard one\n" +
+			"  -h, --help       Print this help\n" +
+			"  -v, --version    Print the version\n"
+		if code != 2 || stderr != want {
+			t.Errorf("%q: exit code %d, stderr %q; want 2 and %q", c.arg, code, stderr, want)
 		}
 	}
 }

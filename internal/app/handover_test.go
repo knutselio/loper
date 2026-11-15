@@ -79,6 +79,17 @@ func TestAHandOverWhoseFolderIsGoneSaysWhyAndExits1(t *testing.T) {
 	}
 }
 
+func TestAHandOverWhoseFolderIsGoneShowsItsNameEscaped(t *testing.T) {
+	home := tempHome(t)
+	dir := filepath.Join(home, "code", "gone\x1b[31mred\u202e")
+
+	code, _, stderr := handOverChild(t, home, dir, "echo ran\n")
+
+	if want := "loper: chdir " + filepath.Join(home, "code", `gone\x1b[31mred\u202e`) + ": no such file or directory\n"; code != 1 || stderr != want {
+		t.Errorf("exit code %d, stderr %q; want 1 and %q", code, stderr, want)
+	}
+}
+
 func TestAHandOverThatIsNotCdLeavesTheWrappersFileAlone(t *testing.T) {
 	home := tempHome(t)
 	dir := filepath.Join(home, "code", "alpha")

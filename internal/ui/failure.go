@@ -28,10 +28,10 @@ type errorDialog struct {
 
 func (m Model) newErrorDialog(msg failedMsg) *errorDialog {
 	d := &errorDialog{
-		title:   " Could not open " + safe(msg.repo) + " in " + msg.target + " ",
-		command: " $ " + safe(m.commandLine(msg.Words)) + " ",
+		title:   " Could not open " + Safe(msg.repo) + " in " + msg.target + " ",
+		command: " $ " + Safe(m.commandLine(msg.Words)) + " ",
 		cut:     msg.Cut,
-		reason:  message(msg.Reason), // control characters escaped as in the command line
+		reason:  Message(msg.Reason),
 	}
 	if out := strings.TrimRight(msg.Output, "\n"); out != "" {
 		for _, l := range strings.Split(out, "\n") {

@@ -535,3 +535,31 @@ func TestAPasteOutsideTheSearchDoesNothing(t *testing.T) {
 		t.Errorf("the paste changed the screen or quit:\n%s", d.screen())
 	}
 }
+
+func TestInvisibleCharactersAreDroppedFromWhatIsTypedOrPastedIntoTheQuery(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/p\u200bq")
+	e.repo("code/other")
+	d := startQuiet(e)
+
+	for _, enter := range []struct {
+		name string
+		do   func(string)
+	}{
+		{"typed", d.typeText},
+		{"pasted", d.paste},
+	} {
+		for _, query := range []string{"pq", "p\u200bq"} {
+			d.press("/")
+			enter.do(query)
+
+			if got, want := header(d), "/pq█ 1 of 2"; got != want {
+				t.Errorf("%s %q: header reads %q, want %q", enter.name, query, got, want)
+			}
+			if got, want := order(d), []string{`p\u200bq ~/code`}; !slices.Equal(got, want) {
+				t.Errorf("%s %q: rows %q, want %q", enter.name, query, got, want)
+			}
+			d.press("esc")
+		}
+	}
+}

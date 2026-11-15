@@ -42,13 +42,13 @@ func (m Model) View() tea.View {
 	switch {
 	case len(m.repos) > 0:
 	case m.searching && len(m.all) > 0:
-		empty = []string{`No matches for "` + message(m.query) + `"`}
+		empty = []string{`No matches for "` + Message(m.query) + `"`}
 	case !m.refreshing && !m.holding: // with no repos, scanning… stays while the spinner is held
 		paths := make([]string, len(m.deps.Paths))
 		for i, p := range m.deps.Paths {
-			paths[i] = safe(m.shorten(p))
+			paths[i] = Safe(m.shorten(p))
 		}
-		empty = []string{"No repos found in " + strings.Join(paths, ", "), "Change paths in " + safe(m.shorten(m.deps.ConfigFile))}
+		empty = []string{"No repos found in " + strings.Join(paths, ", "), "Change paths in " + Safe(m.shorten(m.deps.ConfigFile))}
 	case m.loaded:
 		empty = []string{spinner[m.frame] + " scanning…"}
 	}
@@ -138,14 +138,14 @@ func (m Model) top() string {
 	}
 	var missing []string
 	for _, path := range m.missing {
-		missing = append(missing, safe(m.shorten(path))+" not found")
+		missing = append(missing, Safe(m.shorten(path))+" not found")
 	}
 	var right string
 	switch {
 	case m.quitting:
 		right = "Quitting when the open is done"
 	case m.notice != "":
-		right = message(m.notice)
+		right = Message(m.notice)
 	case (m.refreshing || m.holding) && len(m.all) > 0: // with no list yet, the spinner is in the list
 		right = m.dim(spinner[m.frame] + " refreshing")
 	case m.failure == nil && m.add.open && !m.addFits(): // the error dialog is drawn over the add dialog
@@ -159,7 +159,7 @@ func (m Model) top() string {
 	}
 	left := m.key("/") + " " + m.dim("search")
 	if m.searching {
-		query := message(m.query)
+		query := Message(m.query)
 		// The query has the row but its margins, the / and the cursor.
 		if over := ansi.StringWidth(query) - max(m.width-4, 10); over > 0 {
 			query = "…" + cutStart(query, over+1)
@@ -280,9 +280,9 @@ func (m Model) cell(c string, r repo, h matcher.Match, now time.Time, room int) 
 		}
 		return ansi.Truncate(base, room, "…")
 	case "folder":
-		s = m.dim(m.highlight(safe(m.shorten(filepath.Dir(r.path))), h.Folder))
+		s = m.dim(m.highlight(Safe(m.shorten(filepath.Dir(r.path))), h.Folder))
 	case "branch":
-		s = safe(r.branch)
+		s = Safe(r.branch)
 	default: // last_opened
 		s = "-"
 		if at, ok := m.history[r.path]; ok {
@@ -302,10 +302,10 @@ func (m Model) name(r repo) string {
 		// edited by hand could break that; the row then shows "" or a path
 		// with "..", and the next refresh puts it right.
 		if rel, _ := filepath.Rel(r.root, r.path); rel != "." {
-			return safe(rel)
+			return Safe(rel)
 		}
 	}
-	return safe(filepath.Base(r.path))
+	return Safe(filepath.Base(r.path))
 }
 
 // listHeight is the number of screen lines left for the list between the

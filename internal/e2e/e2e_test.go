@@ -581,6 +581,40 @@ func TestTheBuiltBinaryWithoutATerminalSaysSoAndWritesNothing(t *testing.T) {
 	}
 }
 
+func TestTheBuiltBinaryWithItsOutputRedirectedSaysSoAndWritesNothing(t *testing.T) {
+	loper := buildLoper(t)
+	// Each shell line runs loper, $0, with stdout redirected and writes its
+	// exit code to $1; the terminal stays on stdin and stderr.
+	for _, c := range []struct{ name, line string }{
+		{"to a file", `"$0" > "$2"; echo $? > "$1"`},
+		{"to a pipe", `{ "$0"; echo $? > "$1"; } | cat > "$2"`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			outside := t.TempDir()
+			code, out := filepath.Join(outside, "code"), filepath.Join(outside, "out")
+			home := tempHome(t)
+			t.Setenv("TERM", "xterm-256color")
+
+			s := start(t, "", "/bin/sh", "-c", c.line, loper, code, out)
+			s.within("loper to end", s.exited)
+			s.within("the terminal to close", s.drained)
+
+			if want := "loper: the picker needs an interactive terminal\r\n"; string(s.out) != want {
+				t.Errorf("the terminal showed %q, want %q", s.out, want)
+			}
+			if b, _ := os.ReadFile(code); string(b) != "1\n" {
+				t.Errorf("loper exited with %q, want 1", b)
+			}
+			if b, err := os.ReadFile(out); err != nil || len(b) > 0 {
+				t.Errorf("the output got %q (%v), want nothing", b, err)
+			}
+			if names, err := os.ReadDir(home); err != nil || len(names) > 0 {
+				t.Errorf("it left %v (%v) in the home, want nothing: no config, cache or state", names, err)
+			}
+		})
+	}
+}
+
 func TestTheBuiltBinaryPrintsTheHelpAndTheVersionWithoutATerminalAsInOne(t *testing.T) {
 	loper := buildLoper(t)
 	home := tempHome(t)
@@ -630,6 +664,23 @@ func TestTheBuiltBinaryStartsWithStdinNotATerminalWhenItHasOne(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(home, ".config", "loper", "config.toml")); string(b) != firstRun {
 		t.Errorf("config file is %q, want %q", b, firstRun)
 	}
+}
+
+func TestTheBuiltBinaryStartsWithStderrRedirected(t *testing.T) {
+	loper := buildLoper(t)
+	stderrFile := filepath.Join(t.TempDir(), "stderr")
+	home := tempHome(t)
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("NO_COLOR", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	if out, err := exec.Command("git", "init", "-b", "main", filepath.Join(home, "code", "alpha")).CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+
+	s := start(t, "o cd", "/bin/sh", "-c", `exec "$0" 2> "$1"`, loper, stderrFile)
+	s.within("the list and the cd target to be drawn", s.shown)
+	s.quit()
 }
 
 func TestTheBuiltBinaryStartsWithATerminalOnStdinThatIsNotItsControllingOne(t *testing.T) {

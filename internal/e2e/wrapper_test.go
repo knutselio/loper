@@ -79,11 +79,12 @@ func TestTheReadmesWrapperChangesTheShellsFolderAndReturnsTheRightCode(t *testin
 				if c.folder != "" {
 					folder = filepath.Join(root, c.folder)
 				}
-				// The fake loper records its arguments and the wrapper's file,
-				// writes the folder, if any, to that file and exits with the
-				// case's code.
+				// The fake loper draws a line on its stdout, which the wrapper
+				// must leave on the shell's, records its arguments and the
+				// wrapper's file, writes the folder, if any, to that file and
+				// exits with the case's code.
 				args, named := filepath.Join(root, "args"), filepath.Join(root, "file")
-				writeConfig(t, filepath.Join(bin, "loper"), "#!/bin/sh\nprintf '%s\\n' \"$@\" > '"+args+"'\nprintf '%s' \"$LOPER_CD_FILE\" > '"+named+"'\n"+
+				writeConfig(t, filepath.Join(bin, "loper"), "#!/bin/sh\necho drawn\nprintf '%s\\n' \"$@\" > '"+args+"'\nprintf '%s' \"$LOPER_CD_FILE\" > '"+named+"'\n"+
 					"printf '%s' \"$FAKE_FOLDER\" > \"$LOPER_CD_FILE\"\nexit "+strconv.Itoa(c.code)+"\n")
 				if err := os.Chmod(filepath.Join(bin, "loper"), 0o755); err != nil {
 					t.Fatal(err)
@@ -100,18 +101,18 @@ func TestTheReadmesWrapperChangesTheShellsFolderAndReturnsTheRightCode(t *testin
 					t.Fatalf("%v\n%s%s", err, out, stderr.Bytes())
 				}
 
-				want := from + "\n" + root + "\n" + strconv.Itoa(c.code) + "\n"
+				want := "drawn\n" + from + "\n" + root + "\n" + strconv.Itoa(c.code) + "\n"
 				switch {
 				case c.folder == "gone":
 					// The shell stays where it was and the function fails,
 					// whatever loper's code. bash and zsh return 1 from a
 					// failed cd.
-					want = from + "\n" + root + "\n1\n"
+					want = "drawn\n" + from + "\n" + root + "\n1\n"
 				case folder != "":
-					want = folder + "\n" + from + "\n" + strconv.Itoa(c.code) + "\n"
+					want = "drawn\n" + folder + "\n" + from + "\n" + strconv.Itoa(c.code) + "\n"
 				}
 				if string(out) != want {
-					t.Errorf("the shell printed %q, want its folder, the one before and the function's exit code, %q\n%s", out, want, stderr.Bytes())
+					t.Errorf("the shell printed %q, want loper's line, its folder, the one before and the function's exit code, %q\n%s", out, want, stderr.Bytes())
 				}
 				if b, _ := os.ReadFile(args); string(b) != "--config\na b\n" {
 					t.Errorf("loper got the arguments %q, want --config and a b", b)

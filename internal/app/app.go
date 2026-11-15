@@ -86,7 +86,7 @@ func run(args []string, stdout, stderr io.Writer, hasTerminal func() bool, start
 	if err != nil {
 		help, file := helpRequest(args)
 		if !help {
-			fmt.Fprintf(stderr, "loper: %v\n\n%s", err, usage)
+			fmt.Fprintf(stderr, "loper: %s\n\n%s", ui.Message(err.Error()), usage)
 			return 2
 		}
 		*showHelp, *configFile = true, file
@@ -104,10 +104,11 @@ func run(args []string, stdout, stderr io.Writer, hasTerminal func() bool, start
 		// A config that does not load is shown in the help, not an error.
 		settings, err := config.Load(*configFile, home)
 		file := config.Path(*configFile, home)
+		shown := ui.Safe(file)
 		if _, statErr := os.Stat(file); *configFile == "" && errors.Is(statErr, fs.ErrNotExist) {
-			settings, file = config.FirstRun(home), file+" (does not exist yet)"
+			settings, shown = config.FirstRun(home), shown+" (does not exist yet)"
 		}
-		help(stdout, file, settings.Targets, err)
+		help(stdout, shown, settings.Targets, err)
 		return 0
 	}
 	if *showVersion {
@@ -125,11 +126,11 @@ func run(args []string, stdout, stderr io.Writer, hasTerminal func() bool, start
 	}
 	settings, err := config.Open(*configFile, home)
 	if err != nil {
-		fmt.Fprintln(stderr, "loper:", err)
+		fmt.Fprintln(stderr, "loper:", ui.Message(err.Error()))
 		return 1
 	}
 	if err := start(home, settings); err != nil {
-		fmt.Fprintln(stderr, "loper:", err)
+		fmt.Fprintln(stderr, "loper:", ui.Message(err.Error()))
 		return 1
 	}
 	return 0
@@ -163,10 +164,13 @@ func helpRequest(args []string) (help bool, file string) {
 	return help, file
 }
 
-// interactive reports whether the picker can have a terminal, by the test
-// Bubble Tea makes: stdin is one, or the process has a controlling terminal
-// to read the keys from instead. Its output may go anywhere.
+// interactive reports whether the picker can have a terminal: stdout is one,
+// to draw on, and, by the test Bubble Tea makes, stdin is one or the process
+// has a controlling terminal to read the keys from instead.
 func interactive() bool {
+	if !term.IsTerminal(os.Stdout.Fd()) {
+		return false
+	}
 	if term.IsTerminal(os.Stdin.Fd()) {
 		return true
 	}
@@ -187,10 +191,20 @@ Options:
   -v, --version    Print the version
 `
 
-// help prints the usage, the config file that would be read, loper's own keys
-// and the configured targets, or why the config file does not load.
+// examples follow the options in the help.
+const examples = `
+Examples:
+  loper                      Pick a repo and open it
+  loper --config ~/try.toml  Use another config file for one run
+
+More in the README: https://github.com/knutselio/loper
+`
+
+// help prints the usage, examples, the config file that would be read, shown
+// as display text, loper's own keys and the configured targets, or why the
+// config file does not load.
 func help(w io.Writer, configFile string, targets []target.Target, loadErr error) {
-	fmt.Fprintf(w, "loper picks one of your git repos and opens it.\n\n%s\nConfig file: %s\n", usage, configFile)
+	fmt.Fprintf(w, "loper picks one of your git repos and opens it.\n\n%s%s\nConfig file: %s\n", usage, examples, configFile)
 	sections := ui.KeyList()
 	keyWidth := 0
 	for _, s := range sections {
@@ -210,7 +224,7 @@ func help(w io.Writer, configFile string, targets []target.Target, loadErr error
 	fmt.Fprint(w, "\nTargets:\n")
 	switch {
 	case loadErr != nil:
-		fmt.Fprintf(w, "  %v\n", loadErr)
+		fmt.Fprintf(w, "  %s\n", ui.Message(loadErr.Error()))
 	case len(targets) == 0:
 		fmt.Fprintln(w, "  none; add one in the picker with a, or in the config file")
 	}

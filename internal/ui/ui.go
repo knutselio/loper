@@ -195,7 +195,7 @@ func New(deps Deps) Model {
 	m.helpLines, m.helpWidth = m.helpContent()
 	notice := deps.Notice
 	if deps.Created {
-		notice = "Created " + safe(m.shorten(deps.ConfigFile)) + " with a cd target on o"
+		notice = "Created " + Safe(m.shorten(deps.ConfigFile)) + " with a cd target on o"
 	}
 	if notice != "" {
 		m.notice, m.notices = notice, 1
@@ -309,7 +309,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		h[msg.path] = msg.at
 		m.history = h
 		m = m.relist(m.all)
-		notice := "Opened " + safe(filepath.Base(msg.path)) + " in " + msg.target
+		notice := "Opened " + Safe(filepath.Base(msg.path)) + " in " + msg.target
 		if msg.saveErr != nil { // a notice has part of a line: room to name the problem, not its cause
 			notice += ", but the history could not be saved"
 		}

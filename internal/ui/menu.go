@@ -76,7 +76,7 @@ func (m Model) overlayMenu(lines []string) []string {
 	for _, t := range m.deps.Targets {
 		keyWidth = max(keyWidth, ansi.StringWidth(t.Key))
 	}
-	title := " Open " + safe(filepath.Base(m.repos[m.selected].path)) + " "
+	title := " Open " + Safe(filepath.Base(m.repos[m.selected].path)) + " "
 	rows := make([]string, len(m.deps.Targets))
 	width := 0
 	for i, t := range m.deps.Targets {

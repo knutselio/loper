@@ -269,11 +269,11 @@ func (m Model) addRows() ([]string, int) {
 		}
 		return rows
 	}
-	file := safe(m.shorten(m.deps.ConfigFile))
+	file := Safe(m.shorten(m.deps.ConfigFile))
 	var rows []string
 	switch {
 	case a.refusal != "":
-		rows = append(wrap(message(m.shorten(a.refusal))), "", " "+m.key("esc")+" close ") // a loader message starts with the file
+		rows = append(wrap(Message(m.shorten(a.refusal))), "", " "+m.key("esc")+" close ") // a loader message starts with the file
 	case a.confirming && a.remove:
 		rows = slices.Concat(sentence("Remove these lines from "+file+":"), []string{""}, lines(short(a.before)),
 			[]string{"", " " + m.key("enter") + " remove" + m.dim(" • ") + m.key("esc") + " keep "})
@@ -311,7 +311,7 @@ func (m Model) addRows() ([]string, int) {
 			rows = append(rows, "")
 			// A loader message starts with the file. The text wraps in the room
 			// the "! " of a problem leaves.
-			problem := ansi.Wrap(clean(message(m.shorten(a.problem))), max(width-4, 1), "")
+			problem := ansi.Wrap(clean(Message(m.shorten(a.problem))), max(width-4, 1), "")
 			for _, l := range strings.Split(m.problem(problem), "\n") {
 				rows = append(rows, " "+l+" ")
 			}

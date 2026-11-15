@@ -99,7 +99,13 @@ func (m Model) expired(c cachedMsg) bool {
 // list.
 func (m Model) searchKey(msg tea.KeyPressMsg) (Model, bool) {
 	if msg.Text != "" {
-		return m.search(m.query + msg.Text), true
+		// An invisible character would match nothing the rows draw.
+		return m.search(m.query + strings.Map(func(r rune) rune {
+			if invisible(r) {
+				return -1
+			}
+			return r
+		}, msg.Text)), true
 	}
 	switch msg.String() {
 	case "backspace":
@@ -136,7 +142,7 @@ func (m Model) filter() ([]repo, []matcher.Match) {
 	}
 	rows := make([]matcher.Row, len(m.all))
 	for i, r := range m.all {
-		rows[i] = matcher.Row{Name: m.name(r), Folder: safe(m.shorten(filepath.Dir(r.path)))}
+		rows[i] = matcher.Row{Name: m.name(r), Folder: Safe(m.shorten(filepath.Dir(r.path)))}
 	}
 	hits := matcher.Find(m.query, rows)
 	repos := make([]repo, len(hits))

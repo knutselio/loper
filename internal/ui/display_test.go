@@ -251,6 +251,34 @@ func TestANameWithABackslashLooksDifferentFromOneWithTheControlCharacterItSpells
 	}
 }
 
+func TestInvisibleCharactersInANameAreShownEscaped(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/a\u202eb")
+	e.repo("code/c\u200bd")
+	e.repo("code/cd")
+	e.repo("code/\U0001F469\u200d\U0001F4BB") // woman technologist, one glyph with the joiner
+
+	got := order(e.start())
+
+	want := []string{`a\u202eb ~/code`, `c\u200bd ~/code`, `cd ~/code`, "\U0001F469" + `\u200d` + "\U0001F4BB ~/code"}
+	if !slices.Equal(got, want) {
+		t.Errorf("rows read %q, want %q", got, want)
+	}
+}
+
+func TestEachRangeOfInvisibleCharactersIsShownEscapedAndItsVisibleNeighboursAreNot(t *testing.T) {
+	e := newEnv(t)
+	// U+200E, U+2066, U+2060 and U+FEFF are invisible; U+2010, a hyphen,
+	// and U+200A, a hair space, are not.
+	e.repo("code/a\u200eb\u2066c\u2060d\ufeffe\u2010f\u200ag")
+
+	screen := e.start().screen()
+
+	if want := `a\u200eb\u2066c\u2060d\ufeffe` + "\u2010f\u200ag"; !strings.Contains(screen, want) {
+		t.Errorf("the screen does not show %q:\n%s", want, screen)
+	}
+}
+
 func TestSearchHighlightsWhatIsDrawnInAFolderWithControlCharacters(t *testing.T) {
 	e := newEnv(t)
 	e.color = true
