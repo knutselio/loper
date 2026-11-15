@@ -262,6 +262,7 @@ func startUI(home string, settings config.Settings) error {
 		Color:       os.Getenv("NO_COLOR") == "",
 		Columns:     settings.Columns,
 		RowStyle:    settings.RowStyle,
+		Selection:   settings.Selection,
 		CheckTarget: config.CheckTarget,
 		CheckFile:   config.CheckFile,
 		WriteTarget: config.WriteTarget,

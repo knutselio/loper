@@ -171,5 +171,6 @@ var wants = map[string]string{
 	"cache_max_age":    `"0" or a positive interval such as "4h" or "30m" (units h, m, s)`,
 	"columns":          `a list of "name", "folder", "branch" and "last_opened", including "name"`,
 	"row_style":        `"name-folder", "root-path" or "name"`,
+	"selection":        `"bar" or "marker"`,
 	"paths":            `a list of folders, each absolute or starting with ~/, such as ["~/code"]`,
 }

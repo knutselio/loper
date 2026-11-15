@@ -112,9 +112,9 @@ The `x` after the file's text, removed again, keeps line breaks at the end of a 
 - Add, edit and remove targets from inside the picker, without opening the config file.
 - Instant start from a cache, with a refresh in the background.
 - A branch column and a column for when you last opened each repo.
-- Choose the columns and how the name and folder are drawn.
+- Choose the columns, how the name and folder are drawn and how the selected row is marked.
 - A layout that drops columns and shortens values in a narrow terminal.
-- Your terminal's own palette colours. With `NO_COLOR` set to any non-empty value there is no colour, while bold, dim, underline and the reverse-video selection stay.
+- Your terminal's own palette colours. With `NO_COLOR` set to any non-empty value there is no colour, while bold, dim, underline and the reverse-video selection, when `selection` draws it, stay.
 
 ## Keys
 
@@ -143,6 +143,7 @@ Every setting is optional. These are the defaults, with two targets added:
 ```toml
 paths = ["~/code"]                 # folders to scan, or repos to list directly
 row_style = "name-folder"          # or "root-path", "name"
+selection = "bar"                  # or "marker": the > alone, without the reverse-video bar
 columns = ["name", "folder", "branch", "last_opened"]  # "name" is required
 sort = "last_opened"               # or "name"
 cache_max_age = "0"                # "0" scans on every launch; or an interval such as "4h"

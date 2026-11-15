@@ -13,8 +13,9 @@ import (
 // boldOff the marker of the selected row or target, keyOn and keyOff the
 // keys of the footer, the help and the target menu, in the accent colour,
 // and problemOn and problemOff a problem, in red. barOn and barOff draw the
-// selected row or target as a bar, in reverse video; the styles inside the
-// bar end only their own attribute, so none of them ends the bar.
+// selected row or target as a bar, in reverse video, unless the selection is
+// the marker alone; the styles inside the bar end only their own attribute,
+// so none of them ends the bar.
 var (
 	matchOn    = ansi.Style{}.Underline(true).String()
 	matchOff   = ansi.Style{}.NoUnderline().String()
@@ -47,9 +48,10 @@ func (m Model) bold(s string) string {
 	return boldOn + s + boldOff
 }
 
-// bar draws s, padded to width cells, as a bar, unless the styles are off.
+// bar draws s, padded to width cells, as a bar, unless the styles are off
+// or the selection is the marker alone.
 func (m Model) bar(s string, width int) string {
-	if !m.deps.Styles {
+	if !m.deps.Styles || m.deps.Selection == "marker" {
 		return s
 	}
 	return barOn + pad(s, width) + barOff

@@ -141,3 +141,77 @@ func TestWithColourTheHighlightedTargetIsABarAcrossTheMenu(t *testing.T) {
 		}
 	}
 }
+
+// markerOnly is the bold marker of the selection; a row without it has a
+// space in its place.
+const markerOnly = "\x1b[1m>\x1b[22m"
+
+func TestWithSelectionMarkerTheSelectedRowAndTargetHaveTheMarkerAndNoBar(t *testing.T) {
+	e := newEnv(t)
+	e.color = true
+	e.repo("code/work/alpha")
+	e.repo("code/work/alps")
+	e.config("selection = \"marker\"\n\n[[targets]]\nname = \"Zed\"\nkey = \"z\"\ncommand = \"" + e.fakeTarget("zed") + " {path}\"\n\n" +
+		"[[targets]]\nname = \"Tab\"\nkey = \"t\"\ncommand = \"" + e.fakeTarget("tab") + " {path}\"\n")
+	d := e.start()
+
+	// row returns the screen line holding text.
+	row := func(text string) string {
+		for _, line := range strings.Split(d.screen(), "\n") {
+			if strings.Contains(ansi.Strip(line), text) {
+				return line
+			}
+		}
+		t.Fatalf("no line holds %q:\n%s", text, d.screen())
+		return ""
+	}
+	if s := d.screen(); strings.Contains(s, reverse) {
+		t.Errorf("the list has reverse video:\n%q", s)
+	}
+	selected := row("alpha")
+	if !strings.HasPrefix(selected, " "+markerOnly+" ") || !strings.Contains(selected, "\x1b[2m~/code/work") {
+		t.Errorf("the selected row %q has no bold marker or no dimmed folder", selected)
+	}
+	d.press("down")
+	if got, want := row("alpha"), strings.Replace(selected, markerOnly, " ", 1); got != want {
+		t.Errorf("after down, the row is\n%q\nwant it as it was when selected, but for the marker\n%q", got, want)
+	}
+	d.press("/", "a", "l", "p", "h")
+	if selected := row("alpha"); !strings.HasPrefix(selected, " "+markerOnly+" ") || !strings.Contains(selected, "\x1b[4ma\x1b[24m") {
+		t.Errorf("while searching, the selected row %q has no bold marker or no underlined match", selected)
+	}
+	d.press("esc")
+
+	d.press("up", "enter")
+	if s := d.screen(); strings.Contains(s, reverse) {
+		t.Errorf("the menu has reverse video:\n%q", s)
+	}
+	selected = row("Zed")
+	if !strings.Contains(selected, markerOnly+" \x1b[1;36mz") {
+		t.Errorf("the highlighted target %q has no bold marker or no key in the accent", selected)
+	}
+	d.press("j")
+	if got, want := row("Zed"), strings.Replace(selected, markerOnly, " ", 1); got != want {
+		t.Errorf("after j, the target is\n%q\nwant it as it was when highlighted, but for the marker\n%q", got, want)
+	}
+}
+
+func TestSelectionBarDrawsTheScreensAsWithoutTheSetting(t *testing.T) {
+	screens := func(setting string) []string {
+		e := newEnv(t)
+		e.color = true
+		e.repo("code/work/alpha")
+		e.repo("code/work/alps")
+		e.config(setting + zedTarget)
+		d := e.start()
+		list := d.screen()
+		d.press("enter")
+		return []string{list, d.screen()}
+	}
+	want := screens("")
+	for i, got := range screens(`selection = "bar"` + "\n") {
+		if got != want[i] {
+			t.Errorf("screen %d with selection = \"bar\" is\n%q\nwant it as without the setting\n%q", i, got, want[i])
+		}
+	}
+}

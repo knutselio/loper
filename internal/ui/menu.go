@@ -81,8 +81,11 @@ func (m Model) overlayMenu(lines []string) []string {
 	width := 0
 	for i, t := range m.deps.Targets {
 		marker, key := "  ", m.key(t.Key)
-		if i == m.choice { // in the bar, without the accent
-			marker, key = m.bold(">")+" ", m.bold(t.Key)
+		if i == m.choice {
+			marker = m.bold(">") + " "
+			if m.deps.Selection != "marker" { // in the bar, without the accent
+				key = m.bold(t.Key)
+			}
 		}
 		rows[i] = " " + marker + pad(key, keyWidth) + "  " + t.Name + " "
 		width = max(width, ansi.StringWidth(rows[i]))

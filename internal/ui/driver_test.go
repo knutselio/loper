@@ -325,6 +325,7 @@ func (e *env) launch() *driver {
 		Color:       e.color,
 		Columns:     settings.Columns,
 		RowStyle:    settings.RowStyle,
+		Selection:   settings.Selection,
 		CheckTarget: config.CheckTarget,
 		CheckFile:   config.CheckFile,
 		WriteTarget: config.WriteTarget,

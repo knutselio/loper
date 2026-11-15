@@ -404,6 +404,13 @@ func TestARowStyleThatIsNotOneOfTheThreeStopsTheToolNamingTheFileAndLine(t *test
 	}
 }
 
+func TestASelectionThatIsNotBarOrMarkerStopsTheToolNamingTheFileAndLine(t *testing.T) {
+	for _, value := range []string{`"none"`, `"Bar"`, `""`, `1`} {
+		startupFails(t, "paths = [\"~/code\"]\n\nselection = "+value+"\n",
+			3, `invalid value for "selection": want "bar" or "marker"`)
+	}
+}
+
 func TestColumnsAndRowStyleAreHandedToTheUIWithTheirDefaults(t *testing.T) {
 	for _, c := range []struct {
 		body     string

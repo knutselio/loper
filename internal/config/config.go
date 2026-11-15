@@ -26,6 +26,7 @@ type Settings struct {
 	SortByName  bool            // start sorted by name rather than by last opened
 	Columns     []string        // the columns shown, in order; "name" is one of them
 	RowStyle    string          // how name and folder are drawn: "name-folder", "root-path" or "name"
+	Selection   string          // how the selected row is marked: "bar" or "marker"
 	// CacheMaxAge is how old the cache may be before a launch scans again;
 	// 0 means every launch scans.
 	CacheMaxAge time.Duration
@@ -45,6 +46,7 @@ type file struct {
 	CacheMaxAge string       `toml:"cache_max_age"`
 	Columns     []string     `toml:"columns"`
 	RowStyle    string       `toml:"row_style"`
+	Selection   string       `toml:"selection"`
 }
 
 type targetFile struct {
@@ -67,6 +69,7 @@ type checked struct {
 	CacheMaxAge maxAge          `toml:"cache_max_age"`
 	Columns     []column        `toml:"columns"`
 	RowStyle    rowStyle        `toml:"row_style"`
+	Selection   selection       `toml:"selection"`
 }
 
 type checkedTarget struct {
@@ -117,7 +120,10 @@ func parse(path, home string, b []byte) (Settings, error) {
 	if f.RowStyle == "" {
 		f.RowStyle = "name-folder"
 	}
-	s := Settings{File: path, CloseOnOpen: f.CloseOnOpen, SortByName: f.Sort == "name", Columns: f.Columns, RowStyle: f.RowStyle}
+	if f.Selection == "" {
+		f.Selection = "bar"
+	}
+	s := Settings{File: path, CloseOnOpen: f.CloseOnOpen, SortByName: f.Sort == "name", Columns: f.Columns, RowStyle: f.RowStyle, Selection: f.Selection}
 	if f.CacheMaxAge != "" {
 		s.CacheMaxAge, _ = parseMaxAge(f.CacheMaxAge) // cannot fail: the value was checked while decoding
 	}

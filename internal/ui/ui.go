@@ -56,10 +56,10 @@ type Deps struct {
 	// rather than re-reading the cached repos; 0 means every launch scans.
 	CacheMaxAge time.Duration
 	// Styles turns the styles on: the bold selection marker, the bar of the
-	// selection, dimmed headings, folders, rules, borders, counts and the
-	// search hint, underlined matches, and bold keys in the footer, the top
-	// row, the help and the menu. Without it the output has no escape codes
-	// at all.
+	// selection unless Selection is "marker", dimmed headings, folders,
+	// rules, borders, counts and the search hint, underlined matches, and
+	// bold keys in the footer, the top row, the help and the menu. Without it
+	// the output has no escape codes at all.
 	Styles bool
 	// Color, with Styles, draws the keys in the accent colour and problems
 	// in red. It is off when NO_COLOR is set and non-empty, and then no
@@ -70,6 +70,9 @@ type Deps struct {
 	Columns []string
 	// RowStyle draws name and folder: "name-folder", "root-path" or "name".
 	RowStyle string
+	// Selection marks the selected row and target: "bar" draws them as a
+	// bar besides the marker, "marker" with the marker alone.
+	Selection string
 	// CheckTarget returns, for a change to the targets of the config file,
 	// the lines it replaces and the lines it writes, or why it is refused;
 	// WriteTarget makes it and returns the targets the file then loads to

@@ -52,6 +52,16 @@ func (*rowStyle) UnmarshalText(b []byte) error {
 	return nil
 }
 
+// selection checks the selection setting: "bar" or "marker".
+type selection struct{}
+
+func (*selection) UnmarshalText(b []byte) error {
+	if s := string(b); s != "bar" && s != "marker" {
+		return errors.New("not a selection")
+	}
+	return nil
+}
+
 // maxAge checks the cache_max_age setting: "0", or a positive interval in
 // Go's duration syntax, such as "4h" or "1h30m". Days are not a unit.
 type maxAge struct{}
