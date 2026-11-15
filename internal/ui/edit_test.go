@@ -258,7 +258,7 @@ func TestAfterARemoveTheHighlightStaysInRange(t *testing.T) {
 	}
 	e.config(config)
 	d := e.start()
-	d.send(tea.WindowSizeMsg{Width: 80, Height: 12}) // 8 list lines: room for 6 targets, so the menu scrolls, and the dialog
+	d.send(tea.WindowSizeMsg{Width: 80, Height: 12}) // 8 list lines: the menu shows 3 targets and scrolls, and the dialog fits
 	d.press("enter")
 	d.press(slices.Repeat([]string{"j"}, 6)...)
 
@@ -266,7 +266,7 @@ func TestAfterARemoveTheHighlightStaysInRange(t *testing.T) {
 	d.pass()
 	d.press("enter")
 
-	if got, want := boxRows(d), []string{"Target 1", "Target 2", "Target 3", "Target 4", "Target 5", "> Target 6"}; !slices.Equal(got, want) {
+	if got, want := boxRows(d), []string{"Target 4", "Target 5", "> Target 6"}; !slices.Equal(got, want) {
 		t.Errorf("menu reads %q, want the new last target highlighted, %q", got, want)
 	}
 }

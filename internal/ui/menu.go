@@ -48,11 +48,12 @@ func (m Model) menuKey(msg tea.KeyPressMsg) (Model, tea.Cmd) {
 	return m, nil
 }
 
-// menuRows is the number of targets the menu has room to show between its
-// borders, or 0 when the list is too short for the menu. With no targets
-// the menu is the one row that says so.
+// menuRows is the number of targets the menu shows between its borders, or
+// 0 when the list is too short for the menu: as many as fit in half of the
+// list's height, borders included, but at least 3 when the list has room for
+// them. With no targets the menu is the one row that says so.
 func (m Model) menuRows() int {
-	return max(min(max(len(m.deps.Targets), 1), m.listHeight()-2), 0)
+	return max(min(max(len(m.deps.Targets), 1), max(m.listHeight()/2-2, 3), m.listHeight()-2), 0)
 }
 
 // scrollMenu moves the menu's first shown target so the highlighted one is
@@ -87,9 +88,12 @@ func (m Model) overlayMenu(lines []string) []string {
 		width = max(width, ansi.StringWidth(rows[i]))
 	}
 	hint := " " + m.key("e") + " edit" + m.dim(" • ") + m.key("d") + " remove "
-	width = m.boxWidth(title, max(width, ansi.StringWidth(hint)+2)) // the bar spans the menu
+	more := 0 // room in the borders for ↑ or ↓ beside the title and the hint
+	// Some targets are hidden: the rule by which scrollBox draws an arrow.
+	if m.menuRows() < len(m.deps.Targets) {
+		more = 3
+	}
+	width = m.boxWidth(title, max(width, ansi.StringWidth(hint)+2+more, ansi.StringWidth(title)+2+more)) // the bar spans the menu
 	rows[m.choice] = m.bar(ansi.Truncate(rows[m.choice], width, "…"), width)
-	box := m.box(title, rows[m.menuTop:m.menuTop+m.menuRows()], width)
-	box[len(box)-1] = m.edge("╰", hint, width, "╯") // the hint in the bottom border, as the title is in the top
-	return m.overlay(lines, box)
+	return m.overlay(lines, m.scrollBox(title, rows, m.menuTop, m.menuRows(), width, hint))
 }

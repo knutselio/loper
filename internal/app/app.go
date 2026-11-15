@@ -202,11 +202,7 @@ func help(w io.Writer, configFile string, targets []target.Target, loadErr error
 		fmt.Fprintf(w, "  %s%s  %s\n", keys, strings.Repeat(" ", keyWidth-ansi.StringWidth(keys)), text)
 	}
 	for _, s := range sections {
-		title := s.Title
-		if title == "" {
-			title = "Keys"
-		}
-		fmt.Fprintf(w, "\n%s:\n", title)
+		fmt.Fprintf(w, "\n%s:\n", s.Title)
 		for _, b := range s.Bindings {
 			row(b.Keys, b.Action)
 		}

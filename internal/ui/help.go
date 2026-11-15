@@ -27,13 +27,10 @@ func (m Model) helpRows() int {
 	return max(min(len(m.helpLines), m.listHeight()-2), 0)
 }
 
-// helpContent returns the rows of the help, the keys from KeyList and those
-// of the help itself, and the width of the widest.
+// helpContent returns the rows of the help, the keys from KeyList and the
+// targets, and the width of the widest.
 func (m Model) helpContent() (rows []string, width int) {
-	sections := append(KeyList(), Section{Title: "In this help", Bindings: []Binding{
-		{Keys: "j / k, ↓ / ↑", Action: "Scroll"},
-		{Keys: "esc, ?", Action: "Close the help"},
-	}})
+	sections := KeyList()
 	keyWidth := 0
 	for _, s := range sections {
 		for _, b := range s.Bindings {
@@ -44,9 +41,7 @@ func (m Model) helpContent() (rows []string, width int) {
 		if i > 0 {
 			rows = append(rows, "")
 		}
-		if s.Title != "" {
-			rows = append(rows, " "+s.Title+" ")
-		}
+		rows = append(rows, " "+s.Title+" ")
 		for _, b := range s.Bindings {
 			rows = append(rows, " "+pad(m.key(b.Keys), keyWidth)+"  "+b.Action+" ")
 		}

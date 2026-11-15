@@ -13,8 +13,7 @@ type Binding struct {
 	FooterLast bool
 }
 
-// Section is a group of bindings under a title; the keys of the list itself
-// have no title.
+// Section is a group of bindings under a title.
 type Section struct {
 	Title    string
 	Bindings []Binding
@@ -25,10 +24,12 @@ type Section struct {
 // targets after them and the items marked FooterLast at the end.
 func KeyList() []Section {
 	return []Section{
-		{Bindings: []Binding{
+		{Title: "Navigation", Bindings: []Binding{
 			{Keys: "j / k, ↓ / ↑", Action: "Move the selection"},
 			{Keys: "g / G", Action: "Jump to the top / bottom"},
 			{Keys: "ctrl-d / ctrl-u", Action: "Move half a page down / up"},
+		}},
+		{Title: "Actions", Bindings: []Binding{
 			{Keys: "enter, space", Action: "Open the target menu for the selected repo", FooterKey: "enter", FooterLabel: "open"},
 			{Keys: "a target's key", Action: "Open the selected repo in that target"},
 			{Keys: "/", Action: "Start the search"},
@@ -51,6 +52,10 @@ func KeyList() []Section {
 			{Keys: "↓ / ↑, ctrl-n / ctrl-p", Action: "Move through the matches"},
 			{Keys: "enter", Action: "Open the target menu for the selected match"},
 			{Keys: "esc", Action: "Clear the search"},
+		}},
+		{Title: "In the help overlay", Bindings: []Binding{
+			{Keys: "j / k, ↓ / ↑", Action: "Scroll"},
+			{Keys: "esc, ?", Action: "Close the help"},
 		}},
 	}
 }

@@ -98,7 +98,7 @@ func (m Model) highlight(s string, pos []int) string {
 // shrinks to fit the screen, cutting rows that are too long.
 func (m Model) box(title string, rows []string, width int) []string {
 	width = m.boxWidth(title, width)
-	box := []string{m.edge("╭", title, width, "╮")}
+	box := []string{m.edge("╭", title, width, "", "╮")}
 	side := m.dim("│")
 	for _, r := range rows {
 		box = append(box, side+pad(ansi.Truncate(r, width, "…"), width)+side)
@@ -106,13 +106,44 @@ func (m Model) box(title string, rows []string, width int) []string {
 	return append(box, m.dim("╰"+strings.Repeat("─", width)+"╯"))
 }
 
+// scrollBox draws the shown rows of rows from top in a box, as box does,
+// with hint in its bottom border, as title is in the top one. When rows are
+// hidden above, the top border ends in ↑, and when rows are hidden below,
+// the bottom border ends in ↓.
+func (m Model) scrollBox(title string, rows []string, top, shown, width int, hint string) []string {
+	box := m.box(title, rows[top:top+shown], width)
+	width = m.boxWidth(title, width)
+	up, down := "", ""
+	if top > 0 {
+		up = " ↑ "
+	}
+	if top+shown < len(rows) {
+		down = " ↓ "
+	}
+	box[0] = m.edge("╭", title, width, up, "╮")
+	box[len(box)-1] = m.edge("╰", hint, width, down, "╯")
+	return box
+}
+
 // edge draws the top or bottom border of a box width wide inside, from the
 // corner left to the corner right, with text in it after one stroke of the
-// border, if there is room, and cut to fit.
-func (m Model) edge(left, text string, width int, right string) string {
+// border, if there is room, and cut to fit, and mark before the last stroke
+// of the border, if there is room for it; the text gives way to the mark.
+func (m Model) edge(left, text string, width int, mark, right string) string {
 	stroke := min(width, 1)
-	text = ansi.Truncate(text, width-stroke, "")
-	return m.dim(left+strings.Repeat("─", stroke)) + text + m.dim(strings.Repeat("─", width-stroke-ansi.StringWidth(text))+right)
+	if stroke+ansi.StringWidth(mark)+1 > width {
+		mark = ""
+	}
+	end := 0 // the cells of the mark and the stroke after it
+	if mark != "" {
+		end = ansi.StringWidth(mark) + 1
+	}
+	text = ansi.Truncate(text, width-stroke-end, "")
+	fill := strings.Repeat("─", width-stroke-end-ansi.StringWidth(text))
+	if mark == "" {
+		return m.dim(left+strings.Repeat("─", stroke)) + text + m.dim(fill+right)
+	}
+	return m.dim(left+strings.Repeat("─", stroke)) + text + m.dim(fill) + mark + m.dim("─"+right)
 }
 
 // boxWidth is the width inside the border of a box with title whose rows

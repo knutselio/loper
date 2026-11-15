@@ -469,6 +469,14 @@ func TestTheHelpFlagPrintsTheUsageTheConfigFileAndTheKeys(t *testing.T) {
 	if got := targetsSection(t, stdout); !isFirstRunTarget(got) {
 		t.Errorf("Targets section %q, want the first run's o cd", got)
 	}
+	at := -1
+	for _, title := range []string{"Navigation", "Actions", "In the target menu", "While searching", "In the help overlay", "Targets"} {
+		i := strings.Index(stdout, "\n"+title+":\n")
+		if i <= at {
+			t.Errorf("stdout has no section %q after the one before:\n%s", title, stdout)
+		}
+		at = i
+	}
 }
 
 // noTargets is what the Targets section of --help says when there are none.

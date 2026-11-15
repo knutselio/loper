@@ -134,7 +134,7 @@ The `x` after the file's text, removed again, keeps line breaks at the end of a 
 | `q`, `ctrl-c`        | Quit                                        |
 | `esc`                | Close a menu or dialog, or clear the search |
 
-`q` pressed while a repo is opening quits once the open is done; `ctrl-c` quits at once. The keys inside the target menu and while searching are in the help overlay and in `loper --help`.
+`q` pressed while a repo is opening quits once the open is done; `ctrl-c` quits at once. The keys inside the target menu and while searching are in the help overlay and in `loper --help`, in sections: Navigation, Actions, In the target menu, While searching and In the help overlay. A `↑` or `↓` in the border of the target menu or the help means more is above or below.
 
 ## Configuration
 

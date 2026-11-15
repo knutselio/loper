@@ -113,7 +113,7 @@ func (m Model) View() tea.View {
 	case m.menu:
 		lines = m.overlayMenu(lines)
 	case m.help:
-		lines = m.overlay(lines, m.box(" Help ", m.helpLines[m.helpTop:m.helpTop+m.helpRows()], m.helpWidth))
+		lines = m.overlay(lines, m.scrollBox(" Help ", m.helpLines, m.helpTop, m.helpRows(), m.helpWidth, ""))
 	}
 	lines = append(lines, rule, m.footer())
 	lines = lines[:min(len(lines), m.height)] // never taller than the terminal

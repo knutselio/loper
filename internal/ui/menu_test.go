@@ -259,12 +259,13 @@ func TestTheMenuFitsANarrowScreen(t *testing.T) {
 	d.send(tea.WindowSizeMsg{Width: 20, Height: 8}) // 4 list lines: room for 2 targets
 
 	steps := []struct {
-		key  string
-		want []string // the menu rows
+		key          string
+		want         []string // the menu rows
+		above, below bool
 	}{
-		{"enter", []string{"> z Zed", "Menu only"}},
-		{"j", []string{"z Zed", "> Menu only"}},
-		{"j", []string{"Menu only", "> t Terminal ta…"}},
+		{"enter", []string{"> z Zed", "Menu only"}, false, true},
+		{"j", []string{"z Zed", "> Menu only"}, false, true},
+		{"j", []string{"Menu only", "> t Terminal ta…"}, true, false},
 	}
 	for _, s := range steps {
 		d.press(s.key)
@@ -272,6 +273,10 @@ func TestTheMenuFitsANarrowScreen(t *testing.T) {
 			t.Errorf("after %s: menu reads %q, want %q:\n%s", s.key, got, s.want, d.screen())
 		}
 		checkBox(t, d, 20)
+		checkMore(t, d, s.above, s.below)
+		if _, bottom := borders(d); !strings.Contains(bottom, "e edit") {
+			t.Errorf("after %s: the bottom border %q has no room left for the hint", s.key, bottom)
+		}
 	}
 	d.press("enter")
 	if got, want := e.targetArgs("tab"), []string{alpha}; !slices.Equal(got, want) {
@@ -372,4 +377,99 @@ func TestWideCharactersUnderTheMenuEdgesKeepTheRestOfTheirRowInPlace(t *testing.
 	if covered == 0 {
 		t.Fatalf("the menu covers no rows:\n%s", d.screen())
 	}
+}
+
+// borders returns the top and bottom borders of the box drawn over the list,
+// from corner to corner, so the arrows of a scroll are not mixed up with the
+// list's own, such as a sort's.
+func borders(d *driver) (top, bottom string) {
+	for _, line := range strings.Split(d.screen(), "\n") {
+		if i, j := strings.Index(line, "╭"), strings.Index(line, "╮"); i >= 0 && j > i {
+			top = line[i : j+len("╮")]
+		}
+		if i, j := strings.Index(line, "╰"), strings.Index(line, "╯"); i >= 0 && j > i {
+			bottom = line[i : j+len("╯")]
+		}
+	}
+	return top, bottom
+}
+
+// checkMore fails the test unless the box's borders show ↑ when more is
+// above and ↓ when more is below, and neither otherwise.
+func checkMore(t *testing.T, d *driver, above, below bool) {
+	t.Helper()
+	top, bottom := borders(d)
+	if strings.Contains(top, "↑") != above || strings.Contains(bottom, "↓") != below || strings.Contains(top, "↓") || strings.Contains(bottom, "↑") {
+		t.Errorf("borders read %q and %q, want more above %v and more below %v:\n%s", top, bottom, above, below, d.screen())
+	}
+}
+
+// targets is a config with n targets without keys, Target 1 to Target n.
+func targets(e *env, n int) {
+	config := ""
+	for i := 1; i <= n; i++ {
+		config += fmt.Sprintf("[[targets]]\nname = \"Target %d\"\ncommand = \"%s {path}\"\n", i, e.fakeTarget(fmt.Sprint("target", i)))
+	}
+	e.config(config)
+}
+
+func TestAMenuOfTwelveTargetsTakesHalfTheListAndShowsWhenMoreIsAboveOrBelow(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	targets(e, 12)
+	d := e.start() // 80x24: 20 list lines, of which the menu takes 10
+
+	steps := []struct {
+		keys         []string
+		first, last  string // the menu rows shown
+		above, below bool
+	}{
+		{[]string{"enter"}, "> Target 1", "Target 8", false, true},
+		{slices.Repeat([]string{"j"}, 7), "Target 1", "> Target 8", false, true},
+		{[]string{"j"}, "Target 2", "> Target 9", true, true},
+		{slices.Repeat([]string{"j"}, 10), "Target 5", "> Target 12", true, false},
+		{slices.Repeat([]string{"k"}, 11), "> Target 1", "Target 8", false, true},
+	}
+	for _, s := range steps {
+		d.press(s.keys...)
+		rows := boxRows(d)
+		if len(rows) != 8 || rows[0] != s.first || rows[7] != s.last {
+			t.Fatalf("after %v: menu reads %q, want 8 rows from %q to %q:\n%s", s.keys, rows, s.first, s.last, d.screen())
+		}
+		checkMore(t, d, s.above, s.below)
+		checkBox(t, d, 80)
+		if _, bottom := borders(d); !strings.Contains(bottom, "e edit • d remove") {
+			t.Errorf("after %v: the bottom border %q lost the hint", s.keys, bottom)
+		}
+		if top, _ := borders(d); !strings.Contains(top, "Open alpha") {
+			t.Errorf("after %v: the top border %q lost the title", s.keys, top)
+		}
+	}
+}
+
+func TestAMenuInAShortWindowShowsAtLeastThreeTargets(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	targets(e, 6)
+	d := e.start()
+	d.send(tea.WindowSizeMsg{Width: 80, Height: 10}) // 6 list lines: half would be 1 target
+
+	d.press("enter")
+
+	if got, want := boxRows(d), []string{"> Target 1", "Target 2", "Target 3"}; !slices.Equal(got, want) {
+		t.Errorf("menu reads %q, want %q:\n%s", got, want, d.screen())
+	}
+	checkMore(t, d, false, true)
+}
+
+func TestAMenuThatFitsShowsNoMoreAboveOrBelow(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	threeTargets(e)
+	d := e.start()
+
+	d.press("enter")
+	checkMore(t, d, false, false)
+	d.press("j", "j")
+	checkMore(t, d, false, false)
 }

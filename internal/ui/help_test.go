@@ -171,13 +171,13 @@ func TestAHelpTallerThanTheScreenScrollsWithJKAndTheArrowsInsideItsBorders(t *te
 		first string // the top row of the help shown
 		last  string // its bottom row
 	}{
-		{[]string{"?"}, "j / k, ↓ / ↑ Move the selection", "enter, space Open the target menu for the selected repo"},
-		{[]string{"j"}, "g / G Jump to the top / bottom", "a target's key Open the selected repo in that target"},
-		{[]string{"down", "k"}, "g / G Jump to the top / bottom", "a target's key Open the selected repo in that target"},
-		{[]string{"up", "k"}, "j / k, ↓ / ↑ Move the selection", "enter, space Open the target menu for the selected repo"},
+		{[]string{"?"}, "Navigation", "ctrl-d / ctrl-u Move half a page down / up"},
+		{[]string{"j"}, "j / k, ↓ / ↑ Move the selection", ""},
+		{[]string{"down", "k"}, "j / k, ↓ / ↑ Move the selection", ""},
+		{[]string{"up", "k"}, "Navigation", "ctrl-d / ctrl-u Move half a page down / up"},
 		{slices.Repeat([]string{"j"}, 40), "esc, ? Close the help", "z Zed"},
 		{[]string{"k"}, "j / k, ↓ / ↑ Scroll", "Targets"},
-		{[]string{"esc", "?"}, "j / k, ↓ / ↑ Move the selection", "enter, space Open the target menu for the selected repo"},
+		{[]string{"esc", "?"}, "Navigation", "ctrl-d / ctrl-u Move half a page down / up"},
 	}
 	for _, s := range steps {
 		d.press(s.keys...)
@@ -192,7 +192,7 @@ func TestAHelpTallerThanTheScreenScrollsWithJKAndTheArrowsInsideItsBorders(t *te
 	}
 
 	d.send(tea.WindowSizeMsg{Width: 80, Height: 60})
-	if rows := boxRows(d); len(rows) == 0 || rows[0] != "j / k, ↓ / ↑ Move the selection" || rows[len(rows)-1] != "z Zed" {
+	if rows := boxRows(d); len(rows) == 0 || rows[0] != "Navigation" || rows[len(rows)-1] != "z Zed" {
 		t.Errorf("once the screen is tall enough: help reads %q, want all of it", rows)
 	}
 }
@@ -264,5 +264,72 @@ func TestWithColourTheHelpsKeysAreBold(t *testing.T) {
 		if !slices.ContainsFunc(rows, func(r string) bool { return strings.Contains(r, want) }) {
 			t.Errorf("help has no row %q:\n%s", want, strings.Join(rows, "\n"))
 		}
+	}
+}
+
+func TestAHelpTallerThanTheListShowsWhenMoreIsAboveOrBelow(t *testing.T) {
+	for _, height := range []int{24, 12} {
+		e := newEnv(t)
+		e.repo("code/alpha")
+		e.config(zedTarget)
+		d := e.start()
+		d.send(tea.WindowSizeMsg{Width: 80, Height: height})
+
+		d.press("?")
+		checkMore(t, d, false, true)
+		d.press("j")
+		checkMore(t, d, true, true)
+		d.press(slices.Repeat([]string{"j"}, 40)...)
+		checkMore(t, d, true, false)
+		if rows := boxRows(d); len(rows) == 0 || rows[len(rows)-1] != "z Zed" {
+			t.Errorf("at 80x%d, scrolled to the end: help reads %q, want it to end with the targets", height, rows)
+		}
+		d.press(slices.Repeat([]string{"k"}, 40)...)
+		checkMore(t, d, false, true)
+	}
+}
+
+func TestAHelpThatFitsShowsNoMoreAboveOrBelow(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	e.config(zedTarget)
+	d := e.start()
+	d.send(tea.WindowSizeMsg{Width: 80, Height: 60})
+
+	d.press("?")
+
+	checkMore(t, d, false, false)
+}
+
+func TestTheHelpIsInNamedSectionsInOrder(t *testing.T) {
+	e := newEnv(t)
+	e.repo("code/alpha")
+	e.config(zedTarget)
+	d := e.start()
+	d.send(tea.WindowSizeMsg{Width: 80, Height: 60})
+
+	d.press("?")
+
+	rows := boxRows(d)
+	sections := [][]string{
+		{"Navigation", "j / k, ↓ / ↑ Move the selection", "g / G Jump to the top / bottom", "ctrl-d / ctrl-u Move half a page down / up", ""},
+		{"Actions", "enter, space Open the target menu for the selected repo", "a target's key Open the selected repo in that target", "/ Start the search",
+			"s Cycle the sort by last opened and by name", "r Force a full refresh", "a Add a target to the config file", "? Show the help overlay",
+			"q, ctrl-c Quit", "esc Close a menu or dialog, or clear the search", ""},
+		{"In the target menu"},
+		{"While searching"},
+		{"In the help overlay", "j / k, ↓ / ↑ Scroll", "esc, ? Close the help", ""},
+		{"Targets", "z Zed"},
+	}
+	at := -1
+	for _, want := range sections {
+		i := slices.Index(rows, want[0])
+		if i <= at || !slices.Equal(rows[i:min(i+len(want), len(rows))], want) {
+			t.Fatalf("help has no rows %q after row %d:\n%s", want, at, d.screen())
+		}
+		at = i
+	}
+	if rows[0] != "Navigation" {
+		t.Errorf("help starts with %q, want Navigation", rows[0])
 	}
 }
